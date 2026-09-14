@@ -1364,6 +1364,43 @@ describe("apply run cancellation and application record concurrency", () => {
     ]);
   });
 
+  test("a copilot run left marked running is closed so Prepare works again", async () => {
+    // What the person met live: the first attempt died without recording a
+    // result, and every press after it was refused by a run nothing was
+    // working on.
+    const seed = createSeed();
+    const now = new Date().toISOString();
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      seed,
+    });
+    await repository.upsertApplyRun(
+      ApplyRunSchema.parse({
+        id: "apply_run_orphaned_copilot",
+        mode: "copilot",
+        state: "running",
+        jobIds: ["job_ready"],
+        currentJobId: "job_ready",
+        submitApprovalId: null,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null,
+        summary: "Job Finder is preparing this application for you to review.",
+        detail: "Seeded run nothing is working on.",
+        totalJobs: 1,
+        pendingJobs: 1,
+      }),
+    );
+
+    await workspaceService.startApplyCopilotRun("job_ready");
+
+    const runs = await repository.listApplyRuns();
+    const orphan = runs.find((run) => run.id === "apply_run_orphaned_copilot");
+    expect(orphan?.state).toBe("failed");
+    expect(orphan?.detail).toContain("You can start this application again");
+    // The new run actually started rather than being refused by the ghost.
+    expect(runs.length).toBeGreaterThan(1);
+  });
+
   test("a dismissal during the apply flow keeps ledger pairing and preserves discovery history", async () => {
     const sessionCheckedAt = "2026-03-20T10:04:00.000Z";
     const seed = createSeed();

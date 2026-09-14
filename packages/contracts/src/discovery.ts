@@ -1639,6 +1639,9 @@ export const applicationBlockerCodeValues = [
   // Technical failure raised only at the application goto boundary: the
   // dedicated browser never opened the employer page, so nothing was prepared.
   "application_page_unreachable",
+  // The form saves each answer to the site as it is typed. Nothing left the
+  // page; the person can allow saving on this site and carry on.
+  "site_saves_as_you_go",
   "unknown",
 ] as const;
 export const ApplicationBlockerCodeSchema = z.enum(
@@ -1713,9 +1716,20 @@ export type ApplicationAttemptSuggestedAnswer = z.infer<
 export const ApplicationAttemptQuestionSchema = z.object({
   id: NonEmptyStringSchema,
   prompt: NonEmptyStringSchema,
+  /**
+   * The words around the question on the page — the group it sat in, or the
+   * note under it — when they say something the prompt does not.
+   */
+  description: NonEmptyStringSchema.nullable().optional(),
   kind: ApplicationQuestionKindSchema.default("other"),
   answerControlType: ApplicationQuestionControlTypeSchema.optional(),
   isRequired: z.boolean().default(true),
+  /**
+   * Why this one came back to the person, in their own words. Set when an
+   * answer they gave did not fit the choices, so the retry says so instead of
+   * asking the identical question again.
+   */
+  note: NonEmptyStringSchema.nullable().optional(),
   detectedAt: IsoDateTimeSchema,
   answerOptions: z.array(NonEmptyStringSchema).default([]),
   suggestedAnswers: z

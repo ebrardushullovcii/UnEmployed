@@ -171,7 +171,6 @@ describe("ApplicationsScreen", () => {
           onRevokeApplyRunApproval={vi.fn()}
           onSelectRecord={vi.fn()}
           onStartApplyCopilot={vi.fn()}
-          onStartAutoApply={vi.fn()}
           onStartAutoApplyQueue={vi.fn()}
           selectedApplyRunId={null}
           selectedAttempt={null}
@@ -183,7 +182,7 @@ describe("ApplicationsScreen", () => {
     expect(screen.getByText("No application started yet")).toBeTruthy();
     expect(
       screen.getByText(
-        /Shortlisting a job or tailoring its resume does not create an application record.*choose Prepare application/i,
+        /Shortlisting a job or tailoring its resume does not create an application record.*choose Fill it in/i,
       ),
     ).toBeTruthy();
     expect(
@@ -242,7 +241,6 @@ describe("ApplicationsScreen", () => {
           safeguardsBlockerCount={2}
           onSelectRecord={vi.fn()}
           onStartApplyCopilot={vi.fn()}
-          onStartAutoApply={vi.fn()}
           onStartAutoApplyQueue={vi.fn()}
           selectedApplyRunId={null}
           selectedAttempt={null}
@@ -467,7 +465,6 @@ describe("ApplicationsScreen", () => {
           safeguardsBlockerCount={countActiveSafeguardBlockers(safeguards)}
           onSelectRecord={vi.fn()}
           onStartApplyCopilot={vi.fn()}
-          onStartAutoApply={vi.fn()}
           onStartAutoApplyQueue={vi.fn()}
           selectedApplyRunId={null}
           selectedAttempt={null}
@@ -678,7 +675,6 @@ describe("ApplicationsScreen", () => {
           onRevokeApplyRunApproval={vi.fn()}
           onSelectRecord={vi.fn()}
           onStartApplyCopilot={vi.fn()}
-          onStartAutoApply={vi.fn()}
           onStartAutoApplyQueue={vi.fn()}
           selectedApplyRunId={null}
           selectedAttempt={null}
@@ -830,7 +826,6 @@ describe("ApplicationsScreen", () => {
           onRevokeApplyRunApproval={vi.fn()}
           onSelectRecord={vi.fn()}
           onStartApplyCopilot={vi.fn()}
-          onStartAutoApply={vi.fn()}
           onStartAutoApplyQueue={vi.fn()}
           selectedApplyRunId={null}
           selectedAttempt={null}
@@ -958,7 +953,6 @@ describe("ApplicationsScreen", () => {
           onRevokeApplyRunApproval={vi.fn()}
           onSelectRecord={vi.fn()}
           onStartApplyCopilot={vi.fn()}
-          onStartAutoApply={vi.fn()}
           onStartAutoApplyQueue={vi.fn()}
           selectedApplyRunId={null}
           selectedAttempt={null}
@@ -1174,7 +1168,6 @@ describe("ApplicationsScreen", () => {
           onRevokeApplyRunApproval={vi.fn()}
           onSelectRecord={vi.fn()}
           onStartApplyCopilot={vi.fn()}
-          onStartAutoApply={vi.fn()}
           onStartAutoApplyQueue={vi.fn()}
           selectedApplyRunId={null}
           selectedAttempt={null}

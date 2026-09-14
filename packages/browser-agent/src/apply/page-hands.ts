@@ -23,7 +23,9 @@ import type {
   ApplyFormAction,
   ApplyFormControl,
   ApplyFormObservation,
+  ApplyLinkDestination,
   ApplyPageHands,
+  ApplyPageLink,
   ApplyStepPosition,
 } from "./types";
 
@@ -99,6 +101,22 @@ export function readStepPosition(
     };
   }
   return { label: stepLabel, index: null, total: null };
+}
+
+/** What a link opens, judged only by its own address. */
+function readLinkDestination(resolved: URL | null): ApplyLinkDestination {
+  if (!resolved) {
+    return "other";
+  }
+  if (resolved.protocol === "mailto:") {
+    return "email";
+  }
+  if (resolved.protocol !== "https:" && resolved.protocol !== "http:") {
+    return "other";
+  }
+  return /\.(?:pdf|docx?|rtf|odt)$/iu.test(resolved.pathname)
+    ? "document"
+    : "page";
 }
 
 function hashSignature(parts: readonly string[]): string {
@@ -181,6 +199,28 @@ export function buildApplyFormObservation(
     disabled: rawAction.disabled,
   }));
 
+  const links: ApplyPageLink[] = raw.links.map((rawLink) => {
+    let resolved: URL | null = null;
+    try {
+      resolved = new URL(rawLink.href, raw.url ?? undefined);
+    } catch {
+      resolved = null;
+    }
+    return {
+      ref: `l${rawLink.index}`,
+      label: rawLink.label.trim(),
+      href: resolved ? resolved.toString() : rawLink.href,
+      origin:
+        resolved && (resolved.protocol === "https:" || resolved.protocol === "http:")
+          ? resolved.origin
+          : null,
+      destination: readLinkDestination(resolved),
+      opensNewWindow: /^_blank$/iu.test(rawLink.target.trim()),
+      visible: rawLink.visible,
+      topOffset: rawLink.topOffset,
+    };
+  });
+
   let origin: string | null = null;
   try {
     origin = raw.url ? new URL(raw.url).origin : null;
@@ -200,6 +240,7 @@ export function buildApplyFormObservation(
       ...actions.map(
         (action) => `${action.ref}|${action.kind}|${normalizeSignal(action.label)}`,
       ),
+      ...links.map((link) => `${link.ref}|${normalizeSignal(link.label)}`),
     ]),
     url: raw.url,
     origin,
@@ -208,6 +249,7 @@ export function buildApplyFormObservation(
     bodyTextExcerpt: raw.bodyText.slice(0, 4_000),
     controls,
     actions,
+    links,
     validationErrors: raw.validationErrors,
     blocker: detectApplyBlocker({
       bodyText: raw.bodyText,
@@ -234,5 +276,6 @@ export function createApplyPageHands(
     setToggle: (ref, checked) => mechanics.setToggle(ref, checked),
     uploadFile: (ref, file) => mechanics.uploadFile(ref, file),
     clickAction: (ref) => mechanics.clickAction(ref),
+    followLink: (ref) => mechanics.followLink(ref),
   };
 }

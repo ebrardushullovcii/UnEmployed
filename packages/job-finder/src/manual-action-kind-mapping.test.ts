@@ -23,6 +23,7 @@ const blockerReasonCases = [
   ["unsupported_apply_path", "unexpected_navigation"],
   ["site_login_required", "auth_required"],
   ["application_page_unreachable", "application_page_unreachable"],
+  ["site_saves_as_you_go", "required_human_input"],
 ] as const;
 
 describe("application blocker manual-action mapping", () => {

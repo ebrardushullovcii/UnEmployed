@@ -50,7 +50,7 @@ describe("blocked attempts", () => {
     });
   });
 
-  test("a same-site request after a fill stops the run and names the field", () => {
+  test("a same-site save while filling is blocked, noted, and not fatal", () => {
     const judgement = judgeBlockedAttempt({
       attempt: attempt(),
       acknowledged: new Set(),
@@ -58,10 +58,13 @@ describe("blocked attempts", () => {
       pageUrl: PAGE_URL,
       lastFieldLabel: "Email",
     });
-    expect(judgement.stop).toBe(true);
-    if (judgement.stop) {
-      expect(judgement.summary).toContain('"Email"');
-      expect(judgement.summary).toContain("nothing was sent");
+    // Nothing left the page, and a form that saves as you type is ordinary.
+    expect(judgement.stop).toBe(false);
+    if (!judgement.stop) {
+      expect(judgement.tolerated).toBe(true);
+      expect(judgement.note).toContain("Blocked a background save");
+      expect(judgement.note).toContain("Email");
+      expect(judgement.savesAsYouGo?.host).toBe("apply.example.test");
     }
   });
 
@@ -79,7 +82,7 @@ describe("blocked attempts", () => {
     expect(judgement.stop).toBe(false);
   });
 
-  test("a request to another site that did carry an answer stops the run", () => {
+  test("a request to another site that did carry an answer is blocked and named", () => {
     const judgement = judgeBlockedAttempt({
       attempt: attempt({
         url: "https://collector.example-other.test/ingest",
@@ -90,7 +93,10 @@ describe("blocked attempts", () => {
       pageUrl: PAGE_URL,
       lastFieldLabel: "Email",
     });
-    expect(judgement.stop).toBe(true);
+    expect(judgement.stop).toBe(false);
+    if (!judgement.stop) {
+      expect(judgement.savesAsYouGo?.host).toBe("collector.example-other.test");
+    }
   });
 
   test("the page trying to send the form always stops the run", () => {

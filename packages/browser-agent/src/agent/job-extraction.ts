@@ -4161,6 +4161,17 @@ function repairTitleStoppedMidPhrase(input: {
   cardText: string | null;
   slugUrls: readonly (string | null)[];
 }): string {
+  // Whatever the rules below make of the title, it never leaves here holding a
+  // bracket nothing closes: the address slug can put the same half-written
+  // aside back on the end after the parenthesis rule has dealt with it.
+  return dropDanglingTitleParenthesis(resolveTitleStoppedMidPhrase(input));
+}
+
+function resolveTitleStoppedMidPhrase(input: {
+  title: string;
+  cardText: string | null;
+  slugUrls: readonly (string | null)[];
+}): string {
   const completed = completeUnclosedTitleParenthesis(
     cleanLine(input.title),
     input.cardText,
@@ -4215,26 +4226,17 @@ function repairTitleStoppedMidPhrase(input: {
  * up to the bracket that closes it, and a bracketed work-mode aside is then
  * dropped the way the rest of extraction drops one, so the title is the role.
  */
-function completeUnclosedTitleParenthesis(
+function closeTitleFromTail(
   title: string,
-  cardText: string | null | undefined,
-): string {
-  if (countUnclosedParentheses(title) === 0) {
-    return title;
-  }
-
-  const text = cleanLine(cardText);
-  const index = text.toLowerCase().indexOf(title.toLowerCase());
-  if (index === -1) {
-    return title;
-  }
-
-  let depth = countUnclosedParentheses(title);
+  tailText: string,
+  openDepth: number,
+): string | null {
+  let depth = openDepth;
   let tail = "";
-  for (const character of text.slice(index + title.length)) {
+  for (const character of tailText) {
     tail += character;
     if (tail.length > 80) {
-      return title;
+      return null;
     }
     if (character === "(") {
       depth += 1;
@@ -4250,8 +4252,73 @@ function completeUnclosedTitleParenthesis(
       );
     }
   }
+  return null;
+}
 
-  return title;
+/**
+ * A title with a bracket nothing closes is the painted line, not the role.
+ *
+ * Keeping "Lead Platform Software Engineer (Remote" puts a half-written aside
+ * in front of the person on every screen the title appears. The aside is the
+ * part that was cut, so the aside is what goes.
+ */
+function dropDanglingTitleParenthesis(title: string): string {
+  let depth = 0;
+  let cutAt = -1;
+  for (let index = 0; index < title.length; index += 1) {
+    const character = title[index];
+    if (character === "(") {
+      if (depth === 0) cutAt = index;
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) cutAt = -1;
+    }
+  }
+  if (cutAt <= 0) {
+    return title;
+  }
+  const kept = cleanLine(title.slice(0, cutAt)).replace(
+    /[\s\-–—,:;/|]+$/u,
+    "",
+  );
+  return kept.length > 0 ? kept : title;
+}
+
+function completeUnclosedTitleParenthesis(
+  title: string,
+  cardText: string | null | undefined,
+): string {
+  const openDepth = countUnclosedParentheses(title);
+  if (openDepth === 0) {
+    return title;
+  }
+
+  // Every witness the repair was given is searched, and every place in it the
+  // title appears. The first place is often the title's own copy at the head
+  // of the text, whose tail is the summary repeating the whole heading; the
+  // closing bracket is in the copy after that.
+  const text = cleanLine(cardText);
+  const haystack = text.toLowerCase();
+  const needle = title.toLowerCase();
+  for (
+    let index = haystack.indexOf(needle);
+    index !== -1;
+    index = haystack.indexOf(needle, index + 1)
+  ) {
+    const closed = closeTitleFromTail(
+      title,
+      text.slice(index + title.length),
+      openDepth,
+    );
+    if (closed) {
+      return closed;
+    }
+  }
+
+  return dropDanglingTitleParenthesis(title);
 }
 
 /** A bracketed aside that only states the work mode and where: "(Hybrid in Oak Brook, IL)". */

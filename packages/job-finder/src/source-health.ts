@@ -43,6 +43,12 @@ export type SourceRuntimeSignals = {
   /** Targets with an open `prompt_login_required` access prompt. */
   loginRequiredTargetIds?: ReadonlySet<string>;
   /**
+   * Targets that failed several runs in a row. Derive this with
+   * `deriveRepeatedlyFailingTargetIds`; it is how a repeatedly failing source
+   * is reported instead of pausing the plan it belongs to.
+   */
+  repeatedlyFailingTargetIds?: ReadonlySet<string>;
+  /**
    * Targets whose latest discovery execution completed successfully. A
    * source that guidance verification never touched but that just returned
    * a completed run is proven working, so it is not "never verified".
@@ -113,6 +119,58 @@ export function deriveSucceededDiscoveryTargetIds(
   return succeeded;
 }
 
+/**
+ * How many failures in a row make one source worth a person's attention.
+ *
+ * A source that fails twice running is reported here, on the source, rather
+ * than by pausing the whole search plan. The plan keeps running with the
+ * sources that still work.
+ */
+export const SOURCE_REPEATED_FAILURE_RUNS = 2;
+
+/**
+ * The sources whose last few executions were failures, newest run first.
+ *
+ * Pass the runs newest first (the active run ahead of history), the way the
+ * other helpers here are passed. A source with fewer recorded executions than
+ * the minimum cannot qualify.
+ */
+export function deriveRepeatedlyFailingTargetIds(
+  runsNewestFirst: readonly DiscoveryRunHealthFields[],
+  minimumConsecutiveFailures: number = SOURCE_REPEATED_FAILURE_RUNS,
+): Set<string> {
+  const streaks = new Map<string, { failures: number; broken: boolean }>();
+
+  for (const run of runsNewestFirst) {
+    for (const execution of run.targetExecutions) {
+      if (execution.state === "planned" || execution.state === "running") {
+        continue;
+      }
+      const current = streaks.get(execution.targetId) ?? {
+        failures: 0,
+        broken: false,
+      };
+      if (current.broken) continue;
+      if (execution.state === "failed") {
+        streaks.set(execution.targetId, {
+          failures: current.failures + 1,
+          broken: false,
+        });
+        continue;
+      }
+      streaks.set(execution.targetId, { ...current, broken: true });
+    }
+  }
+
+  const repeatedly = new Set<string>();
+  for (const [targetId, streak] of streaks) {
+    if (streak.failures >= Math.max(1, minimumConsecutiveFailures)) {
+      repeatedly.add(targetId);
+    }
+  }
+  return repeatedly;
+}
+
 export type EnabledSourceHealthState =
   | "running"
   | "needs_attention"
@@ -132,7 +190,11 @@ export function listSourceAttentionReasons(
   const reasons: SourceAttentionReason[] = [];
 
   const latestExecution = signals.latestExecutions?.get(target.id);
-  if (target.staleReason || latestExecution?.state === "failed") {
+  if (
+    target.staleReason ||
+    latestExecution?.state === "failed" ||
+    signals.repeatedlyFailingTargetIds?.has(target.id)
+  ) {
     reasons.push("failing");
   }
   // A source that ran to the end and brought back nothing is not healthy. It
@@ -387,6 +449,12 @@ export function deriveSourceHealthSignals(
         .filter((execution) => execution.state === "running")
         .map((execution) => execution.targetId) ?? [],
     ),
+    // A source that failed several runs running is reported here rather than
+    // by pausing the plan it belongs to.
+    repeatedlyFailingTargetIds: deriveRepeatedlyFailingTargetIds([
+      ...activeRuns,
+      ...(input.recentRuns ?? []),
+    ]),
     // The active run is listed first so its already-finished executions win
     // over older history for the same target.
     succeededTargetIds: deriveSucceededDiscoveryTargetIds([

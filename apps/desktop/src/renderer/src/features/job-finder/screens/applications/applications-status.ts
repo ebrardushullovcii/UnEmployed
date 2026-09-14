@@ -1,4 +1,9 @@
-import type { ApplicationRecord, ApplyJobResult } from "@unemployed/contracts";
+import type {
+  ApplicationAttempt,
+  ApplicationAttemptQuestion,
+  ApplicationRecord,
+  ApplyJobResult,
+} from "@unemployed/contracts";
 import {
   formatStatusLabel,
   getApplicationTone,
@@ -9,6 +14,12 @@ import {
   SITE_BLOCKED_AUTOMATIC_PREP_LIST_NEXT_STEP,
   applicationRecordLooksSiteBlocked,
 } from "./applications-detail-panel-helpers";
+import {
+  applicationRecordBlockedBySiteSaves,
+  getApplicationHostLabel,
+  looksLikeAccountWall,
+  looksLikeSignInWall,
+} from "./applications-recovery-state";
 
 const SERVICE_WORKER_LIKE_NEXT_STEP = /service worker/i;
 
@@ -271,7 +282,89 @@ export function applicationRecordAwaitsUser(record: ApplicationRecord): boolean 
   return true;
 }
 
+/**
+ * The row's "Next:" line, taken from the same evidence the detail panel's one
+ * button is taken from. A row that said "Answer the question in Needs you"
+ * beside a panel offering "Try again" — for a run with no question at all —
+ * is what this exists to stop.
+ */
+export function getApplicationStateNextStepLabel(
+  record: ApplicationRecord,
+): string | null {
+  if (record.lastAttemptState === "submitted") {
+    return null;
+  }
+
+  const corpus = [
+    record.latestBlocker?.summary,
+    record.lastActionLabel,
+    record.nextActionLabel,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  // The site the run was actually on, never the employer: a Built In Chicago
+  // listing signs in at accounts.builtin.com, and "Sign in on Caterpillar"
+  // sent the reader to the wrong place entirely.
+  const siteLabel =
+    getApplicationHostLabel(record.replaySummary.lastUrl) ?? "the job site";
+
+  if (applicationRecordBlockedBySiteSaves(record)) {
+    return `Allow saving on ${siteLabel}`;
+  }
+
+  if (
+    looksLikeAccountWall({
+      blockerCode: record.latestBlocker?.code ?? null,
+      text: corpus,
+    })
+  ) {
+    return `Create an account on ${siteLabel}`;
+  }
+
+  if (
+    looksLikeSignInWall({
+      blockerCode: record.latestBlocker?.code ?? null,
+      destinationUrl: record.replaySummary.lastUrl,
+      text: corpus,
+    })
+  ) {
+    return `Sign in on ${siteLabel}`;
+  }
+
+  return null;
+}
+
+/**
+ * True when a question step actually exists for this application. Without it
+ * the row happily told people to answer a question nothing had asked.
+ */
+export function applicationHasOpenQuestion(record: ApplicationRecord): boolean {
+  return (
+    record.questionSummary.unansweredRequired > 0 ||
+    record.latestBlocker?.code === "missing_candidate_answer"
+  );
+}
+
+const NEEDS_YOU_QUESTION_LABEL = /answer the question in needs you/i;
+
 export function getApplicationNextStepLabel(record: ApplicationRecord): string {
+  const stateNextStep = getApplicationStateNextStepLabel(record);
+  if (stateNextStep) {
+    return stateNextStep;
+  }
+
+  // A saved "answer the question" label is only true while a question is
+  // actually open; otherwise the row falls through to the ordinary rules.
+  if (
+    record.nextActionLabel &&
+    NEEDS_YOU_QUESTION_LABEL.test(record.nextActionLabel) &&
+    !applicationHasOpenQuestion(record)
+  ) {
+    return record.lastAttemptState === "failed"
+      ? "Try again"
+      : "Open the Job Finder browser";
+  }
+
   if (record.lastAttemptState === "submitted") {
     return record.nextActionLabel ?? "No next step saved";
   }
@@ -390,4 +483,31 @@ export function getApplicationReadableNextStepLabel(
   }
 
   return trimmed;
+}
+
+/**
+ * The exact pending questions Needs you renders for one application.
+ *
+ * Applications used to count the run summary's `unansweredRequired` while
+ * Needs you rendered the detected question records, so the two screens said
+ * "6 questions" and drew 4 controls. One selector, both screens.
+ */
+export function listPendingApplicationQuestions(input: {
+  applicationAttempts: readonly ApplicationAttempt[];
+  jobId: string;
+}): readonly ApplicationAttemptQuestion[] {
+  const { applicationAttempts, jobId } = input;
+  const latestBlockedAttempt = [...applicationAttempts]
+    .filter(
+      (attempt) =>
+        attempt.jobId === jobId &&
+        attempt.blocker?.code === "missing_candidate_answer",
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+
+  return (
+    latestBlockedAttempt?.questions.filter(
+      (question) => question.status === "detected",
+    ) ?? []
+  );
 }

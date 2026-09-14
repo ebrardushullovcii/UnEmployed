@@ -1,0 +1,350 @@
+import { describe, expect, it } from "vitest";
+import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
+import {
+  applyResultStoppedStructurally,
+  formatQuestionPrompt,
+  getApplicationStopReasonSentence,
+  resolveApplicationRecoveryPresentation,
+} from "./applications-recovery-state";
+
+type ApplyResult = JobFinderWorkspaceSnapshot["applyJobResults"][number];
+
+function buildResult(overrides: Partial<ApplyResult>): ApplyResult {
+  return {
+    id: "result_1",
+    runId: "run_1",
+    jobId: "job_1",
+    applicationRecordId: "application_1",
+    queuePosition: 0,
+    state: "blocked",
+    summary: null,
+    detail: null,
+    startedAt: "2026-09-01T10:00:00.000Z",
+    updatedAt: "2026-09-01T10:01:00.000Z",
+    completedAt: "2026-09-01T10:01:00.000Z",
+    blockerReason: null,
+    blockerSummary: null,
+    listingSignalEvidence: null,
+    visualObservationSets: [],
+    visualCheckpoints: [],
+    latestQuestionCount: 0,
+    latestAnswerCount: 0,
+    pendingConsentRequestCount: 0,
+    artifactCount: 0,
+    latestCheckpointId: null,
+    privacyReceipt: null,
+    reviewCard: null,
+    ...overrides,
+  } as unknown as ApplyResult;
+}
+
+function resolve(result: ApplyResult | null, isApplyPending = false) {
+  return resolveApplicationRecoveryPresentation({
+    canOpenSafeguards: true,
+    isApplyPending,
+    visibleApplyResult: result,
+  });
+}
+
+describe("resolveApplicationRecoveryPresentation", () => {
+  it("gives a running preparation a sentence and no action", () => {
+    const presentation = resolve(buildResult({ state: "filling" }), true);
+
+    expect(presentation.state).toBe("preparing");
+    expect(presentation.primaryAction).toBe("none");
+    expect(presentation.primaryActionLabel).toBeNull();
+  });
+
+  it("lets a pause the person must finish outrank the in-flight flag", () => {
+    const presentation = resolve(
+      buildResult({
+        blockerSummary: "Conflicting application fields need manual review.",
+      }),
+      true,
+    );
+
+    expect(presentation.state).toBe("finish_in_browser");
+    expect(presentation.primaryActionLabel).toBe("Open the Job Finder browser");
+  });
+
+  it("sends sign-in, account, and security-check stops to the browser", () => {
+    for (const blockerReason of [
+      "auth_required",
+      "site_protection",
+      "signup_consent_required",
+    ] as const) {
+      const presentation = resolve(buildResult({ blockerReason }));
+      expect(presentation.state).toBe("needs_sign_in");
+      expect(presentation.primaryActionLabel).toBe(
+        "Open the Job Finder browser",
+      );
+    }
+  });
+
+  it("offers Try again only where a retry could change the reason", () => {
+    const retryable = resolve(
+      buildResult({
+        state: "failed",
+        summary: "The employer site timed out before the form loaded.",
+      }),
+    );
+    expect(retryable.state).toBe("retry");
+    expect(retryable.primaryActionLabel).toBe("Try again");
+
+    const structural = resolve(
+      buildResult({
+        state: "failed",
+        summary: "This listing has no apply link Job Finder can use.",
+      }),
+    );
+    expect(structural.state).toBe("structural_stop");
+    expect(structural.primaryAction).toBe("open_listing");
+    expect(structural.primaryActionLabel).toBe(
+      "Open the listing in the Job Finder browser",
+    );
+  });
+
+  it("treats a timed-out closed-looking page as retryable rather than structural", () => {
+    expect(
+      applyResultStoppedStructurally(
+        buildResult({
+          state: "failed",
+          summary:
+            "The listing is closed to us right now — the site timed out.",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("always carries a reason sentence for a stopped run", () => {
+    const presentation = resolve(
+      buildResult({
+        state: "failed",
+        summary: "Job Finder could not finish this application",
+        blockerSummary: "The run never left the job listing page.",
+      }),
+    );
+
+    expect(presentation.reasonSentence).toBe(
+      "The run never left the job listing page.",
+    );
+    expect(presentation.reasonSentence).not.toMatch(/nothing blocking/i);
+  });
+
+  it("prefers the blocker sentence over the general summary", () => {
+    expect(
+      getApplicationStopReasonSentence(
+        buildResult({
+          summary: "Attempt finished.",
+          blockerSummary: "The apply button never appeared.",
+        }),
+      ),
+    ).toBe("The apply button never appeared.");
+  });
+
+  it("makes an unverified outcome terminal with no action at all", () => {
+    const presentation = resolve(
+      buildResult({ blockerReason: "submission_outcome_uncertain" }),
+    );
+
+    expect(presentation.state).toBe("verify_outcome");
+    expect(presentation.primaryAction).toBe("none");
+  });
+
+  it("takes the Built In sign-in stop from the run's own detail, not the generic summary", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      destinationUrl: "https://www.builtinchicago.org/auth/login",
+      isApplyPending: false,
+      visibleApplyResult: buildResult({
+        state: "failed",
+        summary: "Job Finder could not finish this application",
+        detail:
+          "Job Finder got stuck: Blocked by a Built In sign-in wall requiring login before applying, which I cannot bypass.",
+      }),
+    });
+
+    expect(presentation.state).toBe("needs_sign_in");
+    expect(presentation.primaryActionLabel).toBe("Open the Job Finder browser");
+    expect(presentation.reasonSentence).toBe(
+      "This site asks you to sign in before applying. Sign in in the Job Finder browser and Job Finder can pick the application back up.",
+    );
+  });
+
+  it("strips the stuck prefix and never falls back to a could-not-finish summary", () => {
+    expect(
+      getApplicationStopReasonSentence(
+        buildResult({
+          state: "failed",
+          summary: "Job Finder could not finish this application",
+          detail:
+            "Job Finder stopped on builtinchicago.org because it got stuck: The apply button opened an empty modal.",
+        }),
+      ),
+    ).toBe("The apply button opened an empty modal.");
+
+    expect(
+      getApplicationStopReasonSentence(
+        buildResult({
+          state: "failed",
+          summary: "Job Finder could not finish this application",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("reads a login page from the final URL even with no blocker code", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      destinationUrl: "https://jobs.example.com/sso/signin?next=/apply",
+      isApplyPending: false,
+      visibleApplyResult: buildResult({
+        state: "failed",
+        detail: "The run ended on a page with no application form.",
+      }),
+    });
+
+    expect(presentation.state).toBe("needs_sign_in");
+    expect(presentation.primaryAction).toBe("open_browser");
+  });
+
+  it("treats an account wall like a sign-in wall with its own sentence", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      destinationUrl: "https://jobs.example.com/apply",
+      isApplyPending: false,
+      visibleApplyResult: buildResult({
+        state: "blocked",
+        blockerReason: "signup_consent_required",
+        detail:
+          "Job Finder got stuck: the site wants an account before you can apply.",
+      }),
+    });
+
+    expect(presentation.state).toBe("needs_sign_in");
+    expect(presentation.statusLine).toBe(
+      "This application needs an account first",
+    );
+    expect(presentation.reasonSentence).toMatch(
+      /never creates accounts for you/,
+    );
+    expect(presentation.primaryActionLabel).toBe("Open the Job Finder browser");
+    expect(presentation.primaryAction).not.toBe("try_again");
+  });
+
+  it("keeps every stop reason free of the banned operations copy", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      isApplyPending: false,
+      visibleApplyResult: buildResult({
+        state: "blocked",
+        summary:
+          "Prepare-only guard blocked a POST xhr attempt while the resume upload was running.",
+      }),
+    });
+
+    expect(presentation.reasonSentence).toBe(
+      "The resume file could not be attached.",
+    );
+    expect(presentation.reasonSentence).not.toMatch(
+      /verified writes|site behavior to report|submit click|safe review checkpoint/i,
+    );
+  });
+
+  it("shows the form's question and sends the person to Needs you", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      isApplyPending: false,
+      visibleApplyResult: buildResult({
+        state: "blocked",
+        blockerReason: "question_grounding_failed",
+        blockerSummary:
+          'Job Finder stopped on "Are you subject to any employment agreements?". Nothing in your profile answers this.',
+      }),
+    });
+
+    expect(presentation.state).toBe("needs_answer");
+    expect(presentation.reasonSentence).toBe(
+      "The form asks: Are you subject to any employment agreements?",
+    );
+    expect(presentation.primaryActionLabel).toBe("Answer in Needs you");
+    expect(presentation.primaryAction).not.toBe("try_again");
+  });
+
+  it("offers the saving permission, not a retry, when the site saves as you type", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      destinationUrl: "https://www.boards.example.com/apply/123",
+      isApplyPending: false,
+      visibleApplyResult: buildResult({
+        state: "blocked",
+        blockerSummary:
+          'The site tried to save your answer to "First Name" straight away. Job Finder blocked it and stopped, so nothing was sent.',
+      }),
+    });
+
+    expect(presentation.state).toBe("site_saves_as_you_go");
+    expect(presentation.reasonSentence).toBe(
+      "This site saves your answers as you type, and Job Finder is not allowed to let it.",
+    );
+    expect(presentation.primaryActionLabel).toBe(
+      "Allow saving on boards.example.com and try again",
+    );
+    expect(presentation.primaryAction).not.toBe("try_again");
+  });
+
+  it("prints a field description only when it differs from the label", () => {
+    expect(formatQuestionPrompt("Phone — Phone")).toBe("Phone");
+    expect(formatQuestionPrompt("Phone — Mobile number")).toBe(
+      "Phone — Mobile number",
+    );
+
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      isApplyPending: false,
+      visibleApplyResult: buildResult({
+        state: "blocked",
+        blockerReason: "question_grounding_failed",
+        blockerSummary: 'Job Finder stopped on "Phone — Phone".',
+      }),
+    });
+
+    expect(presentation.reasonSentence).toBe("The form asks: Phone");
+  });
+
+  it("counts the questions when the form is waiting on more than one", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      isApplyPending: false,
+      pausedQuestionCount: 3,
+      visibleApplyResult: buildResult({
+        state: "blocked",
+        blockerReason: "question_grounding_failed",
+        blockerSummary: 'Job Finder stopped on "Phone".',
+      }),
+    });
+
+    expect(presentation.reasonSentence).toBe("The form asks 3 questions.");
+    expect(presentation.primaryActionLabel).toBe("Answer in Needs you");
+  });
+
+  it("keeps saying it is working for as long as the run record is running", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      // The local pending flag has long since expired.
+      isApplyPending: false,
+      now: Date.parse("2026-09-01T10:07:00.000Z"),
+      visibleApplyResult: buildResult({
+        state: "filling",
+        startedAt: "2026-09-01T10:00:00.000Z",
+      }),
+    });
+
+    expect(presentation.state).toBe("preparing");
+    expect(presentation.statusLine).toBe(
+      "Job Finder is filling in the form (7 min)",
+    );
+    expect(presentation.primaryAction).toBe("none");
+    expect(presentation.primaryActionLabel).toBeNull();
+  });
+});

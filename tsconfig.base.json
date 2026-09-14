@@ -22,6 +22,7 @@
       "@unemployed/agent-runtime": ["packages/agent-runtime/src/index.ts"],
       "@unemployed/ai-evals": ["packages/ai-evals/src/index.ts"],
       "@unemployed/ai-providers": ["packages/ai-providers/src/index.ts"],
+      "@unemployed/browser-agent": ["packages/browser-agent/src/index.ts"],
       "@unemployed/browser-runtime": ["packages/browser-runtime/src/index.ts"],
       "@unemployed/contracts": ["packages/contracts/src/index.ts"],
       "@unemployed/core": ["packages/core/src/index.ts"],

@@ -31,7 +31,9 @@ export {
 } from "./internal/company-intelligence-operations";
 
 export {
+  abnormalFailurePauseScope,
   applyCompanyApplicationEvidence,
+  blockerAppliesTo,
   deriveActiveSafeguardBlockers,
   deriveBatchSampleIds,
   deriveHighestPriorityBlocker,

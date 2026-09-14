@@ -19,7 +19,7 @@ import { ApplicationsCrmSettingsEditor } from "../applications/applications-crm-
 import { SettingsAppDeviceSection } from "./settings-app-device-section";
 import { SettingsApplicationDefaultsSection } from "./settings-application-defaults-section";
 import { SettingsCoverLetterSection } from "./settings-cover-letter-section";
-import { SettingsApplicationAuthoritySection } from "./settings-application-authority-section";
+import { SettingsApplyModeWired } from "./settings-apply-mode-wiring";
 import {
   SettingsDirtySectionsProvider,
   useSettingsDirtySections,
@@ -33,10 +33,10 @@ import { SettingsWorkspaceControls } from "./settings-workspace-controls";
 
 // `Application authority` and `Workspace behavior` were product vocabulary,
 // not user vocabulary. The boundary and every permission it describes are
-// unchanged: Job Finder still only prepares an application for review and
-// never submits one, creates an account, or accepts terms.
-export const SETTINGS_APPLICATION_AUTHORITY_LABEL =
-  "What Job Finder may do on application sites";
+// ADR 0022: one switch decides whether Job Finder sends the application or
+// leaves it filled in for the person to send. The section is named for the
+// thing it decides.
+export const SETTINGS_APPLICATION_AUTHORITY_LABEL = "Applying";
 export const SETTINGS_WORKSPACE_BEHAVIOR_LABEL = "Browser & saved jobs";
 
 const settingsSections = [
@@ -466,7 +466,7 @@ export function SettingsScreen(props: {
           {/* No sr-only h2 here: this section's visible heading already says
               exactly the region name, so a hidden duplicate above it read the
               same sentence twice at two different heading levels. */}
-          <SettingsApplicationAuthoritySection headingId="settings-application-authority-heading" />
+          <SettingsApplyModeWired headingId="settings-application-authority-heading" />
         </section>
 
         <section

@@ -2,6 +2,7 @@ import type {
   ApplicationAttemptQuestion,
   ApplyBlockedAttempt,
   CoverLetterPreference,
+  ApplyNavigationResult,
   ApplyServiceWorkerFinding,
   ApplyWriteResult,
   ApplicationAttestationKind,
@@ -76,6 +77,29 @@ export interface ApplyFormAction {
   disabled: boolean;
 }
 
+/** What a link on the page opens, read from the address itself. */
+export type ApplyLinkDestination = "page" | "email" | "document" | "other";
+
+/**
+ * A link on the page the run landed on.
+ *
+ * A listing and the form it leads to are usually two pages. These are how the
+ * run finds the way through; nothing here is specific to any site.
+ */
+export interface ApplyPageLink {
+  /** Stable handle for this link within one observation. */
+  ref: string;
+  label: string;
+  href: string;
+  origin: string | null;
+  destination: ApplyLinkDestination;
+  /** True when the link opens a window of its own rather than this one. */
+  opensNewWindow: boolean;
+  visible: boolean;
+  /** Distance from the top of the page, used only to rank candidates. */
+  topOffset: number;
+}
+
 /** Where the person is in a form that runs over several screens. */
 export interface ApplyStepPosition {
   label: string | null;
@@ -89,7 +113,9 @@ export type ApplyBlockerCode =
   | "security_challenge"
   | "multi_factor_required"
   | "application_closed"
-  | "application_page_unreachable";
+  | "application_page_unreachable"
+  /** The form saves each answer to the site as it is typed. */
+  | "site_saves_as_you_go";
 
 export interface ApplyBlocker {
   code: ApplyBlockerCode;
@@ -97,6 +123,11 @@ export interface ApplyBlocker {
   summary: string;
   detail: string;
   nextActionLabel: string;
+  /**
+   * The site the page was trying to reach, when the next action is about one.
+   * It is what a one-click "allow saving on this site" would be granted for.
+   */
+  host?: string | null;
 }
 
 export interface ApplyFormObservation {
@@ -111,6 +142,7 @@ export interface ApplyFormObservation {
   bodyTextExcerpt: string;
   controls: ApplyFormControl[];
   actions: ApplyFormAction[];
+  links: ApplyPageLink[];
   validationErrors: string[];
   blocker: ApplyBlocker | null;
 }
@@ -142,6 +174,8 @@ export interface ApplyPageHands {
     file: { name: string; mimeType: string; bytes: Uint8Array },
   ) => Promise<ApplyWriteResult>;
   clickAction: (ref: string) => Promise<ApplyWriteResult>;
+  /** Opens what a link points at, in the same page. A read, never a write. */
+  followLink: (ref: string) => Promise<ApplyNavigationResult>;
 }
 
 /** Where an answer came from. Every written answer carries one. */
@@ -243,7 +277,17 @@ export interface ApplyPause {
   code: ApplyPauseCode;
   /** One plain sentence for the Needs you list. */
   summary: string;
+  /**
+   * The first question this pause is about, kept so everything that read one
+   * question still works.
+   */
   question: ApplicationAttemptQuestion | null;
+  /**
+   * Every question the run could not answer, in the order they appear on the
+   * page. A form is worked to the end before it stops, so the person answers
+   * once rather than once per field.
+   */
+  questions?: ApplicationAttemptQuestion[];
   blocker: ApplyBlocker | null;
 }
 
@@ -321,6 +365,10 @@ export interface ApplyAgentConfig {
     maxSteps?: number;
     timeBudgetMs?: number;
     noProgressStepLimit?: number;
+    /** How many pages the run may follow to reach the form. */
+    applyEntryMaxHops?: number;
+    /** How long the walk from a listing to the form may take. */
+    applyEntryTimeBudgetMs?: number;
   };
   now?: () => Date;
   signal?: AbortSignal;

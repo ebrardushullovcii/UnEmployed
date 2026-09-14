@@ -96,7 +96,7 @@ function createApplicationRecord(): ApplicationRecord {
     company: "Acme",
     status: "ready_for_review",
     lastActionLabel: "Resume approved",
-    nextActionLabel: "Prepare application",
+    nextActionLabel: "Fill it in",
     lastUpdatedAt: "2026-08-09T08:00:00.000Z",
     lastAttemptState: "paused",
     questionSummary: {

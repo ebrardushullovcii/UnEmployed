@@ -158,7 +158,13 @@ type BaseActionArgs = {
     jobId: string;
     subject: string | null;
     description: string;
-    onResolve: (visualCheckpointsEnabled: boolean) => void;
+    /**
+     * Returns a refusal sentence when the start could not begin, so the dialog
+     * can stay open and say why instead of closing silently.
+     */
+    onResolve: (
+      visualCheckpointsEnabled: boolean,
+    ) => string | null | void | Promise<string | null | void>;
     onCancel?: () => void;
   }) => void;
   refreshResumeWorkspace: (
@@ -1410,7 +1416,7 @@ export function createPrimaryPageActions(
       }
 
       // Name the job and the employer in the consent dialog. Agreeing to
-      // "Prepare application" with nothing on screen identifying the
+      // "Fill it in" with nothing on screen identifying the
       // application is not informed consent.
       const preparedJob = (
         latestWorkspaceRef?.current ?? workspace
@@ -1425,6 +1431,13 @@ export function createPrimaryPageActions(
         subject: prepareSubject,
         description: formatPrepareApplicationDescription(prepareSubject),
         onResolve: (visualCheckpointsEnabled) => {
+          // Re-checked at the moment of confirmation, not only when the
+          // dialog opened: a refusal here keeps the dialog open and says why.
+          const refusalAtConfirm = getDailyCapacityRefusalMessage();
+          if (refusalAtConfirm) {
+            return refusalAtConfirm;
+          }
+
           startAutoFlow(
             () =>
               actions.startApplyCopilotRun({
@@ -1436,6 +1449,7 @@ export function createPrimaryPageActions(
               : "Preparation finished. Job Finder never clicks Submit — check the result below.",
             jobFinderPendingActions.apply(),
           );
+          return null;
         },
       });
     },

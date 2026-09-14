@@ -9,6 +9,7 @@ import {
   getApplicationReadinessFacts,
   getApplySupportState,
   partitionApplicationReadinessFacts,
+  stripInternalCodeParenthetical,
 } from "./review-queue-mission-panel-helpers";
 
 const BANNED_OPERATION_COPY = /apply copilot|restage|submit approval/i;
@@ -97,8 +98,11 @@ describe("getApplicationReadinessFacts", () => {
         value: "Disabled for this run",
       }),
     );
-    expect(factsText).toMatch(/without clicking submit/);
-    expect(factsText).toMatch(/treat an unexpected completed state as site behavior/i);
+    expect(factsText).toMatch(/stops before the employer's send control/);
+    // Banned copy: the readiness facts never say "site behavior to report".
+    expect(factsText).not.toMatch(
+      /site behavior to report|submit click|safe review checkpoint|verified writes/i,
+    );
     expect(factsText).toMatch(/never clicks the final submit/i);
     expect(factsText).not.toMatch(/No application was submitted/i);
   });
@@ -162,7 +166,7 @@ describe("getApplicationReadinessFacts", () => {
     expect(state.canApproveApply).toBe(true);
     expect(state.primaryApplicationAction).toMatchObject({
       kind: "start_apply",
-      label: "Prepare application",
+      label: "Fill it in",
       enabled: true,
       blocker: null,
     });
@@ -209,7 +213,7 @@ describe("getApplicationReadinessFacts", () => {
     });
     expect(missingOriginal.primaryApplicationAction).toMatchObject({
       kind: "blocked",
-      label: "Prepare application",
+      label: "Fill it in",
       enabled: false,
       recovery: { kind: "open_profile", label: "Import original resume" },
     });
@@ -302,14 +306,14 @@ describe("getApplicationReadinessFacts", () => {
     // the same artifact a draft, a PDF, and a resume.
     expect(state.primaryApplicationAction.blocker).toBeNull();
     expect(state.readinessDescription).toBe(
-      "This resume is ready for your review. Approving it unlocks Prepare application.",
+      "This resume is ready for your review. Approving it unlocks Fill it in.",
     );
     const approvedPdfItem = state.checklist.find(
       (item) => item.label === "Approved tailored PDF ready",
     );
     expect(approvedPdfItem?.state).toBe("blocked");
     expect(approvedPdfItem?.description).toBe(
-      "Approve this resume to unlock Prepare application.",
+      "Approve this resume to unlock Fill it in.",
     );
   });
 
@@ -376,7 +380,7 @@ describe("getApplicationReadinessFacts", () => {
       });
 
       expect(missionState.primaryApplicationAction.label).toBe(
-        "Prepare application",
+        "Fill it in",
       );
     }
   });
@@ -427,7 +431,7 @@ describe("getApplicationReadinessFacts", () => {
     expect(ready.nextBlockedChecklistItem).toBeNull();
     expect(ready.primaryApplicationAction).toMatchObject({
       kind: "start_apply",
-      label: "Prepare application",
+      label: "Fill it in",
       enabled: true,
     });
 
@@ -534,5 +538,105 @@ describe("getApplicationReadinessFacts", () => {
       "Required answers",
       "What gets typed into the site",
     ]);
+  });
+});
+
+describe("a safeguard holding preparation back", () => {
+  const blockerSentence =
+    "Safeguards are blocking this step (abnormal_failure_pause: automatic_discovery_failures:campaign_default). Too many searches or source checks failed in a row.";
+
+  it("replaces Fill it in with Open Safeguards and says why", () => {
+    const state = buildMissionPanelState({
+      browserSession: readyBrowser,
+      isApplyPending: false,
+      isJobPending: () => false,
+      queue: [originalResumeItem],
+      queueSelection: [],
+      safeguardBlocker: blockerSentence,
+      selectedAsset: null,
+      selectedItem: originalResumeItem,
+      selectedJob: baseJob,
+    });
+
+    expect(state.primaryApplicationAction).toMatchObject({
+      enabled: true,
+      kind: "open_safeguards",
+      label: "Open Safeguards",
+      recovery: null,
+    });
+    // Current state says the blocker, not "Job Finder will open and check the
+    // destination when you start".
+    expect(state.readinessDescription).toBe(
+      "Safeguards are blocking this step. Too many searches or source checks failed in a row.",
+    );
+    expect(state.readinessDescription).not.toMatch(/abnormal_failure_pause/);
+    expect(state.canApproveApply).toBe(false);
+  });
+
+  it("strips only internal-code parentheticals", () => {
+    expect(
+      stripInternalCodeParenthetical(
+        "Blocked (abnormal_failure_pause: automatic_discovery_failures:campaign_default). Try later.",
+      ),
+    ).toBe("Blocked. Try later.");
+    expect(
+      stripInternalCodeParenthetical("Two searches failed (the last two runs)."),
+    ).toBe("Two searches failed (the last two runs).");
+  });
+
+  it("leaves the ordinary start control alone with no blocker", () => {
+    const state = buildMissionPanelState({
+      browserSession: readyBrowser,
+      isApplyPending: false,
+      isJobPending: () => false,
+      queue: [originalResumeItem],
+      queueSelection: [],
+      selectedAsset: null,
+      selectedItem: originalResumeItem,
+      selectedJob: baseJob,
+    });
+
+    expect(state.primaryApplicationAction.kind).not.toBe("open_safeguards");
+  });
+});
+
+describe("a run that is still working", () => {
+  it("keeps the start control disabled and counting while the run record runs", () => {
+    const startedAt = new Date(Date.now() - 7 * 60_000).toISOString();
+    const state = buildMissionPanelState({
+      browserSession: readyBrowser,
+      // The local pending flag expired minutes ago.
+      isApplyPending: false,
+      isJobPending: () => false,
+      queue: [originalResumeItem],
+      queueSelection: [],
+      selectedApplyResult: { startedAt },
+      selectedAsset: null,
+      selectedItem: originalResumeItem,
+      selectedJob: baseJob,
+    });
+
+    expect(state.primaryApplicationAction).toMatchObject({
+      enabled: false,
+      kind: "start_apply",
+      label: "Filling in the form… (7 min)",
+    });
+    expect(state.canApproveApply).toBe(false);
+  });
+
+  it("returns to the ordinary start control once no run is running", () => {
+    const state = buildMissionPanelState({
+      browserSession: readyBrowser,
+      isApplyPending: false,
+      isJobPending: () => false,
+      queue: [originalResumeItem],
+      queueSelection: [],
+      selectedApplyResult: null,
+      selectedAsset: null,
+      selectedItem: originalResumeItem,
+      selectedJob: baseJob,
+    });
+
+    expect(state.primaryApplicationAction.label).not.toMatch(/filling in/i);
   });
 });

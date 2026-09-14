@@ -715,7 +715,7 @@ describe("ResumeWorkspaceScreen", () => {
     ).toBe("Application PDF ready · 1 page. Download a copy if you want one.");
     expect(
       screen.getAllByRole("button", {
-        name: /Prepare application|Approve resume|Download PDF/,
+        name: /Fill it in|Approve resume|Download PDF/,
       }).length,
     ).toBeGreaterThan(0);
   });

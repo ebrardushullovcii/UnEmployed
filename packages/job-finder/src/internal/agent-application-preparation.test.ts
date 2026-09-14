@@ -82,14 +82,41 @@ function rawPage(bodyText: string): RawApplyPage {
     url: PAGE_URL,
     title: "Apply",
     bodyText,
-    controls: [],
+    // One ordinary question, so the page reads as the form rather than as a
+    // listing the run would have to walk away from first.
+    controls: [
+      {
+        index: 0,
+        tagName: "input",
+        inputType: "text",
+        role: "",
+        id: "f0",
+        name: "f0",
+        label: "Full name",
+        groupLabel: "",
+        placeholder: "",
+        autocomplete: "",
+        required: true,
+        invalid: false,
+        validationMessage: "",
+        disabled: false,
+        readOnly: false,
+        visible: true,
+        value: "",
+        checked: false,
+        multiple: false,
+        options: [],
+        selectedOptionLabel: "",
+      },
+    ],
     actions: [],
+    links: [],
     validationErrors: [],
     stepLabel: null,
   };
 }
 
-/** One open page that reports an empty form and accepts every write. */
+/** One open page that reports a one-question form and accepts every write. */
 function session(bodyText = "Apply for the role"): ApplyPageSession {
   return {
     readPage: () => Promise.resolve(rawPage(bodyText)),
@@ -100,6 +127,7 @@ function session(bodyText = "Apply for the role"): ApplyPageSession {
     uploadFile: (_ref, file) =>
       Promise.resolve({ ok: true, observedValue: file.name }),
     clickAction: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+    followLink: () => Promise.resolve({ ok: true, url: PAGE_URL }),
     installPrepareOnlyGuard: () => Promise.resolve(),
     readBlockedAttempt: () => Promise.resolve(null),
     registerPreparedValue: () => Promise.resolve(),
@@ -511,6 +539,7 @@ describe("each mode, end to end through the seam", () => {
           actions: [
             { index: 0, label: "Submit application", visible: true, disabled: false },
           ],
+          links: [],
           validationErrors: [],
           stepLabel: null,
         }),
@@ -524,6 +553,7 @@ describe("each mode, end to end through the seam", () => {
       uploadFile: (_ref, file) =>
         Promise.resolve({ ok: true, observedValue: file.name }),
       clickAction: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+      followLink: () => Promise.resolve({ ok: true, url: PAGE_URL }),
       installPrepareOnlyGuard: () => Promise.resolve(),
       readBlockedAttempt: () => Promise.resolve(null),
       registerPreparedValue: () => Promise.resolve(),
@@ -623,5 +653,297 @@ describe("each mode, end to end through the seam", () => {
     expect(handoff?.status).toBe("send_now");
     // Preparation never clicks the send button; the submission path does.
     expect(clicks).toHaveLength(0);
+  });
+});
+
+/**
+ * A form with several questions comes back once, with all of them.
+ *
+ * The record is what the person acts on, so every question the run could not
+ * answer has to survive the trip from the loop to the record — choices and
+ * all — and a run that throws has to end as something they can see rather
+ * than as a record that says it is still going.
+ */
+describe("questions and failures reaching the record", () => {
+  function questionPage(): RawApplyPage {
+    return {
+      ...rawPage("Apply for the role"),
+      controls: [
+        {
+          index: 0,
+          tagName: "select",
+          inputType: "select-one",
+          role: "",
+          id: "q0",
+          name: "q0",
+          label: "Have you previously worked at or consulted for us?",
+          groupLabel: "",
+          placeholder: "",
+          autocomplete: "",
+          required: true,
+          invalid: false,
+          validationMessage: "",
+          disabled: false,
+          readOnly: false,
+          visible: true,
+          value: "",
+          checked: false,
+          multiple: false,
+          // A list's blank first choice is not an answer anyone could give.
+          options: ["", "Yes", "No"],
+          selectedOptionLabel: "",
+        },
+        {
+          index: 1,
+          tagName: "textarea",
+          inputType: "textarea",
+          role: "",
+          id: "q1",
+          name: "q1",
+          label: "What are your salary expectations?",
+          groupLabel: "",
+          placeholder: "",
+          autocomplete: "",
+          required: false,
+          invalid: false,
+          validationMessage: "",
+          disabled: false,
+          readOnly: false,
+          visible: true,
+          value: "",
+          checked: false,
+          multiple: false,
+          options: [],
+          selectedOptionLabel: "",
+        },
+      ],
+    };
+  }
+
+  function modelThatTriesBothThenFinishes(): LLMClient {
+    let calls = 0;
+    return {
+      chatWithTools: () => {
+        calls += 1;
+        const name = calls <= 2 ? "answer_control" : "finish";
+        const args =
+          calls === 1
+            ? { ref: "c0" }
+            : calls === 2
+              ? { ref: "c1" }
+              : { reason: "Nothing left to fill in" };
+        return Promise.resolve({
+          toolCalls: [
+            {
+              id: `call_${calls}`,
+              type: "function" as const,
+              function: { name, arguments: JSON.stringify(args) },
+            },
+          ],
+        });
+      },
+    };
+  }
+
+  test("two unanswered questions both become pending question records", async () => {
+    const page = questionPage();
+    const openSession: ApplyPageSession = {
+      ...session(),
+      readPage: () => Promise.resolve(page),
+    };
+
+    const result = await runAgentApplicationPreparation({
+      session: openSession,
+      executionInput: executionInput(),
+      llmClient: modelThatTriesBothThenFinishes(),
+      startedAt: "2026-09-14T10:00:00.000Z",
+      siteLabel: "the careers site",
+      now: () => new Date("2026-09-14T10:05:00.000Z"),
+    });
+
+    expect(result.questions).toHaveLength(2);
+    expect(result.questions.map((question) => question.prompt)).toEqual([
+      "Have you previously worked at or consulted for us?",
+      "What are your salary expectations?",
+    ]);
+    // The choices travel with the question, and the blank one does not.
+    expect(result.questions[0]?.answerOptions).toEqual(["Yes", "No"]);
+    expect(result.questions[1]?.answerOptions).toEqual([]);
+    // ADR 0022: unanswered questions are handed over, never a blocking task.
+    expect(result.blocker).toBeNull();
+    expect(result.summary).toBe("Filled in what it could; 2 questions left for you");
+    expect(result.nextActionLabel).toBe("Open the browser and finish it");
+  });
+
+  test("a run that throws is recorded as stopped, in words the person can read", async () => {
+    const page = questionPage();
+    const openSession: ApplyPageSession = {
+      ...session(),
+      readPage: () => Promise.resolve(page),
+    };
+
+    const result = await runAgentApplicationPreparation({
+      session: openSession,
+      executionInput: executionInput(),
+      llmClient: {
+        chatWithTools: () =>
+          Promise.reject(new Error("the assistant went away mid-form")),
+      },
+      startedAt: "2026-09-14T10:00:00.000Z",
+      siteLabel: "the careers site",
+      now: () => new Date("2026-09-14T10:05:00.000Z"),
+    });
+
+    expect(result.state).toBe("paused");
+    expect(result.detail).toContain("the careers site");
+    expect(result.blocker).not.toBeNull();
+  });
+});
+
+
+/**
+ * The form the person actually met.
+ *
+ * Names, a phone split into a country list of 240 entries and a number, a
+ * file, a URL, a yes/no question whose label carries the site's required star,
+ * lists whose first choice is a placeholder, two controls with the same label,
+ * and free text. Every one of these has to survive the trip into the record.
+ */
+describe("a real application form reaching the record", () => {
+  function rawControlOf(
+    index: number,
+    overrides: Record<string, unknown>,
+  ): RawApplyPage["controls"][number] {
+    return {
+      index,
+      tagName: "input",
+      inputType: "text",
+      role: "",
+      id: `f${index}`,
+      name: `f${index}`,
+      label: "",
+      groupLabel: "",
+      placeholder: "",
+      autocomplete: "",
+      required: false,
+      invalid: false,
+      validationMessage: "",
+      disabled: false,
+      readOnly: false,
+      visible: true,
+      value: "",
+      checked: false,
+      multiple: false,
+      options: [],
+      selectedOptionLabel: "",
+      ...overrides,
+    } as RawApplyPage["controls"][number];
+  }
+
+  function realisticPage(): RawApplyPage {
+    const countries = Array.from({ length: 240 }, (_, index) =>
+      index === 0 ? "Select..." : `Country ${index}`,
+    );
+    return {
+      ...rawPage("Apply for this job"),
+      controls: [
+        rawControlOf(0, { label: "First Name", required: true }),
+        rawControlOf(1, { label: "Last Name", required: true }),
+        rawControlOf(2, { label: "Email", inputType: "email", required: true }),
+        rawControlOf(3, {
+          tagName: "select",
+          inputType: "select-one",
+          label: "Phone",
+          groupLabel: "Phone",
+          options: countries,
+          required: true,
+        }),
+        rawControlOf(4, { label: "Phone", groupLabel: "Phone", required: true }),
+        rawControlOf(5, { inputType: "file", label: "Resume/CV", required: true }),
+        rawControlOf(6, { label: "LinkedIn Profile", inputType: "url" }),
+        rawControlOf(7, {
+          tagName: "select",
+          inputType: "select-one",
+          label: "Have you previously worked at or consulted for GitLab?*",
+          options: ["Select...", "Yes", "No"],
+          required: true,
+        }),
+        rawControlOf(8, {
+          tagName: "select",
+          inputType: "select-one",
+          label: "Gender",
+          groupLabel: "U.S. Equal Employment Opportunity information",
+          options: ["Select...", "Male", "Female", "Decline To Self Identify"],
+        }),
+        rawControlOf(9, {
+          tagName: "select",
+          inputType: "select-one",
+          label: "Gender",
+          groupLabel: "Voluntary Self-Identification",
+          options: ["Select...", "Male", "Female", " "],
+        }),
+        rawControlOf(10, {
+          tagName: "textarea",
+          inputType: "textarea",
+          label: "Why do you want to work here?",
+        }),
+      ],
+      actions: [
+        { index: 0, label: "Submit application", visible: true, disabled: false },
+      ],
+    };
+  }
+
+  /** Works every control in turn, then finishes: what the model really does. */
+  function modelThatWorksEveryControl(count: number): LLMClient {
+    let calls = 0;
+    return {
+      chatWithTools: () => {
+        const name = calls < count ? "answer_control" : "finish";
+        const args =
+          calls < count
+            ? { ref: `c${calls}`, freeTextAnswer: "Because the work matters." }
+            : { reason: "Nothing left to fill in" };
+        calls += 1;
+        return Promise.resolve({
+          toolCalls: [
+            {
+              id: `call_${calls}`,
+              type: "function" as const,
+              function: { name, arguments: JSON.stringify(args) },
+            },
+          ],
+        });
+      },
+    };
+  }
+
+  test("every question survives the trip into the record", async () => {
+    const page = realisticPage();
+    const openSession: ApplyPageSession = {
+      ...session(),
+      readPage: () => Promise.resolve(page),
+    };
+
+    const result = await runAgentApplicationPreparation({
+      session: openSession,
+      executionInput: executionInput(),
+      llmClient: modelThatWorksEveryControl(11),
+      startedAt: "2026-09-14T10:00:00.000Z",
+      siteLabel: "the careers site",
+      now: () => new Date("2026-09-14T10:05:00.000Z"),
+    });
+
+    expect(result.state).toBe("paused");
+    for (const question of result.questions) {
+      expect(question.prompt.trim().length).toBeGreaterThan(0);
+      expect(question.id.trim().length).toBeGreaterThan(0);
+      for (const option of question.answerOptions) {
+        expect(option.trim().length).toBeGreaterThan(0);
+      }
+    }
+    // Two controls sharing a label must not produce two records with one id.
+    const ids = result.questions.map((question) => question.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

@@ -73,30 +73,32 @@ describe("getCustomerFacingApplyText", () => {
       "Prepare-only guard blocked a mutating page action.",
     );
 
-    expect(resumeMessage).toContain("selected resume could not be attached");
-    expect(genericMessage).toContain(
-      "could not safely save this prepared step",
+    expect(resumeMessage).toContain("The resume file could not be attached.");
+    expect(genericMessage).toBe(
+      "The application page would not keep what Job Finder filled in.",
     );
     expect(`${resumeMessage} ${genericMessage}`).not.toMatch(
       /POST|XHR|mutating page action/i,
     );
   });
 
-  it("makes no saved or retained-field claim when no receipt exists", () => {
+  it("says the stop in one sentence with no write bookkeeping stitched on", () => {
     const message = getCustomerFacingApplyText(
       "Prepare-only guard blocked a mutating page action.",
     );
 
-    expect(message).toContain(
-      "No verified writes to the employer page were recorded for this run",
+    expect(message).toBe(
+      "The application page would not keep what Job Finder filled in.",
     );
-    expect(message).toContain("Check what remains on the employer site");
+    expect(message).not.toMatch(
+      /verified writes|site behavior to report|submit click/i,
+    );
     expect(message).not.toMatch(/fields? (?:were )?saved|fields? remain/i);
   });
 
   it("makes no saved or retained-field claim for a zero-write receipt", () => {
     expect(getVerifiedExternalWriteRecoveryText(createReceipt([]))).toBe(
-      "No verified writes to the employer page were recorded for this run. Check what remains on the employer site before retrying.",
+      "Nothing was written to the employer page in this run.",
     );
   });
 
@@ -126,7 +128,7 @@ describe("getCustomerFacingApplyText", () => {
     ]);
 
     expect(getVerifiedExternalWriteRecoveryText(receipt)).toBe(
-      "Job Finder recorded writes to the employer page for profile fields, application answers. That does not confirm what the site kept — review the page before retrying.",
+      "Job Finder filled profile fields, application answers on the employer page. Check the page to see what the site kept.",
     );
   });
 
@@ -373,7 +375,7 @@ describe("service-worker site block helpers", () => {
     ).toBe(true);
     expect(
       applicationRecordLooksSiteBlocked({
-        nextActionLabel: "Prepare application",
+        nextActionLabel: "Fill it in",
         lastActionLabel: "Resume approved",
         latestBlocker: null,
       }),

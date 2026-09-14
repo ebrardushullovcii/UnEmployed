@@ -67,7 +67,9 @@ export type ApplyCopilotVisualCheckpointRequest = {
    */
   subject: string | null;
   description: string;
-  onResolve: (visualCheckpointsEnabled: boolean) => void;
+  onResolve: (
+    visualCheckpointsEnabled: boolean,
+  ) => string | null | void | Promise<string | null | void>;
   onCancel?: () => void;
 };
 
@@ -1053,10 +1055,23 @@ export function useJobFinderPageController() {
     currentRequest?.onCancel?.();
   }, [applyCopilotVisualCheckpointRequest]);
   const resolveApplyCopilotVisualCheckpointRequest = useCallback(
-    (visualCheckpointsEnabled: boolean) => {
+    async (visualCheckpointsEnabled: boolean) => {
       const currentRequest = applyCopilotVisualCheckpointRequest;
+      if (!currentRequest) {
+        return null;
+      }
+
+      // The request is cleared only once the start has actually begun. A
+      // refused start keeps the dialog on screen with the reason in it rather
+      // than closing and leaving the page exactly as it was.
+      const refusal = await currentRequest.onResolve(visualCheckpointsEnabled);
+      const sentence = typeof refusal === "string" ? refusal.trim() : "";
+      if (sentence) {
+        return sentence;
+      }
+
       setApplyCopilotVisualCheckpointRequest(null);
-      currentRequest?.onResolve(visualCheckpointsEnabled);
+      return null;
     },
     [applyCopilotVisualCheckpointRequest],
   );

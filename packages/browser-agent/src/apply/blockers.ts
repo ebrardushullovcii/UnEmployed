@@ -77,6 +77,80 @@ function contains(haystack: string, needles: readonly string[]): boolean {
   return needles.some((needle) => haystack.includes(needle));
 }
 
+/** Address shapes a site uses for the page that takes an account, not a job. */
+const SIGN_IN_PATH_PATTERN =
+  /(?:^|\/)(?:login|log-in|signin|sign-in|signup|sign-up|register|registration|auth|oauth|sso|session|account\/(?:login|signin))(?:\/|$)/iu;
+
+/** The words a field asks for when it wants an account rather than an answer. */
+const CREDENTIAL_FIELD_PATTERN =
+  /\b(?:password|passcode|username|user name|user id|email|e mail|remember me)\b/u;
+
+/**
+ * Whether this page is a way into an account rather than an application.
+ *
+ * A sign-in page has fields and a button like any form, so anything that only
+ * counts controls will call it an application and start filling it in. It is
+ * read the way a person reads it: a password field, an address that says so,
+ * the page's own words, or a form whose every field is a credential.
+ *
+ * The person's sign-in stays theirs (ADR 0012), so this is never something to
+ * work around — it is something to hand back with the page it happened on.
+ */
+export function looksLikeSignInPage(input: {
+  url: string | null;
+  bodyText: string;
+  controls: readonly ApplyFormControl[];
+  actions: readonly ApplyFormAction[];
+}): boolean {
+  if (hasPasswordControl(input.controls)) {
+    return true;
+  }
+  if (contains(normalizeSignal(input.bodyText), SIGN_IN_SIGNALS)) {
+    return true;
+  }
+
+  const answerable = input.controls.filter(
+    (control) => control.visible && !control.disabled && !control.readOnly,
+  );
+  const everyFieldIsACredential =
+    answerable.length > 0 &&
+    answerable.every((control) =>
+      CREDENTIAL_FIELD_PATTERN.test(
+        normalizeSignal(
+          `${control.label} ${control.groupLabel} ${control.placeholder}`,
+        ),
+      ),
+    );
+  if (everyFieldIsACredential && hasSignInAction(input.actions)) {
+    return true;
+  }
+
+  let path = "";
+  try {
+    path = input.url ? new URL(input.url).pathname : "";
+  } catch {
+    path = "";
+  }
+  return SIGN_IN_PATH_PATTERN.test(path) && answerable.length > 0;
+}
+
+/**
+ * The page wants an account before it will take the application.
+ *
+ * Shared, because a page can say so in its own words and a listing can say so
+ * by offering nothing but a sign-in link where the apply control should be.
+ * The person's sign-in stays theirs either way (ADR 0012).
+ */
+export function siteLoginRequiredBlocker(): ApplyBlocker {
+  return {
+    code: "site_login_required",
+    summary: "The site wants you signed in first.",
+    detail:
+      "Your sign-in stays yours. Sign in on this site and Job Finder can pick the application back up.",
+    nextActionLabel: "Sign in on the site",
+  };
+}
+
 export function detectApplyBlocker(input: {
   bodyText: string;
   controls: readonly ApplyFormControl[];
@@ -118,13 +192,7 @@ export function detectApplyBlocker(input: {
     contains(text, SIGN_IN_SIGNALS) ||
     (hasPasswordControl(input.controls) && hasSignInAction(input.actions))
   ) {
-    return {
-      code: "site_login_required",
-      summary: "The site wants you signed in first.",
-      detail:
-        "Your sign-in stays yours. Sign in on this site and Job Finder can pick the application back up.",
-      nextActionLabel: "Sign in on the site",
-    };
+    return siteLoginRequiredBlocker();
   }
 
   if (contains(text, CLOSED_SIGNALS)) {

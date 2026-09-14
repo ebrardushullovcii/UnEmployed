@@ -104,7 +104,7 @@ describe("ReviewQueueMissionPanel", () => {
     );
     expect(onOpenApplication).toHaveBeenCalledWith("application_existing");
     expect(
-      screen.queryByRole("button", { name: "Prepare application" }),
+      screen.queryByRole("button", { name: "Fill it in" }),
     ).toBeNull();
     expect(screen.queryByText("Start new application")).toBeNull();
     expect(screen.getByText("Existing application")).toBeTruthy();
@@ -252,9 +252,9 @@ describe("ReviewQueueMissionPanel", () => {
     expect(
       screen.getByRole("heading", { name: "Application readiness" })
         .parentElement?.textContent,
-    ).toContain("Prepare application when you're ready");
+    ).toContain("Fill it in when you're ready");
     expect(
-      screen.getByRole("button", { name: "Prepare application" }),
+      screen.getByRole("button", { name: "Fill it in" }),
     ).toBeTruthy();
     expect(
       screen.getByText("Applications today: 0 of 20 used · resets at midnight"),
@@ -269,7 +269,7 @@ describe("ReviewQueueMissionPanel", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("button", {
-        name: "Prepare application to final review",
+        name: "Fill it in to final review",
       }),
     ).toBeNull();
 
@@ -294,7 +294,7 @@ describe("ReviewQueueMissionPanel", () => {
     expect(footer.className).not.toContain("xl:absolute");
 
     const prepareButton = screen.getByRole("button", {
-      name: "Prepare application",
+      name: "Fill it in",
     });
     expect((prepareButton as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(
@@ -832,7 +832,7 @@ describe("ReviewQueueMissionPanel", () => {
       name: "Open resume workspace",
     });
     const primaryButton = screen.getByRole("button", {
-      name: "Prepare application",
+      name: "Fill it in",
     });
     expect(primaryButton.parentElement).toBe(workspaceButton.parentElement);
     expect(recoveryButton.parentElement).toBe(workspaceButton.parentElement);
@@ -1050,7 +1050,7 @@ describe("ReviewQueueMissionPanel", () => {
       within(footer).getByRole("button", { name: "Review and approve resume" }),
     ).toBeTruthy();
     expect(
-      within(footer).queryByRole("button", { name: "Prepare application" }),
+      within(footer).queryByRole("button", { name: "Fill it in" }),
     ).toBeNull();
     expect(within(footer).getAllByRole("button")).toHaveLength(1);
     expect(screen.getByText(/^Next:/)).toBeTruthy();
@@ -1062,7 +1062,7 @@ describe("ReviewQueueMissionPanel", () => {
     expect(within(footer).queryByRole("alert")).toBeNull();
     expect(
       screen.getByText(
-        "This resume is ready for your review. Approving it unlocks Prepare application.",
+        "This resume is ready for your review. Approving it unlocks Fill it in.",
       ),
     ).toBeTruthy();
 
@@ -1287,7 +1287,7 @@ describe("ReviewQueueMissionPanel", () => {
 
     fireEvent.click(screen.getByText("More actions"));
 
-    expect(document.body.textContent ?? "").toMatch(/Prepare application/);
+    expect(document.body.textContent ?? "").toMatch(/Fill it in/);
     expect(document.body.textContent ?? "").not.toMatch(
       /apply copilot|restage|submit approval|ready to apply/i,
     );
@@ -1525,7 +1525,7 @@ describe("ReviewQueueMissionPanel", () => {
     expect(screen.queryByText(/more available after midnight/iu)).toBeNull();
     expect(screen.getByText(/Resets at local midnight \(/u)).toBeTruthy();
     const prepareButton = screen.getByRole("button", {
-      name: "Prepare application",
+      name: "Fill it in",
     });
     expect((prepareButton as HTMLButtonElement).disabled).toBe(false);
     // And it never borrows the per-run cap wording.
@@ -1636,7 +1636,7 @@ describe("ReviewQueueMissionPanel", () => {
     expect(within(readiness).getByText("Alex.pdf")).toBeTruthy();
     expect(within(readiness).getByText("givelively.org")).toBeTruthy();
     expect(within(readiness).getByText("Disabled for this run")).toBeTruthy();
-    expect(within(readiness).getByText(/Prepare application/i)).toBeTruthy();
+    expect(within(readiness).getByText(/Fill it in/i)).toBeTruthy();
     const boundaries = within(readiness).getByText(
       "More preparation boundaries",
     );
@@ -1666,11 +1666,11 @@ describe("ReviewQueueMissionPanel", () => {
     // The workspace header and the list row already say this state; the
     // checklist card does not print a third identical chip.
     expect(within(checklist).queryByText("Ready to prepare")).toBeNull();
-    expect(within(checklist).getByText(/Prepare application/i)).toBeTruthy();
+    expect(within(checklist).getByText(/Fill it in/i)).toBeTruthy();
     expect(within(checklist).getByText(/when you're ready/i)).toBeTruthy();
     expect(within(checklist).queryByText(/below as the next step/i)).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Prepare application" }),
+      screen.getByRole("button", { name: "Fill it in" }),
     ).toBeTruthy();
   });
   it("presents a draft as the original resume when the listing text was never captured", () => {

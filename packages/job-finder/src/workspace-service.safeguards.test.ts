@@ -118,7 +118,7 @@ describe("workspace service high-volume safeguards", () => {
 
     await expect(
       workspaceService.startAutoApplyRun("job_ready"),
-    ).rejects.toThrow(/Safeguards are blocking this step/);
+    ).rejects.toThrow(/Open Safeguards to resolve, dismiss, or retry/);
 
     const overview = await workspaceService.getSafeguardsOverview();
     expect(overview.counts.activeCaps).toBe(1);
@@ -326,7 +326,7 @@ describe("workspace service high-volume safeguards", () => {
 
     await expect(
       workspaceService.startAutoApplyRun("job_ready"),
-    ).rejects.toThrow(/Safeguards are blocking this step/);
+    ).rejects.toThrow(/Open Safeguards to resolve, dismiss, or retry/);
     expect(await workspaceService.evaluateDiscoverySafeguardBlockers()).toEqual(
       [],
     );
@@ -418,7 +418,7 @@ describe("workspace service high-volume safeguards", () => {
 
     await expect(
       harness.workspaceService.approveApplyRun(run.id),
-    ).rejects.toThrow(/Safeguards are blocking this step/);
+    ).rejects.toThrow(/Open Safeguards to resolve, dismiss, or retry/);
     const [runs, approvals] = await Promise.all([
       harness.repository.listApplyRuns(),
       harness.repository.listApplySubmitApprovals(),
@@ -530,7 +530,7 @@ describe("workspace service high-volume safeguards", () => {
           "consent_guard",
           action,
         ),
-      ).rejects.toThrow(/Safeguards are blocking this step/);
+      ).rejects.toThrow(/Open Safeguards to resolve, dismiss, or retry/);
       const [requests, runs, results] = await Promise.all([
         harness.repository.listApplicationConsentRequests(),
         harness.repository.listApplyRuns(),

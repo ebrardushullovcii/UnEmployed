@@ -76,9 +76,27 @@ describe("Needs you manual-action presentation matrix", () => {
       } else {
         expect(screen.getByText(presentation.label)).toBeTruthy();
       }
-      expect(
-        screen.getByText(new RegExp(presentation.guidance, "i")),
-      ).toBeTruthy();
+      // A sign-in, account, or security-check step keeps the heading, the
+      // blocker's own sentence, the host line, and two buttons — no stack of
+      // paraphrases about coming back to confirm.
+      const isBlockerStep = [
+        "login",
+        "signup",
+        "mfa",
+        "captcha",
+        "email_verification",
+        "existing_account_choice",
+      ].includes(kind);
+      if (isBlockerStep) {
+        expect(screen.getByText("On: jobs.example.com")).toBeTruthy();
+        expect(document.body.textContent ?? "").not.toMatch(
+          /then come back here and confirm|only after the browser step is complete|retries this exact application once/i,
+        );
+      } else {
+        expect(
+          screen.getByText(new RegExp(presentation.guidance, "i")),
+        ).toBeTruthy();
+      }
       fireEvent.click(
         screen.getByRole("button", { name: presentation.openLabel }),
       );
@@ -94,11 +112,16 @@ describe("Needs you manual-action presentation matrix", () => {
           accountCreationAuthorized: false,
         });
       }
-      // The boundary is still stated on every card, once, in plain language
-      // instead of a boxed footnote in internal wording.
-      expect(
-        screen.getByText(/cannot create an account or submit an application/i),
-      ).toBeTruthy();
+      // The boundary is still stated once on every card that carries a
+      // guidance line; a trimmed blocker step carries the blocker sentence
+      // instead and never claims a submission.
+      if (!isBlockerStep) {
+        expect(
+          screen.getByText(
+            /cannot create an account or submit an application/i,
+          ),
+        ).toBeTruthy();
+      }
     },
   );
 });

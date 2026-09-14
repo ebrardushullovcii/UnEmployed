@@ -189,3 +189,38 @@ describe("htmlToPlainText", () => {
     ).toBe("One\n\n• A\n\n• B & C\n\nTwo\nlines");
   });
 });
+
+describe("the apply link on a listing page", () => {
+  const body = `<h3>Responsibilities</h3><p>${"Own the internal platform and ship it. ".repeat(40)}</p><h3>Requirements</h3><p>${"Five years of experience running campaigns. ".repeat(20)}</p>`;
+
+  it("reads a plain apply link so a run starts on the form", () => {
+    const detail = extractListingDetailFromHtml({
+      html: `<html><body><main><h1>Events Manager</h1>${body}<a class="btn" href="/apply/11124457">Apply now</a></main></body></html>`,
+      url: "https://board.example.test/job/events-manager",
+    });
+
+    expect(detail?.directApplyUrl).toBe(
+      "https://board.example.test/apply/11124457",
+    );
+  });
+
+  it("reads an apply link that leads to the employer's own site", () => {
+    const detail = extractListingDetailFromHtml({
+      html: `<html><body><main><h1>Events Manager</h1>${body}<a href="https://employer.example.test/careers/apply">Apply on company site</a></main></body></html>`,
+      url: "https://board.example.test/job/events-manager",
+    });
+
+    expect(detail?.directApplyUrl).toBe(
+      "https://employer.example.test/careers/apply",
+    );
+  });
+
+  it("leaves a page with no apply link alone", () => {
+    const detail = extractListingDetailFromHtml({
+      html: `<html><body><main><h1>Events Manager</h1>${body}<a href="/jobs">Similar jobs</a><a href="/help">How to apply</a></main></body></html>`,
+      url: "https://board.example.test/job/events-manager",
+    });
+
+    expect(detail?.directApplyUrl).toBeNull();
+  });
+});

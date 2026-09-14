@@ -11,6 +11,7 @@ import {
   formatApplyRunStateLabel,
   getCustomerFacingApplyText,
 } from "./applications-detail-panel-helpers";
+import { resolveApplicationRecoveryPresentation } from "./applications-recovery-state";
 import { APPLICATION_DETAIL_FACT_LABEL_CLASS } from "./applications-detail-fact-strip";
 
 function RunHistoryEntry(props: {
@@ -52,8 +53,18 @@ function RunHistoryEntry(props: {
           {formatStatusLabel(result.state)}
         </StatusBadge>
       </span>
+      {/* The same title the status block gives this run. A run that paused
+          on questions used to be listed as "could not finish this
+          application" here while the panel above called it waiting on an
+          answer. */}
       <p className="min-w-0 break-words [overflow-wrap:anywhere] text-(length:--text-small) leading-5 text-foreground-soft">
-        {getCustomerFacingApplyText(result.summary)}
+        {
+          resolveApplicationRecoveryPresentation({
+            canOpenSafeguards: false,
+            isApplyPending: false,
+            visibleApplyResult: result,
+          }).statusLine
+        }
       </p>
       <p className="min-w-0 break-words [overflow-wrap:anywhere] text-(length:--text-small) leading-5 text-foreground-soft">
         {formatTimestamp(result.updatedAt)}

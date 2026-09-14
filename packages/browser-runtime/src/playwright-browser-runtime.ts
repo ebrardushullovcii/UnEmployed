@@ -1704,6 +1704,10 @@ export function createBrowserAgentRuntime(
         onReadyPage((page) =>
           createPlaywrightApplyPageMechanics(page).clickAction(ref),
         ),
+      followLink: (ref) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).followLink(ref),
+        ),
     };
   }
 

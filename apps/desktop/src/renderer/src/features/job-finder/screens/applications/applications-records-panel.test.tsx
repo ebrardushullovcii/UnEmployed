@@ -51,7 +51,7 @@ describe("ApplicationsRecordsPanel", () => {
     expect(screen.getByText("No application started yet")).toBeTruthy();
     expect(
       screen.getByText(
-        /Shortlisting a job or tailoring its resume does not create an application record.*choose Prepare application/i,
+        /Shortlisting a job or tailoring its resume does not create an application record.*choose Fill it in/i,
       ),
     ).toBeTruthy();
     expect(
@@ -67,7 +67,7 @@ describe("ApplicationsRecordsPanel", () => {
       company: "Acme",
       status: "ready_for_review",
       lastActionLabel: "Resume approved",
-      nextActionLabel: "Prepare application",
+      nextActionLabel: "Fill it in",
       lastUpdatedAt: "2026-08-09T08:00:00.000Z",
       lastAttemptState: "paused",
       questionSummary: {
@@ -125,7 +125,7 @@ describe("ApplicationsRecordsPanel", () => {
           company: "Acme",
           status: "ready_for_review",
           lastActionLabel: "Resume approved",
-          nextActionLabel: "Prepare application",
+          nextActionLabel: "Fill it in",
           lastUpdatedAt: "2026-08-09T08:00:00.000Z",
           lastAttemptState: "paused",
           questionSummary: {
@@ -215,7 +215,7 @@ describe("ApplicationsRecordsPanel", () => {
       company: "Acme International Technology Group",
       status: "ready_for_review",
       lastActionLabel: "A detailed resume was approved for this application",
-      nextActionLabel: "Prepare application",
+      nextActionLabel: "Fill it in",
       lastUpdatedAt: "2026-08-09T08:00:00.000Z",
       lastAttemptState: "paused",
       questionSummary: {
@@ -314,7 +314,7 @@ describe("ApplicationsRecordsPanel", () => {
       company: "Acme",
       status: "ready_for_review",
       lastActionLabel: "Resume approved",
-      nextActionLabel: "Prepare application",
+      nextActionLabel: "Fill it in",
       lastUpdatedAt: "2026-08-09T08:00:00.000Z",
       lastAttemptState: "paused",
       questionSummary: {
@@ -496,7 +496,7 @@ describe("ApplicationsRecordsPanel", () => {
           company: "Acme",
           status: "ready_for_review",
           lastActionLabel: "Resume approved",
-          nextActionLabel: "Prepare application",
+          nextActionLabel: "Fill it in",
           lastUpdatedAt: "2026-08-09T08:00:00.000Z",
           lastAttemptState: "paused",
           questionSummary: {
@@ -556,7 +556,7 @@ describe("ApplicationsRecordsPanel", () => {
       company: "Acme",
       status: "ready_for_review",
       lastActionLabel: "Resume approved",
-      nextActionLabel: "Prepare application",
+      nextActionLabel: "Fill it in",
       lastUpdatedAt: "2026-08-09T08:00:00.000Z",
       lastAttemptState: "paused",
       questionSummary: {
@@ -848,5 +848,67 @@ describe("ApplicationsRecordsPanel", () => {
         name: "View details for Software Engineer II at Signal Systems",
       }),
     ).toBeTruthy();
+  });
+
+  it("gives each row one status pill and one Next sentence", () => {
+    const record: ApplicationRecord = {
+      id: "application_failed",
+      jobId: "job_failed",
+      title: "Staff Platform Engineer",
+      company: "Northwind",
+      status: "ready_for_review",
+      lastActionLabel: "Job Finder could not finish this application",
+      nextActionLabel: "Try again",
+      lastUpdatedAt: "2026-09-01T08:00:00.000Z",
+      lastAttemptState: "failed",
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+      automationMode: "prepare_only" as const,
+    };
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          filterCounts={{
+            all: 1,
+            needs_action: 1,
+            in_progress: 0,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    const application = within(
+      screen.getByRole("list", { name: "Applications" }),
+    ).getByRole("listitem");
+    // Title, company, exactly one status pill, one "Next:" line — never a
+    // second pill restating the same state a different way.
+    expect(application.querySelectorAll('[data-slot="badge"]')).toHaveLength(1);
+    expect(within(application).queryByText("Attempt failed")).toBeNull();
+    expect(application.textContent).toContain("Staff Platform Engineer");
+    expect(application.textContent).toContain("Northwind");
+    expect(application.textContent).toContain("Next: Try again");
   });
 });

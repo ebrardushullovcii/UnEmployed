@@ -5,6 +5,7 @@ import type {
   CandidateProfile,
   GlobalDailyApplicationPreparationCapacity,
   JobFinderApplicationStartTarget,
+  JobFinderWorkspaceSnapshot,
   ResumeApplicationMode,
   ResumeSourceDocument,
   ResumeStrategy,
@@ -90,6 +91,12 @@ export function ReviewQueueScreen(props: {
   draftPreparation: TailoredDraftPreparationViewState;
   globalDailyApplicationPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
   isApplyPending: boolean;
+  /**
+   * The live apply results, so the start control can follow the run record
+   * rather than a local pending flag that expires after about a minute while
+   * a real run keeps going for several.
+   */
+  applyJobResults?: JobFinderWorkspaceSnapshot["applyJobResults"];
   isJobPending: (jobId: string) => boolean;
   isResumeStrategyPending: (jobId: string) => boolean;
   onPrepareTailoredDrafts: () => void;
@@ -107,6 +114,8 @@ export function ReviewQueueScreen(props: {
   onOpenJobDetails: (jobId: string) => void;
   onOpenApplication?: (recordId: string) => void;
   onOpenProfile: () => void;
+  onOpenSafeguards?: () => void;
+  safeguardBlocker?: string | null;
   onClaimResumeIdentity?: () => void;
   onKeepResumeIdentity?: () => void;
   onRecommendResumeStrategy: (input: {
@@ -142,6 +151,7 @@ export function ReviewQueueScreen(props: {
     draftPreparation,
     globalDailyApplicationPreparationCapacity,
     isApplyPending,
+    applyJobResults,
     isJobPending,
     isResumeStrategyPending,
     onPrepareTailoredDrafts,
@@ -154,6 +164,8 @@ export function ReviewQueueScreen(props: {
     onOpenJobDetails,
     onOpenApplication,
     onOpenProfile,
+    onOpenSafeguards,
+    safeguardBlocker,
     onClaimResumeIdentity,
     onKeepResumeIdentity,
     onRecommendResumeStrategy,
@@ -399,7 +411,7 @@ export function ReviewQueueScreen(props: {
   );
   // Below the `xl` two-pane breakpoint the job workspace stacks under the queue
   // list, so selecting a job moved the one next action (`Review and approve
-  // resume` / `Prepare application`) below the fold with nothing saying so.
+  // resume` / `Fill it in`) below the fold with nothing saying so.
   // Find jobs and Applications both reveal their stacked detail region on
   // pointer selection; Shortlisted now uses the same mechanism, against the
   // same 1280px boundary as its own `xl:` grid.
@@ -446,6 +458,8 @@ export function ReviewQueueScreen(props: {
           draftPreparation={draftPreparation}
           isJobPending={isJobPending}
           onPrepareTailoredDrafts={onPrepareTailoredDrafts}
+          {...(onOpenSafeguards ? { onOpenSafeguards } : {})}
+          safeguardBlocker={safeguardBlocker ?? null}
           onSelectItem={selectItemAndRevealWorkspace}
           onStopTailoredDraftPreparation={onStopTailoredDraftPreparation}
           onToggleQueueSelection={handleToggleQueueSelection}
@@ -507,6 +521,7 @@ export function ReviewQueueScreen(props: {
                   globalDailyApplicationPreparationCapacity
                 }
                 embedded
+                applyJobResults={applyJobResults ?? []}
                 isApplyPending={isApplyPending}
                 isJobPending={isJobPending}
                 isSelectedJobPendingTooLong={selectedJobPendingTooLong}
@@ -520,6 +535,8 @@ export function ReviewQueueScreen(props: {
                 onOpenJobDetails={onOpenJobDetails}
                 onOpenApplication={onOpenApplication ?? (() => undefined)}
                 onOpenProfile={onOpenProfile}
+                {...(onOpenSafeguards ? { onOpenSafeguards } : {})}
+                safeguardBlocker={safeguardBlocker ?? null}
                 {...(onClaimResumeIdentity
                   ? { onClaimResumeIdentity }
                   : {})}

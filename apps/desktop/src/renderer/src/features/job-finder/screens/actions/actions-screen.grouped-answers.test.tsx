@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import {
   GroupedManualAnswerDecisionSchema,
   UserActionRequestSchema,
@@ -15,7 +15,6 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ActionsScreen } from "./actions-screen";
-import { deriveGroupedAnswerGroupKey } from "./answer-memory-editor";
 
 afterEach(cleanup);
 
@@ -169,14 +168,15 @@ describe("ActionsScreen persisted grouped reusable answers", () => {
     ] as unknown as JobFinderWorkspaceSnapshot["applicationAttempts"];
     const onProject =
       vi.fn<(command: ProjectGroupedManualAnswerCommand) => void>();
+    const onCommand = vi.fn();
 
-    const { getByLabelText, getByRole } = render(
+    const { getByLabelText, getByRole, queryByRole, getByText } = render(
       <ActionsScreen
         applicationAttempts={applicationAttempts}
         discoveryJobs={createJobs()}
         groupedDecisions={[]}
         isPending={() => false}
-        onCommand={vi.fn()}
+        onCommand={onCommand}
         onNavigate={vi.fn()}
         onProjectGroupedManualAnswer={onProject}
         profile={profile}
@@ -184,20 +184,45 @@ describe("ActionsScreen persisted grouped reusable answers", () => {
       />,
     );
 
-    fireEvent.change(getByLabelText("Answer draft"), {
+    // One field, one checkbox, one button — the four-button answer-memory
+    // panel (which was not in the accessibility tree at all) is gone.
+    // The label of the control is the question itself.
+    // One sentence above the job line, not four restating the heading.
+    expect(
+      getByText(
+        "Nothing in your profile, resume, or saved answers covers this.",
+      ),
+    ).toBeTruthy();
+    expect(document.body.textContent ?? "").not.toMatch(
+      /complete this manual-answer step|come back here and confirm/i,
+    );
+    fireEvent.change(getByLabelText("Years of experience"), {
       target: { value: "5 years" },
     });
-    fireEvent.click(
-      getByRole("button", { name: "Reuse for matching applications" }),
-    );
+    fireEvent.click(getByLabelText("Save this answer for next time"));
+    fireEvent.click(getByRole("button", { name: "Answer and continue" }));
 
-    expect(onProject).toHaveBeenCalledWith({
-      groupKey: deriveGroupedAnswerGroupKey("request_a"),
-      requestId: "request_a",
-      expectedRequestRevision: 2,
-      answer: { type: "text", value: "5 years" },
-      saveScope: "reusable_profile",
-    });
+    expect(onCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "submit_manual_answer",
+        answer: "5 years",
+        requestId: "request_a",
+        saveForFuture: true,
+      }),
+    );
+    expect(onProject).not.toHaveBeenCalled();
+    for (const gone of [
+      "Use once",
+      "Save for future & use",
+      "Reuse for matching applications",
+      "Reset draft",
+    ]) {
+      expect(queryByRole("button", { name: gone })).toBeNull();
+    }
+    expect(document.body.textContent ?? "").not.toMatch(
+      /answer memory|reusable match|manual-answer step|prepare-only retry|verify the blocker|projects this draft|exact compatible/i,
+    );
+    expect(getByRole("button", { name: /Skip this job/ })).toBeTruthy();
   });
 
   it("shows the exact unique job count and full title/company lineage with revisions", () => {
@@ -362,5 +387,243 @@ describe("ActionsScreen persisted grouped reusable answers", () => {
     expect(screen.getByText("Answer question for job_a")).toBeTruthy();
     expect(screen.getByText("Answer question for job_b")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Applications" })).toBeTruthy();
+  });
+});
+
+describe("Needs you question step shapes", () => {
+  const profile = {
+    answerBank: { customAnswers: [] },
+    proofBank: [],
+  } as unknown as CandidateProfile;
+
+  function attemptsWith(
+    questions: ReadonlyArray<Record<string, unknown>>,
+  ): JobFinderWorkspaceSnapshot["applicationAttempts"] {
+    return [
+      {
+        applicationRecordId: "application_job_a",
+        jobId: "job_a",
+        blocker: { code: "missing_candidate_answer" },
+        questions,
+        updatedAt: "2026-08-15T09:00:00.000Z",
+      },
+    ] as unknown as JobFinderWorkspaceSnapshot["applicationAttempts"];
+  }
+
+  function renderStep(
+    questions: ReadonlyArray<Record<string, unknown>>,
+    onCommand: (command: UserActionCommandInput) => void | Promise<void>,
+  ) {
+    return render(
+      <ActionsScreen
+        applicationAttempts={attemptsWith(questions)}
+        discoveryJobs={createJobs()}
+        groupedDecisions={[]}
+        isPending={() => false}
+        onCommand={onCommand}
+        onNavigate={vi.fn()}
+        profile={profile}
+        requests={[
+          createManualAnswerRequest({
+            id: "request_a",
+            jobId: "job_a",
+            revision: 2,
+          }),
+        ]}
+      />,
+    );
+  }
+
+  it("renders every pending question and submits them all behind one button", async () => {
+    const onCommand =
+      vi.fn<(command: UserActionCommandInput) => Promise<void>>(() =>
+        Promise.resolve(),
+      );
+    const { getByLabelText, getByRole } = renderStep(
+      [
+        {
+          id: "q_phone",
+          prompt: "Phone",
+          kind: "other",
+          status: "detected",
+          isRequired: true,
+          answerOptions: [],
+        },
+        {
+          id: "q_sponsorship",
+          prompt: "Will you need sponsorship?",
+          kind: "other",
+          status: "detected",
+          isRequired: true,
+          answerOptions: ["Yes", "No"],
+        },
+      ],
+      onCommand,
+    );
+
+    const answerButton = getByRole("button", { name: "Answer and continue" });
+    expect(answerButton).toHaveProperty("disabled", true);
+
+    fireEvent.change(getByLabelText("Phone"), {
+      target: { value: "+1 555 0100" },
+    });
+    fireEvent.change(getByLabelText("Will you need sponsorship?"), {
+      target: { value: "No" },
+    });
+    fireEvent.click(getByLabelText("Save these answers for next time"));
+    expect(answerButton).toHaveProperty("disabled", false);
+    fireEvent.click(answerButton);
+
+    await waitFor(() => {
+      expect(onCommand).toHaveBeenCalledTimes(2);
+    });
+    expect(onCommand.mock.calls.map((call) => call[0])).toEqual([
+      expect.objectContaining({ answer: "+1 555 0100", saveForFuture: true }),
+      expect.objectContaining({ answer: "No", saveForFuture: true }),
+    ]);
+  });
+
+  it("keeps the single-question shape and its singular checkbox", () => {
+    const { getByLabelText, queryByLabelText } = renderStep(
+      [
+        {
+          id: "q_phone",
+          prompt: "Phone — Phone",
+          description: "Phone",
+          kind: "other",
+          status: "detected",
+          isRequired: true,
+          answerOptions: [],
+        },
+      ],
+      vi.fn(),
+    );
+
+    // Label and description are the same word, so it is printed once.
+    expect(getByLabelText("Phone")).toBeTruthy();
+    expect(getByLabelText("Save this answer for next time")).toBeTruthy();
+    expect(queryByLabelText("Save these answers for next time")).toBeNull();
+  });
+
+  it("shows the pause note above a choice control", () => {
+    const { getByTestId, getByLabelText } = renderStep(
+      [
+        {
+          id: "q_auth",
+          prompt: "Are you authorised to work?",
+          kind: "other",
+          status: "detected",
+          isRequired: true,
+          note: "Your answer did not fit this question.",
+          answerOptions: ["Yes", "No"],
+        },
+      ],
+      vi.fn(),
+    );
+
+    expect(getByTestId("needs-you-question-note").textContent).toBe(
+      "Your answer did not fit this question.",
+    );
+    expect(
+      (getByLabelText("Are you authorised to work?") as HTMLSelectElement)
+        .tagName,
+    ).toBe("SELECT");
+  });
+
+  it("says so in place when the bridge call is refused and keeps the answer", async () => {
+    const onCommand = vi.fn(() => Promise.reject(new Error("Bridge refused.")));
+    const { getByLabelText, getByRole, findByTestId } = renderStep(
+      [
+        {
+          id: "q_phone",
+          prompt: "Phone",
+          kind: "other",
+          status: "detected",
+          isRequired: true,
+          answerOptions: [],
+        },
+      ],
+      onCommand,
+    );
+
+    fireEvent.change(getByLabelText("Phone"), {
+      target: { value: "+1 555 0100" },
+    });
+    fireEvent.click(getByRole("button", { name: "Answer and continue" }));
+
+    const failure = await findByTestId("needs-you-answer-failure");
+    expect(failure.textContent).toBe(
+      "Job Finder could not save that answer; try again.",
+    );
+    expect((getByLabelText("Phone") as HTMLTextAreaElement).value).toBe(
+      "+1 555 0100",
+    );
+    expect(
+      getByRole("button", { name: "Answer and continue" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("lets optional questions stay blank without holding the button back", async () => {
+    const onCommand =
+      vi.fn<(command: UserActionCommandInput) => Promise<void>>(() =>
+        Promise.resolve(),
+      );
+    const { getByLabelText, getByRole, getByTestId } = renderStep(
+      [
+        {
+          id: "q_phone",
+          prompt: "Phone",
+          kind: "other",
+          status: "detected",
+          isRequired: true,
+          answerOptions: [],
+        },
+        {
+          id: "q_auth",
+          prompt: "Are you authorised to work?",
+          kind: "other",
+          status: "detected",
+          isRequired: true,
+          note: "Your answer did not match one of the choices.",
+          answerOptions: ["Yes", "No"],
+        },
+        {
+          id: "q_linkedin",
+          prompt: "LinkedIn",
+          kind: "other",
+          status: "detected",
+          isRequired: false,
+          answerOptions: [],
+        },
+      ],
+      onCommand,
+    );
+
+    expect(getByLabelText("LinkedIn (optional)")).toBeTruthy();
+    // The per-question note stays above its own control.
+    expect(getByTestId("needs-you-question-note").textContent).toBe(
+      "Your answer did not match one of the choices.",
+    );
+
+    const answerButton = getByRole("button", { name: "Answer and continue" });
+    expect(answerButton).toHaveProperty("disabled", true);
+
+    fireEvent.change(getByLabelText("Phone"), {
+      target: { value: "+1 555 0100" },
+    });
+    fireEvent.change(getByLabelText("Are you authorised to work?"), {
+      target: { value: "Yes" },
+    });
+
+    // Both required answers are in; the blank optional one does not count.
+    expect(answerButton).toHaveProperty("disabled", false);
+    fireEvent.click(answerButton);
+
+    await waitFor(() => {
+      expect(onCommand).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      onCommand.mock.calls.map((call) => (call[0] as { answer: string }).answer),
+    ).toEqual(["+1 555 0100", "Yes"]);
   });
 });

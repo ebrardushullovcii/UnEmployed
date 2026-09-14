@@ -1,3 +1,4 @@
+import { formatElapsedMinutes } from "../applications/applications-recovery-state";
 import { CheckCircle2, CircleDashed, TriangleAlert } from "lucide-react";
 import type {
   BrowserSessionState,
@@ -29,7 +30,21 @@ export type PrimaryApplicationRecoveryKind =
   | "open_browser"
   | "open_job_details"
   | "open_profile"
-  | "open_resume_workspace";
+  | "open_resume_workspace"
+  | "open_safeguards";
+
+/**
+ * Internal identifiers the safeguard layer appends in parentheses
+ * ("(abnormal_failure_pause: automatic_discovery_failures:campaign_default)").
+ * They are evidence for a bug report, not a sentence a job seeker can act on,
+ * so the sentence on screen is the sentence without them.
+ */
+const INTERNAL_CODE_PARENTHETICAL = /\s*\((?=[^)]*[_:])[a-z0-9_:.\-\s,]+\)/gi;
+
+/** The blocker sentence as a person should read it: no internal codes. */
+export function stripInternalCodeParenthetical(value: string): string {
+  return value.replace(INTERNAL_CODE_PARENTHETICAL, "").replace(/\s{2,}/g, " ").trim();
+}
 export interface PrimaryApplicationRecovery {
   kind: PrimaryApplicationRecoveryKind;
   label: string;
@@ -47,6 +62,7 @@ export interface PrimaryApplicationAction {
     | "approve_resume"
     | "blocked"
     | "generate_resume"
+    | "open_safeguards"
     | "start_apply"
     | "waiting";
   label: string;
@@ -171,7 +187,7 @@ export function getApplicationReadinessFacts(input: {
       label: "Final submit",
       value: "Disabled for this run",
       detail:
-        "Job Finder will stop at the final safe review checkpoint without clicking submit. Verify the outcome on the site afterwards; treat an unexpected completed state as site behavior and report it.",
+        "Job Finder stops before the employer's send control. Reading the application and sending it stays yours.",
     },
   ];
 }
@@ -275,6 +291,18 @@ export function getPrimaryApplicationAction(input: {
   isSelectedJobPending: boolean;
   needsGeneration: boolean;
   resumeReviewStatus: ReviewQueueItem["resumeReview"]["status"] | "not_started";
+  /**
+   * Elapsed time of the run record for this job while it is still working.
+   * Present means the run is genuinely in flight; the local pending flag
+   * expires long before a real seven-minute run does.
+   */
+  runElapsedLabel?: string | null;
+  /**
+   * A safeguard that is holding preparation back, in plain words. When one is
+   * present the Prepare control is replaced rather than merely disabled: the
+   * dialog used to open, close itself, and leave the page exactly as it was.
+   */
+  safeguardBlocker?: string | null;
   usesOriginalResume: boolean;
 }): PrimaryApplicationAction {
   const {
@@ -287,8 +315,13 @@ export function getPrimaryApplicationAction(input: {
     isSelectedJobPending,
     needsGeneration,
     resumeReviewStatus,
+    runElapsedLabel,
+    safeguardBlocker,
     usesOriginalResume,
   } = input;
+  const safeguardSentence = safeguardBlocker?.trim()
+    ? stripInternalCodeParenthetical(safeguardBlocker)
+    : null;
 
   if (isGenerating) {
     return {
@@ -327,7 +360,7 @@ export function getPrimaryApplicationAction(input: {
           "The original resume file is missing or could not be verified for this job.",
         enabled: false,
         kind: "blocked",
-        label: "Prepare application",
+        label: "Fill it in",
         recovery: { kind: "open_profile", label: "Import original resume" },
       };
     }
@@ -351,12 +384,25 @@ export function getPrimaryApplicationAction(input: {
     };
   }
 
+  // Nothing downstream can start while a safeguard holds preparation, so the
+  // start control is the safeguard control instead of a Prepare button that
+  // opens a dialog and then does nothing.
+  if (safeguardSentence) {
+    return {
+      blocker: safeguardSentence,
+      enabled: true,
+      kind: "open_safeguards",
+      label: "Open Safeguards",
+      recovery: null,
+    };
+  }
+
   if (applySupportState === "incomplete") {
     return {
       blocker: "This job does not have a usable application link.",
       enabled: false,
       kind: "blocked",
-      label: "Prepare application",
+      label: "Fill it in",
       recovery: { kind: "open_job_details", label: "Review job details" },
     };
   }
@@ -368,19 +414,22 @@ export function getPrimaryApplicationAction(input: {
         "The application browser is blocked and needs attention.",
       enabled: false,
       kind: "blocked",
-      label: "Prepare application",
+      label: "Fill it in",
       recovery: { kind: "open_browser", label: "Fix browser connection" },
     };
   }
 
-  // While the run is in flight the button says so; a greyed button with the
-  // same label read as "nothing is happening" for the whole 15-60 seconds.
-  if (isApplyPending) {
+  // While the run is in flight the button says so, and it keeps saying so
+  // for as long as the run record is running. The label used to revert to
+  // "Fill it in" after about ninety seconds of a seven-minute run.
+  if (runElapsedLabel || isApplyPending) {
     return {
       blocker: null,
       enabled: false,
       kind: "start_apply",
-      label: "Opening the application…",
+      label: runElapsedLabel
+        ? `Filling in the form… (${runElapsedLabel})`
+        : "Filling in the form…",
       recovery: null,
     };
   }
@@ -389,7 +438,7 @@ export function getPrimaryApplicationAction(input: {
     blocker: null,
     enabled: !isSelectedJobPending,
     kind: "start_apply",
-    label: "Prepare application",
+    label: "Fill it in",
     recovery: null,
   };
 }
@@ -477,8 +526,8 @@ export function getReadinessDescription(input: {
       : selectedItem.resumeApplicationMode === "original_resume"
         ? "The unchanged original resume is not ready for this job. Import or verify it in Profile before applying."
         : resumeReviewStatus === "not_started"
-          ? "Open the resume workspace to review this resume and approve it. Approving unlocks Prepare application."
-          : "This resume is ready for your review. Approving it unlocks Prepare application.";
+          ? "Open the resume workspace to review this resume and approve it. Approving unlocks Fill it in."
+          : "This resume is ready for your review. Approving it unlocks Fill it in.";
   }
 
   if (applySupportState === "incomplete") {
@@ -508,6 +557,9 @@ export function buildMissionPanelState(input: {
   selectedItem: ReviewQueueItem | null;
   selectedJob: SavedJob | null;
   isSelectedJobPendingTooLong?: boolean;
+  safeguardBlocker?: string | null;
+  /** The still-running apply result for the selected job, when there is one. */
+  selectedApplyResult?: { startedAt?: string | null } | null;
 }) {
   const {
     browserSession,
@@ -518,6 +570,8 @@ export function buildMissionPanelState(input: {
     selectedAsset,
     selectedItem,
     selectedJob,
+    safeguardBlocker = null,
+    selectedApplyResult = null,
     isSelectedJobPendingTooLong = false,
   } = input;
   const needsGeneration = needsResumeGeneration(selectedItem);
@@ -556,6 +610,8 @@ export function buildMissionPanelState(input: {
     isSelectedJobPending,
     needsGeneration,
     resumeReviewStatus,
+    runElapsedLabel: formatElapsedMinutes(selectedApplyResult?.startedAt),
+    safeguardBlocker,
     usesOriginalResume,
   });
   const canApproveApply =
@@ -624,7 +680,7 @@ export function buildMissionPanelState(input: {
           resumeReviewStatus === "needs_review" ||
           resumeReviewStatus === "draft"
         ) {
-          return "Approve this resume to unlock Prepare application.";
+          return "Approve this resume to unlock Fill it in.";
         }
         return "Open the workspace, review the resume, and approve it.";
       })(),
@@ -663,7 +719,13 @@ export function buildMissionPanelState(input: {
   // Fully ready: resume approved, no checklist blockers, Prepare is enabled.
   // Mission UI collapses Current state / checklist noise in this state.
   const isReadyToPrepare = canApproveApply && nextBlockedChecklistItem === null;
-  const readinessDescription = getReadinessDescription({
+  // Current state must say the thing that is actually stopping the run. It
+  // used to keep reading "Job Finder will open and check the destination when
+  // you start" while a safeguard was refusing every start.
+  const readinessDescription =
+    primaryApplicationAction.kind === "open_safeguards"
+      ? (primaryApplicationAction.blocker ?? "")
+      : getReadinessDescription({
     selectedItem,
     selectedJob,
     hasGenerationFailure,
@@ -674,7 +736,7 @@ export function buildMissionPanelState(input: {
     applySupportState,
     browserActionMessage,
     isSelectedJobPendingTooLong,
-  });
+        });
   const selectionSet = new Set(queueSelection);
   const selectedQueueItems: ReviewQueueItem[] = [];
   const selectedQueueReadyItems: ReviewQueueItem[] = [];

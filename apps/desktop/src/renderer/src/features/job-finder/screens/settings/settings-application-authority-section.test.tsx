@@ -277,7 +277,7 @@ describe("SettingsApplicationAuthoritySection", () => {
       expect(screen.getByText(/Nothing saved yet/)).toBeTruthy(),
     );
     const create = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Save what Job Finder may do",
+      name: "Save",
     });
     expect(create.disabled).toBe(true);
 
@@ -370,7 +370,7 @@ describe("SettingsApplicationAuthoritySection", () => {
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Save what Job Finder may do" }),
+      screen.getByRole("button", { name: "Save" }),
     );
     await waitFor(() =>
       expect(api.createApplicationAuthorityEnvelope).toHaveBeenCalledWith(
@@ -402,7 +402,7 @@ describe("SettingsApplicationAuthoritySection", () => {
       target: { value: "2" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Save authority revision" }),
+      screen.getByRole("button", { name: "Save" }),
     );
 
     await waitFor(() =>
@@ -422,17 +422,17 @@ describe("SettingsApplicationAuthoritySection", () => {
     render(<SettingsApplicationAuthoritySection />);
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Revoke authority" }),
+        screen.getByRole("button", { name: "Go back to fill-and-stop" }),
       ).toBeTruthy(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Revoke authority" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go back to fill-and-stop" }));
     expect(api.revokeApplicationAuthorityEnvelope).not.toHaveBeenCalled();
     expect(
-      screen.getByText(/Revoke prepare only revision 1\? .* cannot be undone/),
+      screen.getByText(/go back to filling applications in and stopping/i),
     ).toBeTruthy();
     fireEvent.click(
-      screen.getByRole("button", { name: "Confirm revoke authority" }),
+      screen.getByRole("button", { name: "Go back to fill-and-stop" }),
     );
     await waitFor(() =>
       expect(api.revokeApplicationAuthorityEnvelope).toHaveBeenCalledWith({
@@ -475,7 +475,7 @@ describe("SettingsApplicationAuthoritySection", () => {
     ).toBe(true);
 
     // Nothing here can switch it back on, and it cannot be taken back twice.
-    expect(screen.queryByRole("button", { name: "Revoke authority" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Go back to fill-and-stop" })).toBeNull();
     expect(api.revokeApplicationAuthorityEnvelope).not.toHaveBeenCalled();
   });
 
@@ -493,13 +493,13 @@ describe("SettingsApplicationAuthoritySection", () => {
     render(<SettingsApplicationAuthoritySection />);
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "Revoke authority" }),
+      await screen.findByRole("button", { name: "Go back to fill-and-stop" }),
     );
     expect(
-      screen.getByText(/Revoke autonomous submit revision 1\?/i),
+      screen.getByText(/go back to filling applications in and stopping/i),
     ).toBeTruthy();
     fireEvent.click(
-      screen.getByRole("button", { name: "Confirm revoke authority" }),
+      screen.getByRole("button", { name: "Go back to fill-and-stop" }),
     );
     await waitFor(() =>
       expect(api.revokeApplicationAuthorityEnvelope).toHaveBeenCalledWith({
@@ -537,5 +537,78 @@ describe("SettingsApplicationAuthoritySection", () => {
       name: /answer pay questions from your profile/i,
     });
     expect(payChoice.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("states what a chosen mode will do and gives one button per missing prerequisite", async () => {
+    installApi();
+    render(<SettingsApplicationAuthoritySection />);
+
+    await screen.findByRole("radio", { name: /Fill them in and send them/ });
+    fireEvent.click(
+      screen.getByRole("radio", { name: /Fill them in and send them/ }),
+    );
+
+    const outcome = await screen.findByTestId("application-automation-outcome");
+    expect(outcome.textContent).toMatch(
+      /Job Finder will fill applications in and send the ones that fall inside the limits below/,
+    );
+
+    // A dead end ("NOT APPROVED" with nothing to press) is what this replaces:
+    // every missing prerequisite carries its own way forward.
+    const prerequisites = await screen.findByTestId(
+      "application-automation-prerequisites",
+    );
+    expect(prerequisites.textContent).toMatch(
+      /lets Job Finder reuse exactly the answers you checked in Profile/,
+    );
+    expect(
+      screen.getByRole("button", { name: "Approve your saved answers" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Set when this expires" }),
+    ).toBeTruthy();
+    expect(document.body.textContent ?? "").not.toMatch(
+      /form state|safe advance|authority envelope|configured model/i,
+    );
+  });
+
+  it("asks for a website only in the modes that send applications", async () => {
+    installApi({
+      listApplicationAuthorityEnvelopes: vi.fn(() => Promise.resolve([])),
+    });
+    render(<SettingsApplicationAuthoritySection />);
+
+    // Fill-and-stop writes nothing on any site and prepares with no website
+    // named, so there is no website step to be missing.
+    await screen.findByTestId("application-automation-outcome");
+    expect(
+      screen.queryByRole("button", { name: "Add a website" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("radio", { name: /Fill them in and send them/ }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Add a website" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("application-automation-prerequisites").textContent,
+    ).toMatch(/Sending is limited to the sites you name here/);
+
+    fireEvent.click(
+      screen.getByRole("radio", { name: /ask me before sending/i }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Add a website" }),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("radio", { name: /Fill applications in and stop/ }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Add a website" }),
+      ).toBeNull();
+    });
   });
 });

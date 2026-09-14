@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   classifyEnabledSourceHealth,
   deriveEnabledSourceHealthCounts,
+  deriveRepeatedlyFailingTargetIds,
   deriveDiscoverySourceOutcome,
   deriveSourceHealthSignals,
   deriveSucceededDiscoveryTargetIds,
@@ -616,5 +617,53 @@ describe("a source that returned nothing", () => {
     expect(describeEnabledSourceHealth(unsupported).reason).toBe(
       "Job Finder could not read this site's job listings: its page layout is not one Job Finder recognises yet.",
     );
+  });
+});
+
+/**
+ * A source that keeps failing is reported on the source.
+ *
+ * This is what replaces pausing the whole search plan: the plan keeps running
+ * with the sources that still work, and the one that does not shows up in
+ * Profile › Job sources.
+ */
+describe("deriveRepeatedlyFailingTargetIds", () => {
+  test("two failed runs in a row mark that source, and that source only", () => {
+    const repeatedly = deriveRepeatedlyFailingTargetIds([
+      run([
+        { targetId: "one", state: "failed" },
+        { targetId: "two", state: "completed" },
+      ]),
+      run([
+        { targetId: "one", state: "failed" },
+        { targetId: "two", state: "completed" },
+      ]),
+    ]);
+
+    expect([...repeatedly]).toEqual(["one"]);
+  });
+
+  test("one failure on its own is not yet a pattern", () => {
+    const repeatedly = deriveRepeatedlyFailingTargetIds([
+      run([{ targetId: "one", state: "failed" }]),
+      run([{ targetId: "one", state: "completed" }]),
+    ]);
+
+    expect([...repeatedly]).toEqual([]);
+  });
+
+  test("a repeatedly failing source needs attention", () => {
+    const target = source({
+      id: "one",
+      lastVerifiedAt: VERIFIED_AT,
+      instructionStatus: "ready" as SourceInstructionStatus,
+    });
+    const runtime: SourceRuntimeSignals = {
+      usedTargetIds: new Set(["one"]),
+      repeatedlyFailingTargetIds: new Set(["one"]),
+    };
+
+    expect(listSourceAttentionReasons(target, runtime)).toContain("failing");
+    expect(isEnabledSourceNeedingAttention(target, runtime)).toBe(true);
   });
 });

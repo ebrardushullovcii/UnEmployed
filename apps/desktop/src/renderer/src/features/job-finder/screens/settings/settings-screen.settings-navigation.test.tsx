@@ -38,17 +38,17 @@ vi.mock("./settings-application-defaults-section", () => ({
     </section>
   ),
 }));
-vi.mock("./settings-application-authority-section", () => ({
+vi.mock("./settings-apply-mode-section", () => ({
   // This section names its own region through the heading the user can see,
   // instead of an sr-only h2 repeating the same sentence above it.
-  SettingsApplicationAuthoritySection: ({
+  SettingsApplyModeSection: ({
     headingId,
   }: {
     headingId?: string;
   }) => (
     <section data-testid="panel-application-authority">
-      <h3 id={headingId}>What Job Finder may do on application sites</h3>
-      Application authority panel
+      <h3 id={headingId}>Applying</h3>
+      Apply mode panel
     </section>
   ),
 }));
@@ -101,7 +101,7 @@ const sectionLabels = [
   "Application defaults",
   // Plain-language tab names. The renames change the labels only: the
   // prepare-only boundary and every permission it describes are unchanged.
-  "What Job Finder may do on application sites",
+  "Applying",
   "Browser & saved jobs",
   "Tracker",
   "Diagnostics",

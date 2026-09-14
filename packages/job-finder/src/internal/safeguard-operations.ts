@@ -46,6 +46,12 @@ import {
   type SimultaneousApplicationConflict,
 } from "@unemployed/contracts";
 
+import {
+  AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID,
+  AUTOMATIC_DISCOVERY_FAILURE_PAUSE_ID,
+  AUTOMATIC_SOURCE_DEBUG_FAILURE_PAUSE_ID,
+} from "../plan-safeguard-pauses";
+
 // ---------------------------------------------------------------------------
 // Shared plumbing
 // ---------------------------------------------------------------------------
@@ -1678,14 +1684,56 @@ export type SafeguardBlockerKind = (typeof safeguardBlockerKindValues)[number];
 
 export type SafeguardBlockerSeverity = "blocker" | "advisory";
 
+/**
+ * Which kind of work a safeguard actually stands in the way of.
+ *
+ * A search plan that paused itself after failed searches has nothing to say
+ * about an application the person is preparing by hand, and a daily
+ * application cap has nothing to say about running a search. Saying so here
+ * keeps one kind of trouble from standing in front of the other.
+ */
+export type SafeguardBlockerScope = "discovery" | "apply" | "all";
+
 export type SafeguardBlocker = {
   priority: number;
   kind: SafeguardBlockerKind;
   id: string;
   severity: SafeguardBlockerSeverity;
+  /** What this blocker stops. */
+  scope: SafeguardBlockerScope;
+  /**
+   * The internal reference, for logs and for a renderer that wants to show it
+   * behind a details control. It never belongs in a sentence a person reads.
+   */
+  code: string;
   explanation: string;
   recoveryGuidance: string;
 };
+
+/** Which work an automatic pause belongs to, read from its own stable id. */
+export function abnormalFailurePauseScope(
+  pauseId: string,
+): SafeguardBlockerScope {
+  if (
+    pauseId.startsWith(AUTOMATIC_DISCOVERY_FAILURE_PAUSE_ID) ||
+    pauseId.startsWith(AUTOMATIC_SOURCE_DEBUG_FAILURE_PAUSE_ID)
+  ) {
+    return "discovery";
+  }
+  if (pauseId.startsWith(AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID)) {
+    return "apply";
+  }
+  // A pause the person set themselves stops everything until they lift it.
+  return "all";
+}
+
+/** True when this blocker stands in the way of the work being attempted. */
+export function blockerAppliesTo(
+  blocker: SafeguardBlocker,
+  operation: "discovery" | "apply",
+): boolean {
+  return blocker.scope === "all" || blocker.scope === operation;
+}
 
 const BLOCKER_PRIORITY: Record<SafeguardBlockerKind, number> = {
   company_cap_limit: 1,
@@ -1711,6 +1759,7 @@ function makeBlocker(input: {
   kind: SafeguardBlockerKind;
   id: string;
   severity: SafeguardBlockerSeverity;
+  scope: SafeguardBlockerScope;
   explanation: string;
   recoveryGuidance: string;
 }): SafeguardBlocker {
@@ -1719,6 +1768,8 @@ function makeBlocker(input: {
     kind: input.kind,
     id: input.id,
     severity: input.severity,
+    scope: input.scope,
+    code: `${input.kind}: ${input.id}`,
     explanation: input.explanation,
     recoveryGuidance: input.recoveryGuidance,
   };
@@ -1783,6 +1834,7 @@ function collectGateCandidates(
         kind: "company_cap_limit",
         id: cap.id,
         severity: "blocker",
+        scope: "apply",
         explanation: cap.explanation,
         recoveryGuidance: cap.recoveryGuidance,
       }),
@@ -1807,6 +1859,7 @@ function collectGateCandidates(
         kind: "simultaneous_application_conflict",
         id: conflict.id,
         severity: "blocker",
+        scope: "apply",
         explanation: conflict.explanation,
         recoveryGuidance: conflict.recoveryGuidance,
       }),
@@ -1833,6 +1886,7 @@ function collectGateCandidates(
         kind: "listing_signal",
         id: signal.id,
         severity: "blocker",
+        scope: "apply",
         explanation: signal.explanation,
         recoveryGuidance: signal.recoveryGuidance,
       }),
@@ -1853,6 +1907,7 @@ function collectGateCandidates(
         kind: "abnormal_failure_pause",
         id: pause.id,
         severity: "blocker",
+        scope: abnormalFailurePauseScope(pause.id),
         explanation: pause.explanation,
         recoveryGuidance: pause.recoveryGuidance,
       }),
@@ -1875,6 +1930,7 @@ function collectGateCandidates(
         kind: "batch_sample_review_pending",
         id: review.id,
         severity: "blocker",
+        scope: "all",
         explanation: review.explanation,
         recoveryGuidance: review.recoveryGuidance,
       }),
@@ -1897,6 +1953,7 @@ function collectGateCandidates(
         kind: "contradictory_answer",
         id: detection.id,
         severity: "advisory",
+        scope: "apply",
         explanation: detection.explanation,
         recoveryGuidance: detection.recoveryGuidance,
       }),
@@ -1914,6 +1971,12 @@ function collectGateCandidates(
  */
 export function deriveActiveSafeguardBlockers(input: {
   safeguards: JobFinderIntelligenceSafeguards;
+  /**
+   * The work being attempted. Given, only the safeguards that stand in the
+   * way of that work are returned; omitted, everything active comes back for
+   * the Safeguards screen to show.
+   */
+  operation?: "discovery" | "apply";
 }): SafeguardBlocker[] {
   const safeguards = JobFinderIntelligenceSafeguardsSchema.parse(
     input.safeguards,
@@ -1922,7 +1985,10 @@ export function deriveActiveSafeguardBlockers(input: {
     compareGateCandidates,
   );
 
-  return candidates.map((candidate) => candidate.blocker);
+  const operation = input.operation;
+  return candidates
+    .map((candidate) => candidate.blocker)
+    .filter((blocker) => !operation || blockerAppliesTo(blocker, operation));
 }
 
 /**
@@ -1957,6 +2023,8 @@ export type SafeguardScopeBlockersInput = {
   companyIds?: readonly string[];
   /** Maps application record ids to the job that owns them. */
   applicationRecordJobIds?: ReadonlyMap<string, string>;
+  /** The work being attempted; omitted means "every active safeguard". */
+  operation?: "discovery" | "apply";
 };
 
 /**
@@ -1995,6 +2063,7 @@ export function deriveScopeBlockers(
         kind: "company_cap_limit",
         id: cap.id,
         severity: "blocker",
+        scope: "apply",
         explanation: cap.explanation,
         recoveryGuidance: cap.recoveryGuidance,
       }),
@@ -2021,6 +2090,7 @@ export function deriveScopeBlockers(
         kind: "simultaneous_application_conflict",
         id: conflict.id,
         severity: "blocker",
+        scope: "apply",
         explanation: conflict.explanation,
         recoveryGuidance: conflict.recoveryGuidance,
       }),
@@ -2048,6 +2118,7 @@ export function deriveScopeBlockers(
         kind: "listing_signal",
         id: signal.id,
         severity: "blocker",
+        scope: "apply",
         explanation: signal.explanation,
         recoveryGuidance: signal.recoveryGuidance,
       }),
@@ -2068,6 +2139,7 @@ export function deriveScopeBlockers(
         kind: "abnormal_failure_pause",
         id: pause.id,
         severity: "blocker",
+        scope: abnormalFailurePauseScope(pause.id),
         explanation: pause.explanation,
         recoveryGuidance: pause.recoveryGuidance,
       }),
@@ -2085,6 +2157,7 @@ export function deriveScopeBlockers(
         kind: "batch_sample_review_pending",
         id: review.id,
         severity: "blocker",
+        scope: "all",
         explanation: review.explanation,
         recoveryGuidance: review.recoveryGuidance,
       }),
@@ -2107,15 +2180,18 @@ export function deriveScopeBlockers(
         kind: "contradictory_answer",
         id: detection.id,
         severity: "advisory",
+        scope: "apply",
         explanation: detection.explanation,
         recoveryGuidance: detection.recoveryGuidance,
       }),
     );
   }
 
+  const operation = input.operation;
   return candidates
     .sort(compareGateCandidates)
-    .map((candidate) => candidate.blocker);
+    .map((candidate) => candidate.blocker)
+    .filter((blocker) => !operation || blockerAppliesTo(blocker, operation));
 }
 
 // ---------------------------------------------------------------------------

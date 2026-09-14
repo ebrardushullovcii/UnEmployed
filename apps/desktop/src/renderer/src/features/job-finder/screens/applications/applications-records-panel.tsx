@@ -37,7 +37,7 @@ import {
 import { StatusBadge } from "../../components/status-badge";
 import { Link } from "react-router-dom";
 import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
-import { getAttemptLabel, getAttemptTone } from "../../lib/job-finder-utils";
+import { getAttemptLabel } from "../../lib/job-finder-utils";
 import {
   formatApplicationEmployerAriaLabel,
   formatApplicationEmployerLine,
@@ -229,7 +229,7 @@ export function ApplicationsRecordsPanel({
             // panel, and its actions read as unrelated page furniture.
             <EmptyState
               title="No application started yet"
-              description="Shortlisting a job or tailoring its resume does not create an application record. Open Shortlisted, select a job, and choose Prepare application to start the prepare-only flow."
+              description="Shortlisting a job or tailoring its resume does not create an application record. Open Shortlisted, select a job, and choose Fill it in to start the prepare-only flow."
             >
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <Button asChild size="sm" type="button" variant="primary">
@@ -262,18 +262,12 @@ export function ApplicationsRecordsPanel({
         >
           {pagedRecords.map((record) => {
             const stage = getApplicationStagePresentation(record);
+            // One status word per row. The stage badge is it; a second badge
+            // restating the same state a different way ("Needs follow-up"
+            // beside "Needs you") is the duplicate pill that made every row
+            // read as two conflicting states. The attempt detail stays in the
+            // panel and in the row's assistive description.
             const attemptLabel = getAttemptLabel(record.lastAttemptState);
-            // The stage badge already says the record is stuck; a second
-            // badge restating how ("Needs follow-up", "Attempt failed") was
-            // badge noise. The attempt detail stays in the panel.
-            const showAttemptBadge =
-              stage.label !== attemptLabel &&
-              !(
-                (stage.label === "Needs you" &&
-                  attemptLabel === "Needs follow-up") ||
-                (stage.label === "Needs recovery" &&
-                  attemptLabel === "Attempt failed")
-              );
             const nextStepLabel =
               getApplicationReadableNextStepLabel(
                 getApplicationNextStepLabel(record),
@@ -326,18 +320,6 @@ export function ApplicationsRecordsPanel({
                         <StatusBadge tone={stage.tone}>
                           {stage.label}
                         </StatusBadge>
-                        <SelectableRowLine
-                          className="flex items-center justify-end"
-                          reserve={false}
-                        >
-                          {showAttemptBadge ? (
-                            <StatusBadge
-                              tone={getAttemptTone(record.lastAttemptState)}
-                            >
-                              {attemptLabel}
-                            </StatusBadge>
-                          ) : null}
-                        </SelectableRowLine>
                       </div>
                     </div>
                     <SelectableRowLine

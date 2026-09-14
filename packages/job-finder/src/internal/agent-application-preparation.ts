@@ -148,14 +148,31 @@ const BLOCKER_CODES: Record<
   multi_factor_required: "requires_manual_review",
   application_closed: "requires_manual_review",
   application_page_unreachable: "application_page_unreachable",
+  site_saves_as_you_go: "site_saves_as_you_go",
 };
 
+/**
+ * Every question the run handed back, in page order and without repeats.
+ *
+ * A pause carries all of them now; the single `question` is still read for a
+ * pause built before that.
+ */
 function toQuestions(result: ApplyAgentResult): ApplicationAttemptQuestion[] {
-  return result.pauses
-    .map((pause) => pause.question)
-    .filter(
-      (question): question is ApplicationAttemptQuestion => question !== null,
-    );
+  const byId = new Map<string, ApplicationAttemptQuestion>();
+  for (const pause of result.pauses) {
+    const questions =
+      pause.questions && pause.questions.length > 0
+        ? pause.questions
+        : pause.question
+          ? [pause.question]
+          : [];
+    for (const question of questions) {
+      if (!byId.has(question.id)) {
+        byId.set(question.id, question);
+      }
+    }
+  }
+  return [...byId.values()];
 }
 
 function toBlocker(
@@ -171,22 +188,19 @@ function toBlocker(
       detail: blocked.blocker.detail,
       questionIds: [],
       sourceDebugEvidenceRefIds: [],
-      url: null,
+      // The page it actually happened on, so opening it lands where the person
+      // has to act rather than back on the listing. When the next action is
+      // about one site — allowing it to save as you go — that site wins.
+      url: blocked.blocker.host
+        ? `https://${blocked.blocker.host}`
+        : result.finalUrl,
     };
   }
-  if (questions.length === 0) {
-    return null;
-  }
-  const first = result.pauses.find((pause) => pause.question !== null);
-  return {
-    code: "missing_candidate_answer",
-    userActionKind: null,
-    summary: first?.summary ?? "This application needs an answer from you.",
-    detail: result.reason,
-    questionIds: questions.map((question) => question.id),
-    sourceDebugEvidenceRefIds: [],
-    url: null,
-  };
+  // ADR 0022: a question Job Finder could not answer is not a task. The run
+  // fills what it can and hands the browser over; the questions are kept on
+  // the record so the person can see what is left, but nothing blocks.
+  void questions;
+  return null;
 }
 
 function toCheckpoints(
@@ -209,24 +223,63 @@ function nextActionFor(result: ApplyAgentResult): string {
   if (blocked?.blocker) {
     return blocked.blocker.nextActionLabel;
   }
-  if (result.pauses.length > 0) {
-    return "Answer the question in Needs you";
+  if (result.pauses.some((pause) => pause.question !== null)) {
+    return "Open the browser and finish it";
   }
   return result.outcome === "awaiting_your_review"
     ? "Review it and send it"
     : "Open the application and finish it";
 }
 
+/** How many questions the run left for the person, in one plain phrase. */
+function questionsLeftPhrase(result: ApplyAgentResult): string {
+  const count = result.pauses.reduce(
+    (total, pause) =>
+      total + (pause.questions?.length ?? (pause.question ? 1 : 0)),
+    0,
+  );
+  return count === 1 ? "1 question left for you" : `${count} questions left for you`;
+}
+
 function summaryFor(result: ApplyAgentResult): string {
   switch (result.outcome) {
     case "paused":
-      return "This application needs you";
+      return result.pauses.some((pause) => pause.question !== null) &&
+        !result.pauses.some((pause) => pause.blocker !== null)
+        ? `Filled in what it could; ${questionsLeftPhrase(result)}`
+        : "This application needs you";
     case "stuck":
       return "Job Finder could not finish this application";
     case "awaiting_your_review":
       return "Ready for you to review and send";
     default:
       return "Filled in and waiting";
+  }
+}
+
+/**
+ * Runs the apply loop and turns a thrown error into an answer.
+ *
+ * Anything can throw: a page read, a schema that refuses a value, a browser
+ * that went away. When it does, this run still has to end as something the
+ * person can see, or they are left with a record that says it is running, a
+ * button that does nothing, and no way back.
+ */
+async function runApplyAgentSafely(
+  input: AgentApplicationPreparationInput,
+  config: Parameters<typeof runApplyAgent>[0],
+): Promise<{ ok: true; result: ApplyAgentResult } | { ok: false; detail: string }> {
+  try {
+    return { ok: true, result: await runApplyAgent(config, input.llmClient) };
+  } catch (error) {
+    const reason =
+      error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : "something went wrong while it was working through the form";
+    return {
+      ok: false,
+      detail: `Job Finder stopped working on ${input.siteLabel} because ${reason}. Nothing was sent, and anything it filled in is still on the page.`,
+    };
   }
 }
 
@@ -247,9 +300,8 @@ export async function runAgentApplicationPreparation(
   const targetUrl =
     executionInput.job.applicationUrl ?? executionInput.job.canonicalUrl;
 
-  const result = await runApplyAgent(
-    {
-      hands: createApplyPageHands(input.session, now),
+  const outcome = await runApplyAgentSafely(input, {
+    hands: createApplyPageHands(input.session, now),
       safety: input.session,
       intermediateWritesAuthorized:
         executionInput.intermediateMutationsAuthorized === true,
@@ -287,9 +339,45 @@ export async function runAgentApplicationPreparation(
         : {}),
       now,
       ...(input.signal ? { signal: input.signal } : {}),
-    },
-    input.llmClient,
-  );
+  });
+
+  if (!outcome.ok) {
+    // Whatever went wrong, this run ends as a recorded outcome rather than as
+    // a thrown error: a run that disappears leaves the person with a button
+    // that does nothing and a record that says it is still going.
+    return buildPreparationResult({
+      executionInput,
+      state: "paused",
+      summary: "Job Finder could not finish this application",
+      detail: outcome.detail,
+      questions: [],
+      blocker: {
+        code: "requires_manual_review",
+        userActionKind: null,
+        summary: "Job Finder could not finish this application.",
+        detail: outcome.detail,
+        questionIds: [],
+        sourceDebugEvidenceRefIds: [],
+        url: null,
+      },
+      checkpoints: [],
+      checkpointLabel: "Stopped before the form was finished",
+      checkpointDetail: outcome.detail,
+      checkpointUrls: [targetUrl],
+      lastUrl: null,
+      now: now().toISOString(),
+      nextActionLabel: "Try this application again",
+    });
+  }
+
+  const result = outcome.result;
+  // One line the developer can read beside the person's own notes. The same
+  // numbers are in the run's trail; this is so a slow run can be diagnosed
+  // from the console without opening the record.
+  const timingNote = result.notes.find((note) => note.startsWith("[apply] timing"));
+  if (timingNote) {
+    console.info(timingNote);
+  }
 
   input.onPrepared?.({
     result,

@@ -4,6 +4,9 @@
     "baseUrl": ".",
     "jsx": "react-jsx",
     "paths": {
+      "@unemployed/browser-agent": [
+        "../../packages/browser-agent/src/index.ts"
+      ],
       "@unemployed/job-finder/discovery-ordering": [
         "../../packages/job-finder/src/discovery-ordering.ts"
       ],

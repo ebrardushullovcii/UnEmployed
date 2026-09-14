@@ -91,7 +91,13 @@ type BuildJobFinderPageContextArgs = {
     subject: string | null;
     /** Honest statement of what preparation will do, prepare-only boundary included. */
     description: string;
-    onResolve: (visualCheckpointsEnabled: boolean) => void;
+    /**
+     * Returns a refusal sentence when the start could not begin, so the dialog
+     * can stay open and say why instead of closing silently.
+     */
+    onResolve: (
+      visualCheckpointsEnabled: boolean,
+    ) => string | null | void | Promise<string | null | void>;
   }) => void;
   profileSetupState: ProfileSetupState | null;
   saveCoordinator: JobFinderSaveCoordinator;

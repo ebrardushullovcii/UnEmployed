@@ -19,11 +19,13 @@ export function buildQuestionSummary(
     (question) =>
       question.status === "answered" || question.status === "submitted",
   ).length;
+  // What the person is waiting on is every question the run handed back, not
+  // only the ones the site marked with a star: an optional field Job Finder
+  // could not answer is still a field they have to answer. The screens count
+  // this, so it has to be the same list they are shown.
   const unansweredRequired = questions.filter(
     (question) =>
-      question.isRequired &&
-      question.status !== "answered" &&
-      question.status !== "submitted",
+      question.status !== "answered" && question.status !== "submitted",
   ).length;
 
   return {

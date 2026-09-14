@@ -1,5 +1,6 @@
 import type {
   ApplyBlockedAttempt,
+  ApplyNavigationResult,
   ApplyPageSession,
   ApplyRawPageHands,
   ApplyServiceWorkerFinding,
@@ -7,6 +8,7 @@ import type {
   ApplyWriteResult,
   RawApplyAction,
   RawApplyControl,
+  RawApplyLink,
   RawApplyPage,
 } from "@unemployed/contracts";
 import type { Locator, Page } from "playwright";
@@ -36,8 +38,10 @@ export const APPLY_CONTROL_SELECTOR =
 export const APPLY_ACTION_SELECTOR =
   "button, input[type='submit'], input[type='button'], [role='button']";
 
+export const APPLY_LINK_SELECTOR = "a[href]";
+
 export async function readRawApplyPage(page: Page): Promise<RawApplyPage> {
-  const [controls, actions, bodyText, validationErrors, stepLabel] =
+  const [controls, actions, links, bodyText, validationErrors, stepLabel] =
     await Promise.all([
       page
         .locator(APPLY_CONTROL_SELECTOR)
@@ -89,10 +93,14 @@ export async function readRawApplyPage(page: Page): Promise<RawApplyPage> {
               : "";
           };
           const customOptions = (element: HTMLElement): string[] => {
-            const owned = element.getAttribute("aria-controls");
-            const listbox = owned
-              ? document.getElementById(owned)
-              : element.parentElement?.querySelector("[role='listbox']") ?? null;
+            // Only a list this control says is its own. Reaching into the
+            // nearest listbox in the DOM is how a phone number field ended up
+            // carrying the 200 countries belonging to the picker beside it,
+            // and then refusing the number as "not one of the choices".
+            const owned =
+              element.getAttribute("aria-controls") ??
+              element.getAttribute("aria-owns");
+            const listbox = owned ? document.getElementById(owned) : null;
             if (!listbox) return [];
             return Array.from(listbox.querySelectorAll("[role='option']"))
               .map((option) => option.textContent?.trim() ?? "")
@@ -189,6 +197,37 @@ export async function readRawApplyPage(page: Page): Promise<RawApplyPage> {
           }),
         ),
       page
+        .locator(APPLY_LINK_SELECTOR)
+        .evaluateAll((elements): RawApplyLink[] =>
+          // More links than this on one page are never the way to a form.
+          elements.slice(0, 400).map((element, index) => {
+            const html = element as HTMLElement;
+            const anchor =
+              element instanceof HTMLAnchorElement ? element : null;
+            const style = window.getComputedStyle(html);
+            const rect = html.getBoundingClientRect();
+            return {
+              index,
+              label:
+                element.getAttribute("aria-label")?.trim() ||
+                html.innerText.trim() ||
+                element.getAttribute("title")?.trim() ||
+                "",
+              // `href` on the element is already resolved against the page for
+              // a web address, and left as written for anything else.
+              href: anchor?.href || element.getAttribute("href") || "",
+              target: anchor?.target.trim() ?? "",
+              visible:
+                style.display !== "none" &&
+                style.visibility !== "hidden" &&
+                style.opacity !== "0" &&
+                html.getClientRects().length > 0,
+              topOffset: Math.round(rect.top + window.scrollY),
+            };
+          }),
+        )
+        .catch(() => [] as RawApplyLink[]),
+      page
         .locator("body")
         .innerText({ timeout: 5_000 })
         .then((text) => text.slice(0, 20_000))
@@ -212,36 +251,207 @@ export async function readRawApplyPage(page: Page): Promise<RawApplyPage> {
 
   // A list the page draws itself does not report its own selection, so it is
   // read separately before anything decides the control is empty.
-  const enrichedControls = await Promise.all(
-    controls.map(async (control) => {
-      const isCustomCombobox =
+  // One pass over the page for every list it draws itself, rather than one
+  // round trip each: a form with a dozen of them is read after every single
+  // field is filled in, and those round trips are the person's time.
+  const customIndexes = controls
+    .filter(
+      (control) =>
         control.tagName !== "select" &&
-        (control.role === "combobox" || control.inputType === "combobox");
-      if (!isCustomCombobox) {
-        return control;
-      }
-      const custom = await readCustomComboboxState(page, control.index);
-      const selectedOptionLabel =
-        custom.selectedOptionLabel || control.selectedOptionLabel;
-      return {
-        ...control,
-        selectedOptionLabel,
-        visible:
-          control.visible ||
-          (custom.compositeVisible && selectedOptionLabel.trim().length > 0),
-      };
-    }),
+        (control.role === "combobox" || control.inputType === "combobox"),
+    )
+    .map((control) => control.index);
+  const customStates =
+    customIndexes.length > 0
+      ? await readCustomComboboxStates(page, customIndexes)
+      : new Map<number, { selectedOptionLabel: string; compositeVisible: boolean }>();
+  const enrichedControls = controls.map((control) => {
+    const custom = customStates.get(control.index);
+    if (!custom) {
+      return control;
+    }
+    const selectedOptionLabel =
+      custom.selectedOptionLabel || control.selectedOptionLabel;
+    return {
+      ...control,
+      selectedOptionLabel,
+      visible:
+        control.visible ||
+        (custom.compositeVisible && selectedOptionLabel.trim().length > 0),
+    };
+  });
+
+  // A list the page builds itself renders its choices only while it is open.
+  // Closed, the question reaches the person as a bare text box with nothing to
+  // pick from, which is no question at all. Opening it is a read: it asks the
+  // page to show what it already offers and writes nothing.
+  const controlsWithChoices = await readClosedComboboxOptions(
+    page,
+    enrichedControls,
   );
 
   return {
     url: page.url(),
     title: await page.title().catch(() => null),
     bodyText,
-    controls: enrichedControls,
+    controls: controlsWithChoices,
     actions,
+    links,
     validationErrors,
     stepLabel,
   };
+}
+
+/** How many closed lists one page read is willing to open. */
+const MAX_OPENED_COMBOBOXES = 16;
+
+/**
+ * The choices already read out of one page's lists.
+ *
+ * Opening a list costs the better part of a second, and a form is read again
+ * after every single field is filled in. Reading the same ten lists on every
+ * one of those reads was minutes of a person's run spent learning nothing new:
+ * the choices a list offers do not change while the form is being filled in.
+ * Keyed by the page and by what the control says about itself, so a renumbered
+ * control still finds its own choices and a new page starts fresh.
+ */
+const comboboxOptionMemo = new WeakMap<Page, Map<string, string[]>>();
+
+/**
+ * What makes one list that list, on this page and on the next read.
+ *
+ * Its own words and the kind of field it is — never where it sits in the DOM,
+ * and never a listbox id the page mints afresh each time it opens. Position is
+ * how the country list ended up answering a yes/no question.
+ */
+function comboboxMemoKey(url: string, control: RawApplyControl): string {
+  const words = `${control.groupLabel} ${control.label}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim();
+  return `${url}|${words}|${control.tagName}|${control.inputType}|${control.role}`;
+}
+
+/**
+ * Fills in the choices of every list that only renders them while open.
+ *
+ * Bounded on both axes: a few lists per read, a moment each. Anything that
+ * will not open is left as it was rather than holding up the read.
+ */
+async function readClosedComboboxOptions(
+  page: Page,
+  controls: readonly RawApplyControl[],
+): Promise<RawApplyControl[]> {
+  const closed = controls.filter(
+    (control) =>
+      control.visible &&
+      !control.disabled &&
+      control.tagName !== "select" &&
+      (control.role === "combobox" || control.inputType === "combobox") &&
+      control.options.length === 0 &&
+      // A list that already shows a choice has been answered; opening it
+      // tells the person nothing and costs them a second of their run.
+      control.selectedOptionLabel.trim().length === 0,
+  );
+  if (closed.length === 0) {
+    return [...controls];
+  }
+
+  const url = page.url();
+  let memo = comboboxOptionMemo.get(page);
+  if (!memo) {
+    memo = new Map<string, string[]>();
+    comboboxOptionMemo.set(page, memo);
+  }
+
+  const optionsByIndex = new Map<number, string[]>();
+  const toOpen: RawApplyControl[] = [];
+  for (const control of closed) {
+    const remembered = memo.get(comboboxMemoKey(url, control));
+    if (remembered) {
+      if (remembered.length > 0) {
+        optionsByIndex.set(control.index, remembered);
+      }
+      continue;
+    }
+    toOpen.push(control);
+  }
+
+  for (const control of toOpen.slice(0, MAX_OPENED_COMBOBOXES)) {
+    const locator = page.locator(APPLY_CONTROL_SELECTOR).nth(control.index);
+    try {
+      // Whatever the last list left open is closed first: a click that only
+      // dismisses someone else's flyout reads as a list with no choices, and
+      // the question then reaches the person as a bare text box.
+      await page.keyboard.press("Escape").catch(() => undefined);
+      await locator.scrollIntoViewIfNeeded({ timeout: 1_500 }).catch(() => undefined);
+      // Focus and a down arrow, the way a person opens one of these with the
+      // keyboard. A click depends on the window being the one in front, which
+      // it is not when the browser is doing this beside the app; the keyboard
+      // does not care. The click stays as the fallback.
+      await locator.focus({ timeout: 1_500 }).catch(() => undefined);
+      await locator.press("ArrowDown", { timeout: 1_500 }).catch(() => undefined);
+      if ((await locator.getAttribute("aria-expanded")) !== "true") {
+        await locator.click({ timeout: 1_500 });
+      }
+      // Only the list this control owns. Every open flyout on the page has
+      // options in the DOM, and the nearest ones are not necessarily these.
+      // Give the list the moment it needs to render its choices.
+      await locator
+        .evaluate(
+          (element) =>
+            new Promise<void>((resolve) => {
+              const deadline = Date.now() + 600;
+              const check = (): void => {
+                if (
+                  element.getAttribute("aria-expanded") === "true" ||
+                  Date.now() > deadline
+                ) {
+                  resolve();
+                  return;
+                }
+                setTimeout(check, 50);
+              };
+              check();
+            }),
+        )
+        .catch(() => undefined);
+      const options = await locator.evaluate((element) => {
+        // Only the list this control opened, proved by the control saying it
+        // is expanded and naming the list as its own. Falling back to the
+        // nearest container is how one question ends up showing another
+        // question's answers.
+        if (element.getAttribute("aria-expanded") !== "true") {
+          return [] as string[];
+        }
+        const owned =
+          element.getAttribute("aria-controls") ??
+          element.getAttribute("aria-owns");
+        const listbox = owned ? document.getElementById(owned) : null;
+        if (!listbox) return [] as string[];
+        return Array.from(listbox.querySelectorAll("[role='option']"))
+          .map((option) => (option as HTMLElement).innerText.trim())
+          .filter((text) => text.length > 0)
+          .slice(0, 200);
+      });
+      memo.set(comboboxMemoKey(url, control), options);
+      if (options.length > 0) {
+        optionsByIndex.set(control.index, options);
+      }
+    } catch {
+      // Remembered as "nothing to offer" so the next read does not pay for
+      // the same list again.
+      memo.set(comboboxMemoKey(url, control), []);
+      // A list that will not open tells us nothing; the question still goes
+      // to the person, just without its choices.
+    }
+    await page.keyboard.press("Escape").catch(() => undefined);
+  }
+
+  return controls.map((control) => {
+    const options = optionsByIndex.get(control.index);
+    return options ? { ...control, options } : control;
+  });
 }
 
 /**
@@ -253,14 +463,20 @@ export async function readRawApplyPage(page: Page): Promise<RawApplyPage> {
  * pre-filled phone-country or similar picker is not mistaken for empty. It is
  * a widget-shape reading, not a rule about any particular site.
  */
-async function readCustomComboboxState(
+async function readCustomComboboxStates(
   page: Page,
-  index: number,
-): Promise<{ selectedOptionLabel: string; compositeVisible: boolean }> {
-  return page
+  indexes: readonly number[],
+): Promise<
+  Map<number, { selectedOptionLabel: string; compositeVisible: boolean }>
+> {
+  const wanted = new Set(indexes);
+  const states = await page
     .locator(APPLY_CONTROL_SELECTOR)
-    .nth(index)
-    .evaluate((element) => {
+    .evaluateAll((elements, selected: number[]) => {
+      const want = new Set(selected);
+      const readOne = (
+        element: Element,
+      ): { selectedOptionLabel: string; compositeVisible: boolean } => {
       const controlRoot =
         element.closest("[class*='__control']") ??
         element.closest("[class*='-control']") ??
@@ -306,15 +522,41 @@ async function readCustomComboboxState(
         // countries share a calling code.
       }
 
-      return {
-        selectedOptionLabel: [regionName, selectedText]
-          .filter(Boolean)
-          .join(" ")
-          .trim(),
-        compositeVisible,
+        return {
+          selectedOptionLabel: [regionName, selectedText]
+            .filter(Boolean)
+            .join(" ")
+            .trim(),
+          compositeVisible,
+        };
       };
-    })
-    .catch(() => ({ selectedOptionLabel: "", compositeVisible: false }));
+
+      return elements.map((element, index) =>
+        want.has(index)
+          ? ([index, readOne(element)] as const)
+          : ([index, null] as const),
+      );
+    }, [...wanted])
+    .catch(
+      () =>
+        [] as ReadonlyArray<
+          readonly [
+            number,
+            { selectedOptionLabel: string; compositeVisible: boolean } | null,
+          ]
+        >,
+    );
+
+  const byIndex = new Map<
+    number,
+    { selectedOptionLabel: string; compositeVisible: boolean }
+  >();
+  for (const [index, state] of states) {
+    if (state) {
+      byIndex.set(index, state);
+    }
+  }
+  return byIndex;
 }
 
 function controlLocator(page: Page, ref: string): Locator | null {
@@ -333,6 +575,14 @@ function actionLocator(page: Page, ref: string): Locator | null {
   return page.locator(APPLY_ACTION_SELECTOR).nth(index);
 }
 
+function linkLocator(page: Page, ref: string): Locator | null {
+  const index = Number.parseInt(ref.replace(/^l/u, ""), 10);
+  if (!ref.startsWith("l") || Number.isNaN(index)) {
+    return null;
+  }
+  return page.locator(APPLY_LINK_SELECTOR).nth(index);
+}
+
 function describeWriteFailure(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -349,10 +599,10 @@ export function createPlaywrightApplyPageMechanics(
         return { ok: false, error: `No control named ${ref} on this page.` };
       }
       try {
-        await locator.fill(value, { timeout: 10_000 });
+        await locator.fill(value, { timeout: 5_000 });
         return {
           ok: true,
-          observedValue: await locator.inputValue({ timeout: 5_000 }),
+          observedValue: await locator.inputValue({ timeout: 2_000 }),
         };
       } catch (error) {
         return {
@@ -370,13 +620,19 @@ export function createPlaywrightApplyPageMechanics(
         return { ok: false, error: `No control named ${ref} on this page.` };
       }
       try {
-        await locator.selectOption({ label: optionLabel }, { timeout: 10_000 });
+        await locator.selectOption({ label: optionLabel }, { timeout: 5_000 });
         return { ok: true, observedValue: optionLabel };
       } catch {
         // A list the page draws itself opens on click and is picked from the
         // options it renders; the same intent, a different mechanism.
         try {
+          // Open it, type enough of the answer for the list to narrow to it,
+          // then take the choice that says it. Typing first is what makes a
+          // list of two hundred countries usable at all.
           await locator.click({ timeout: 5_000 });
+          await locator.fill(optionLabel, { timeout: 2_000 }).catch(async () => {
+            await locator.type(optionLabel, { timeout: 2_000 });
+          });
           await page
             .getByRole("option", { name: optionLabel, exact: true })
             .first()
@@ -399,7 +655,7 @@ export function createPlaywrightApplyPageMechanics(
         return { ok: false, error: `No control named ${ref} on this page.` };
       }
       try {
-        await locator.setChecked(checked, { timeout: 10_000 });
+        await locator.setChecked(checked, { timeout: 5_000 });
         return { ok: true, observedValue: checked ? "checked" : "unchecked" };
       } catch (error) {
         return {
@@ -436,12 +692,63 @@ export function createPlaywrightApplyPageMechanics(
         return { ok: false, error: `No button named ${ref} on this page.` };
       }
       try {
-        await locator.click({ timeout: 15_000 });
+        await locator.click({ timeout: 10_000 });
         return { ok: true, observedValue: "clicked" };
       } catch (error) {
         return {
           ok: false,
           error: describeWriteFailure(error, "The button would not respond."),
+        };
+      }
+    },
+    followLink: async (ref): Promise<ApplyNavigationResult> => {
+      const locator = linkLocator(page, ref);
+      if (!locator) {
+        return { ok: false, error: `No link named ${ref} on this page.` };
+      }
+      let href = "";
+      try {
+        href = await locator.evaluate(
+          (element) =>
+            (element as HTMLAnchorElement).href ||
+            element.getAttribute("href") ||
+            "",
+          undefined,
+          { timeout: 5_000 },
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          error: describeWriteFailure(error, "That link is no longer here."),
+        };
+      }
+      let target: URL;
+      try {
+        target = new URL(href, page.url());
+      } catch {
+        return { ok: false, error: "That link does not point at a page." };
+      }
+      if (target.protocol !== "https:" && target.protocol !== "http:") {
+        return {
+          ok: false,
+          error: "That link does not open a web page.",
+        };
+      }
+      try {
+        // Asking for the address the link already publishes, rather than
+        // clicking it, keeps the hop a plain read: no popup, no script, and
+        // nothing the page can turn into a write.
+        await page.goto(target.toString(), {
+          waitUntil: "domcontentloaded",
+          // Short on purpose: a hop that does not answer quickly is a hop
+          // that is costing the person their run.
+          timeout: 15_000,
+        });
+        return { ok: true, url: page.url() };
+      } catch (error) {
+        return {
+          ok: false,
+          error: describeWriteFailure(error, "That page would not open."),
         };
       }
     },

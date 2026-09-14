@@ -571,7 +571,7 @@ describe("ResumeWorkspaceStudioShell", () => {
     );
 
     const prepareButtons = screen.getAllByRole("button", {
-      name: "Prepare application",
+      name: "Fill it in",
     });
     expect(prepareButtons).toHaveLength(1);
     fireEvent.click(prepareButtons[0]!);
@@ -1469,13 +1469,13 @@ describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
       />,
     );
 
-    // `Continue to Shortlisted →` used to sit beside `Prepare application →`
+    // `Continue to Shortlisted →` used to sit beside `Fill it in →`
     // while `← Back to Shortlisted` was ~100px away in the workspace header.
     expect(
       screen.queryByRole("button", { name: /Continue to Shortlisted/ }),
     ).toBeNull();
     expect(
-      screen.getByRole("button", { name: /Prepare application/ }),
+      screen.getByRole("button", { name: /Fill it in/ }),
     ).toBeTruthy();
     approved.unmount();
 

@@ -9,6 +9,8 @@ import {
   isListingIndexPageRecord,
   stripCompanyMarketingBadges,
   observeLearnedSearchSurfaceRoutes,
+  repairExtractedJobTitle,
+  type ExtractedJobInput,
   repairWrappedCardTitle,
   shouldCanonicalizeSearchSurfaceDetailRoute,
   type SearchResultCardCandidate,
@@ -3116,6 +3118,71 @@ describe("repairWrappedCardTitle", () => {
       company: "Chamberlain Group",
       location: "Chicago, IL",
     });
+  });
+
+/** One extracted record, with only the fields these repairs read varied. */
+function extractedJob(
+  overrides: Partial<ExtractedJobInput> & { title: string },
+): ExtractedJobInput {
+  return {
+    sourceJobId: "11119020",
+    canonicalUrl: "https://builtinchicago.org/job/11119020",
+    company: "Inspira Financial",
+    location: "Chicago, IL",
+    description: "Own the platform this team runs on.",
+    salaryText: null,
+    summary: null,
+    postedAt: null,
+    workMode: [],
+    applyPath: "unknown",
+    easyApplyEligible: false,
+    keySkills: [],
+    ...overrides,
+  };
+}
+
+  test("closes the parenthesis from the record's own summary, past its own copy of the title", () => {
+    // The witnesses reach the repair as one text that starts with the title
+    // itself, so the closing bracket is in the copy after that one.
+    expect(
+      repairExtractedJobTitle(extractedJob({
+        title: "Lead Platform Software Engineer (Remote",
+        company: "Inspira Financial",
+        location: "Chicago, IL",
+        canonicalUrl:
+          "https://builtinchicago.org/job/lead-platform-software-engineer-remote/11119020",
+        summary:
+          "Lead Platform Software Engineer (Remote) at Inspira Financial - Remote - Chicago, IL - Reposted 3 Days Ago",
+        description:
+          "Own the platform this team runs on and the tools that keep it honest.",
+      })).title,
+    ).toBe("Lead Platform Software Engineer");
+  });
+
+  test("drops a bracket nothing can close rather than keeping half an aside", () => {
+    expect(
+      repairExtractedJobTitle(extractedJob({
+        title: "Lead Platform Software Engineer (Remote",
+        company: "Inspira Financial",
+        location: "Chicago, IL",
+        canonicalUrl: "https://builtinchicago.org/job/11119020",
+        summary: null,
+        description: "Own the platform this team runs on.",
+      })).title,
+    ).toBe("Lead Platform Software Engineer");
+  });
+
+  test("a title that is only a dangling aside is left as it is", () => {
+    expect(
+      repairExtractedJobTitle(extractedJob({
+        title: "(Remote",
+        company: "Inspira Financial",
+        location: "Chicago, IL",
+        canonicalUrl: "https://builtinchicago.org/job/11119020",
+        summary: null,
+        description: "Own the platform this team runs on.",
+      })).title,
+    ).toBe("(Remote");
   });
 
   test("does not lengthen a title the card text never prints longer", () => {

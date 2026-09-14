@@ -22,7 +22,7 @@ function renderConsentDialog() {
   const appRoot = document.createElement("div");
   appRoot.id = "root";
   const trigger = document.createElement("button");
-  trigger.textContent = "Prepare application";
+  trigger.textContent = "Fill it in";
   appRoot.append(trigger);
   document.body.append(appRoot);
   trigger.focus();
@@ -76,7 +76,7 @@ describe("ApplyCopilotVisualCheckpointDialog consent hierarchy", () => {
     );
 
     const cancel = screen.getByRole("button", { name: "Cancel" });
-    const confirm = screen.getByRole("button", { name: "Prepare application" });
+    const confirm = screen.getByRole("button", { name: "Fill it in" });
     expect(cancel.getAttribute("data-variant")).toBe("secondary");
     expect(confirm.getAttribute("data-variant")).toBe("primary");
 
@@ -91,7 +91,7 @@ describe("ApplyCopilotVisualCheckpointDialog consent hierarchy", () => {
   it("resolves with checkpoints off unless the box is ticked", () => {
     const { onClose, onResolve } = renderConsentDialog();
 
-    const confirm = screen.getByRole("button", { name: "Prepare application" });
+    const confirm = screen.getByRole("button", { name: "Fill it in" });
     // Initial focus sits on the confirm action, which resolves with sharing
     // off, so a stray Enter can never enable screenshots.
     expect(document.activeElement).toBe(confirm);
@@ -197,7 +197,7 @@ describe("ApplyCopilotVisualCheckpointDialog consent hierarchy", () => {
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Prepare application" }),
+      screen.getByRole("button", { name: "Fill it in" }),
     );
 
     expect(onResolve).toHaveBeenCalledTimes(1);

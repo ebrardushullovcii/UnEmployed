@@ -683,6 +683,14 @@ export const ApplicationQuestionRecordSchema = z.object({
   applicationRecordId: NonEmptyStringSchema.nullable().default(null),
   resultId: NonEmptyStringSchema.nullable().default(null),
   prompt: NonEmptyStringSchema,
+  /** The words around the question when they say something the prompt does not. */
+  description: NonEmptyStringSchema.nullable().optional(),
+  /**
+   * Why it came back to the person: an answer that did not fit the choices,
+   * for instance. Shown beside the question so the same one is not asked in
+   * the same words twice.
+   */
+  note: NonEmptyStringSchema.nullable().optional(),
   kind: ApplicationQuestionKindSchema.default("other"),
   answerControlType: ApplicationQuestionControlTypeSchema.default("text"),
   isRequired: z.boolean().default(true),

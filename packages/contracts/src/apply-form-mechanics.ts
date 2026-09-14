@@ -42,18 +42,44 @@ export interface RawApplyAction {
   disabled: boolean;
 }
 
+/**
+ * One link on the page, as the browser resolved it.
+ *
+ * A job listing and the form it leads to are usually two different pages, so
+ * the workflow layer has to be able to see the way through. Nothing here says
+ * which link matters; that is a reading of the words, and it happens above.
+ */
+export interface RawApplyLink {
+  /** Position among the page's links. Refs are built from this. */
+  index: number;
+  label: string;
+  /** Absolute for a web address; the raw attribute for any other scheme. */
+  href: string;
+  /** The anchor's own target attribute, empty when it has none. */
+  target: string;
+  visible: boolean;
+  /** Distance from the top of the document in CSS pixels, for ranking only. */
+  topOffset: number;
+}
+
 export interface RawApplyPage {
   url: string | null;
   title: string | null;
   bodyText: string;
   controls: RawApplyControl[];
   actions: RawApplyAction[];
+  links: RawApplyLink[];
   validationErrors: string[];
   stepLabel: string | null;
 }
 
 export type ApplyWriteResult =
   | { ok: true; observedValue: string }
+  | { ok: false; error: string };
+
+/** Where following a link left the browser. */
+export type ApplyNavigationResult =
+  | { ok: true; url: string }
   | { ok: false; error: string };
 
 /** One file, already verified by whoever owns it, on its way into a form. */
@@ -77,6 +103,14 @@ export interface ApplyRawPageHands {
   setToggle: (ref: string, checked: boolean) => Promise<ApplyWriteResult>;
   uploadFile: (ref: string, file: ApplyUploadFile) => Promise<ApplyWriteResult>;
   clickAction: (ref: string) => Promise<ApplyWriteResult>;
+  /**
+   * Opens what one of the page's links points at, in the same tab.
+   *
+   * Following a link is a read: it asks the site for a page it already
+   * publishes and writes nothing. It exists because the page that carries the
+   * application form is very often not the page a listing links to.
+   */
+  followLink: (ref: string) => Promise<ApplyNavigationResult>;
 }
 
 /**

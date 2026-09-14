@@ -572,11 +572,75 @@ export function createWorkspaceApplicationMethods(
         )
       );
     });
-    if (runningRun) {
-      throw new Error(
-        "This application is already being prepared. Wait for it to finish before starting it again.",
-      );
+    if (!runningRun) {
+      return;
     }
+
+    // A run is only really going while this process is still working on it.
+    // One that was left marked running — the app closed, or the last attempt
+    // died without recording anything — is finished here and now, so pressing
+    // Prepare again starts rather than being refused by a ghost.
+    // Only a copilot run is judged this way: it is the one this process drives
+    // itself, so a missing promise really does mean nothing is working on it.
+    // A queued or staged run is driven elsewhere and is left alone.
+    if (
+      runningRun.mode === "copilot" &&
+      !ctx.activeApplyRunPromises.has(runningRun.id)
+    ) {
+      await markStaleApplyRunFailed(runningRun);
+      return;
+    }
+
+    throw new Error(
+      "This application is already being prepared. Wait for it to finish before starting it again.",
+    );
+  }
+
+  /**
+   * Closes a run nothing is working on any more.
+   *
+   * It says what is true — the attempt ended without finishing — rather than
+   * leaving a record that claims to be running forever and a button that
+   * refuses every press after it.
+   */
+  async function markStaleApplyRunFailed(
+    run: ReturnType<typeof ApplyRunSchema.parse>,
+  ): Promise<void> {
+    const completedAt = new Date().toISOString();
+    const detail =
+      "The earlier attempt ended without recording a result, so Job Finder closed it. Nothing was sent. You can start this application again.";
+    await ctx.repository.upsertApplyRun(
+      ApplyRunSchema.parse({
+        ...run,
+        state: "failed",
+        updatedAt: completedAt,
+        completedAt,
+        summary: "Apply copilot preparation did not finish.",
+        detail,
+        pendingJobs: 0,
+        failedJobs: Math.max(1, run.failedJobs),
+      }),
+    );
+    const staleResults = (
+      await ctx.repository.listApplyJobResults({ runId: run.id })
+    ).filter(
+      (result) =>
+        !["submitted", "skipped", "blocked", "failed"].includes(result.state),
+    );
+    await Promise.all(
+      staleResults.map((result) =>
+        ctx.repository.upsertApplyJobResult(
+          ApplyJobResultSchema.parse({
+            ...result,
+            state: "failed",
+            updatedAt: completedAt,
+            completedAt,
+            summary: "Application preparation did not finish.",
+            detail,
+          }),
+        ),
+      ),
+    );
   }
 
   async function persistDirectApplyRunStart(input: {
@@ -695,13 +759,61 @@ export function createWorkspaceApplicationMethods(
     ]);
   }
 
+  /**
+   * The last word on a run that ended badly.
+   *
+   * Used only when the ordinary failure path could not write its own record:
+   * whatever else is wrong, the run must not be left claiming to be running.
+   */
+  async function forceApplyRunFailed(
+    claim: DirectApplyExecutionClaim,
+  ): Promise<void> {
+    const latestRun = (await ctx.repository.listApplyRuns()).find(
+      (run) => run.id === claim.runId,
+    );
+    if (!latestRun || latestRun.state !== "running") {
+      return;
+    }
+    const completedAt = new Date().toISOString();
+    await ctx.repository.upsertApplyRun(
+      ApplyRunSchema.parse({
+        ...latestRun,
+        state: "failed",
+        updatedAt: completedAt,
+        completedAt,
+        summary: "Apply copilot preparation failed.",
+        detail:
+          "Job Finder stopped working on this application and could not say why. Nothing was sent. You can start it again.",
+        pendingJobs: 0,
+        failedJobs: Math.max(1, latestRun.failedJobs),
+      }),
+    );
+  }
+
   function trackDirectApplyExecution<T>(
     claim: DirectApplyExecutionClaim,
     operation: () => Promise<T>,
   ): Promise<T> {
     const operationPromise = operation()
       .catch(async (error: unknown) => {
-        await markDirectApplyRunFailed(claim, error).catch(() => undefined);
+        // Whatever this was, it is written down before anything else happens.
+        // A failure nobody can see is how a run ends up marked running for
+        // ever with a button that refuses every press after it.
+        console.error(
+          "[apply]",
+          error instanceof Error ? (error.stack ?? error.message) : error,
+        );
+        try {
+          await markDirectApplyRunFailed(claim, error);
+        } catch (markError) {
+          console.error(
+            "[apply] could not record the failure",
+            markError instanceof Error
+              ? (markError.stack ?? markError.message)
+              : markError,
+          );
+          await forceApplyRunFailed(claim).catch(() => undefined);
+        }
         throw error;
       })
       .finally(() => releaseDirectApplyExecution(claim));

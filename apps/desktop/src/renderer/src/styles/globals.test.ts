@@ -281,7 +281,7 @@ describe("global color tokens", () => {
   it("keeps the dark filled primary readable as a filled control, not a disabled chip", () => {
     // Dogfood round two: the dark "primary" CTA sat close enough to the
     // panels and to --secondary that reviewers read Approve resume /
-    // Prepare application / Finish in the open browser as disabled.
+    // Fill it in / Finish in the open browser as disabled.
     // The fill itself must therefore clear the AA text floor against the
     // surfaces it renders on, and stay clearly separated from the
     // secondary chip that sits beside it.

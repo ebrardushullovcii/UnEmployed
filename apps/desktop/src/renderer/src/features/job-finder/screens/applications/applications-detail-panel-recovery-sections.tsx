@@ -22,9 +22,10 @@ export function ApplicationsDetailPanelRecoverySections(props: {
   excludedQueueRecoveryEntries: QueueEntry[];
   isApplyPending: boolean;
   onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
-  onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onOpenSafeguards?: () => void;
+  onOpenNeedsYou?: () => void;
+  onAllowSiteSaves?: (host: string | null) => void;
   /**
    * Pass-through only. The declared return type has to match the leaf's, or
    * the outcome the leaf uses to decide what the hand-off status claims would
@@ -38,6 +39,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
   selectedQueueOutcomeEntries: QueueEntry[];
   selectedQueueRecoveryEntries: QueueEntry[];
   selectedQueueRecoveryJobIds: string[];
+  pausedQuestionCount?: number | null;
   selectedRecordJobId: string;
   selectedApplicationRecordId: string;
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
@@ -52,9 +54,10 @@ export function ApplicationsDetailPanelRecoverySections(props: {
     excludedQueueRecoveryEntries,
     isApplyPending,
     onStartApplyCopilot,
-    onStartAutoApply,
     onStartAutoApplyQueue,
     onOpenSafeguards,
+    onOpenNeedsYou,
+    onAllowSiteSaves,
     onFinishInBrowser,
     onConfirmFinishedInBrowser,
     canConfirmFinishedInBrowser,
@@ -64,6 +67,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
     selectedQueueRecoveryEntries,
     selectedQueueRecoveryJobIds,
     selectedApplicationRecordId,
+    pausedQuestionCount,
     selectedRecordJobId,
     selectedRun,
     visibleApplyResult,
@@ -77,9 +81,10 @@ export function ApplicationsDetailPanelRecoverySections(props: {
       excludedQueueRecoveryEntries={excludedQueueRecoveryEntries}
       isApplyPending={isApplyPending}
       onStartApplyCopilot={onStartApplyCopilot}
-      onStartAutoApply={onStartAutoApply}
       onStartAutoApplyQueue={onStartAutoApplyQueue}
       {...(onOpenSafeguards ? { onOpenSafeguards } : {})}
+      {...(onOpenNeedsYou ? { onOpenNeedsYou } : {})}
+      {...(onAllowSiteSaves ? { onAllowSiteSaves } : {})}
       {...(onFinishInBrowser ? { onFinishInBrowser } : {})}
       {...(onConfirmFinishedInBrowser ? { onConfirmFinishedInBrowser } : {})}
       canConfirmFinishedInBrowser={canConfirmFinishedInBrowser ?? false}
@@ -91,6 +96,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
       selectedQueueRecoveryEntries={selectedQueueRecoveryEntries}
       selectedQueueRecoveryJobIds={selectedQueueRecoveryJobIds}
       selectedApplicationRecordId={selectedApplicationRecordId}
+      pausedQuestionCount={pausedQuestionCount ?? null}
       selectedRecordJobId={selectedRecordJobId}
       selectedRun={selectedRun}
       visibleApplyResult={visibleApplyResult}

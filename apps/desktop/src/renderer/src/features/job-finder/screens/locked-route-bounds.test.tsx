@@ -250,7 +250,6 @@ function renderApplicationsScreen(
         )}
         onSelectRecord={onSelectRecord}
         onStartApplyCopilot={vi.fn()}
-        onStartAutoApply={vi.fn()}
         onStartAutoApplyQueue={vi.fn()}
         selectedApplyRunId={null}
         selectedAttempt={null}

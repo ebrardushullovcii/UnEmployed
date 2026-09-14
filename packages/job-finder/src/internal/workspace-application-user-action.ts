@@ -280,6 +280,10 @@ export function mapApplicationBlockerToUserActionKind(
     case "application_page_unreachable":
       // Technical failure: never surfaced as a user-owned browser step.
       return "other";
+    case "site_saves_as_you_go":
+      // Letting a site save as you type is the person's decision about that
+      // site, made in the app rather than in the browser (ADR 0012).
+      return "other";
     case "requires_manual_review":
     case "unknown":
       return "other";

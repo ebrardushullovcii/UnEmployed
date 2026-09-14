@@ -188,7 +188,7 @@ describe("ActionsScreen", () => {
   });
 
   it("groups unresolved application and source actions and excludes terminal requests", () => {
-    const { getAllByText, getByRole, getByText, queryByText } = render(
+    const { getByRole, getByText, queryByText } = render(
       <ActionsScreen
         discoveryJobs={[]}
         isPending={() => false}
@@ -211,9 +211,11 @@ describe("ActionsScreen", () => {
     expect(getByText("Finish application sign-in")).toBeTruthy();
     expect(getByText("Sign in to source")).toBeTruthy();
     expect(queryByText("resolved")).toBeNull();
+    // Sign-in steps are trimmed to heading, sentence, host and two buttons;
+    // the boundary line belongs to the kinds that still carry guidance.
     expect(
-      getAllByText(/cannot create an account or submit an application/i),
-    ).toHaveLength(2);
+      queryByText(/cannot create an account or submit an application/i),
+    ).toBeNull();
   });
 
   it("exposes keyboard-native Open, Done, and Cancel commands with hard safety fields", () => {
@@ -232,7 +234,7 @@ describe("ActionsScreen", () => {
     // "Skip" and "Cancel" were peers with the same outcome and no stated
     // difference, so one named dismissal is offered.
     expect(queryAllByRole("button", { name: /^Skip$/ })).toHaveLength(0);
-    for (const name of ["Open sign-in", "I'm signed in", "Cancel this step"]) {
+    for (const name of ["Open the Job Finder browser", "Check whether this step is done", "Cancel this step"]) {
       const button = getByRole("button", { name: new RegExp(name, "i") });
       expect(button.getAttribute("tabindex")).not.toBe("-1");
       fireEvent.click(button);
@@ -271,7 +273,7 @@ describe("ActionsScreen", () => {
       />,
     );
 
-    fireEvent.click(getByRole("button", { name: "I'm signed in" }));
+    fireEvent.click(getByRole("button", { name: "Check whether this step is done" }));
     expect(onCommand).toHaveBeenCalledWith(
       expect.objectContaining({ action: "confirm_done" }),
     );
@@ -300,7 +302,7 @@ describe("ActionsScreen", () => {
     expect(getByRole("status").textContent).toContain(
       "Job Finder checked 3 times and still saw the same page",
     );
-    expect(getByRole("button", { name: "Open sign-in" })).toHaveProperty(
+    expect(getByRole("button", { name: "Open the Job Finder browser" })).toHaveProperty(
       "disabled",
       false,
     );
@@ -386,7 +388,7 @@ describe("ActionsScreen", () => {
       />,
     );
 
-    expect(queryByRole("button", { name: "Open sign-in" })).toBeNull();
+    expect(queryByRole("button", { name: "Open the Job Finder browser" })).toBeNull();
     expect(getByText(/saved browser link is unavailable/i)).toBeTruthy();
     const recoveryButton = getByRole("button", {
       name: "Review application",
@@ -508,15 +510,16 @@ describe("ActionsScreen", () => {
       />,
     );
 
-    expect(
-      getByText(/^Page: https:\/\/jobs\.example\.com\/login$/),
-    ).toBeTruthy();
+    // The host, never the full link with its query string.
+    expect(getByText("On: jobs.example.com")).toBeTruthy();
+    expect(queryByText(/^Page:/)).toBeNull();
     expect(queryByText(/^Browser:/)).toBeNull();
   });
 
   it("keeps the numbered steps to what the user does, with one safety sentence", () => {
     const request = UserActionRequestSchema.parse({
       ...createRequest({ id: "instructions", scope: "discovery_source" }),
+      kind: "manual_upload",
       instructions: [
         "Complete sign-in in the Job Finder browser. Job Finder never receives or stores your credentials.",
         "Return to the action inbox and confirm completion only after the browser step is complete.",
@@ -554,6 +557,7 @@ describe("ActionsScreen", () => {
   it("leads with the plain step and hides the recorded request line behind Technical details", () => {
     const request = UserActionRequestSchema.parse({
       ...createRequest({ id: "blocked", scope: "application" }),
+      kind: "manual_upload",
       summary:
         "The application page needs manual review. Blocked: xhr POST https://example.test/cdn-cgi/rum?req=1.",
       instructions: [

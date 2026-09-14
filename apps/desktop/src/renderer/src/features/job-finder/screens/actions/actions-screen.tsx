@@ -20,6 +20,7 @@ import { ArrowUpRight, Ban, BellOff, Check, ExternalLink } from "lucide-react";
 
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import { Textarea } from "@renderer/components/ui/textarea";
 import {
   CollectionPagination,
   COLLECTION_PAGE_SIZE,
@@ -32,7 +33,12 @@ import {
 } from "../../lib/describe-failure";
 import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
 import { listApplicationsAwaitingUser } from "../../lib/needs-you-count";
-import { getApplicationNextStepLabel } from "../applications/applications-status";
+import {
+  getApplicationNextStepLabel,
+  listPendingApplicationQuestions,
+} from "../applications/applications-status";
+import { formatQuestionPrompt } from "../applications/applications-recovery-state";
+import { describeFailure } from "../../lib/describe-failure";
 import {
   CollectionNoMatches,
   CollectionSearchToolbar,
@@ -40,10 +46,6 @@ import {
 } from "../../components/collection-search-toolbar";
 import { PageHeaderStack } from "../../components/page-header";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
-import {
-  AnswerMemoryEditor,
-  deriveGroupedAnswerGroupKey,
-} from "./answer-memory-editor";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
 const terminalStates = new Set<UserActionRequest["state"]>([
@@ -88,44 +90,49 @@ export function getUserActionContextRoute(
   );
 }
 
+/**
+ * One name for the window and one name for the confirm, on every browser
+ * step. "Open sign-up" / "Account is ready" / "Open MFA" / "MFA is complete"
+ * were nine names for two actions.
+ */
 export const userActionKindPresentations: Record<
   UserActionRequest["kind"],
   { label: string; openLabel: string; doneLabel: string; guidance: string }
 > = {
   login: {
     label: "Sign in",
-    openLabel: "Open sign-in",
-    doneLabel: "I'm signed in",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: `Complete sign-in in ${JOB_FINDER_BROWSER_NAME}.`,
   },
   signup: {
     label: "Sign up",
-    openLabel: "Open sign-up",
-    doneLabel: "Account is ready",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: `Create the account yourself in ${JOB_FINDER_BROWSER_NAME}.`,
   },
   mfa: {
     label: "MFA",
-    openLabel: "Open MFA",
-    doneLabel: "MFA is complete",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: `Complete the security-code challenge in ${JOB_FINDER_BROWSER_NAME}.`,
   },
   email_verification: {
     label: "Email verification",
-    openLabel: "Open verification",
-    doneLabel: "Email is verified",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: "Use the verification link or code yourself.",
   },
   captcha: {
     label: "CAPTCHA",
-    openLabel: "Open CAPTCHA",
-    doneLabel: "CAPTCHA is complete",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: "Complete the human-verification challenge yourself.",
   },
   existing_account_choice: {
     label: "Account choice",
-    openLabel: "Open account choice",
-    doneLabel: "Choice is complete",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: "Choose the appropriate account path yourself.",
   },
   manual_answer: {
@@ -136,20 +143,20 @@ export const userActionKindPresentations: Record<
   },
   legal_consent: {
     label: "Legal consent",
-    openLabel: "Open consent",
-    doneLabel: "Decision is complete",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: "Read and decide the legal consent yourself.",
   },
   external_redirect: {
     label: "External redirect",
-    openLabel: "Open destination",
-    doneLabel: "Destination is ready",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: "Review the external destination before continuing.",
   },
   manual_upload: {
     label: "Manual upload",
-    openLabel: "Open upload",
-    doneLabel: "File is attached",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: `Attach the requested file yourself in ${JOB_FINDER_BROWSER_NAME}.`,
   },
   other: {
@@ -238,27 +245,53 @@ function ActionCard(props: {
   isGroupedProjectPending: (groupKey: string) => boolean;
   isPending: boolean;
   jobLabel: string | null;
-  onCommand: (command: UserActionCommandInput) => void;
+  /**
+   * Returning a promise lets the question step wait for the bridge call and
+   * say so when it is refused, instead of a click that records nothing.
+   */
+  onCommand: (command: UserActionCommandInput) => void | Promise<void>;
   onOpenScope: () => void;
   onProjectGroupedManualAnswer: (
     command: ProjectGroupedManualAnswerCommand,
   ) => void;
   profile: CandidateProfile | null;
-  question: ApplicationAttemptQuestion | null;
+  questions: readonly ApplicationAttemptQuestion[];
   request: UserActionRequest;
 }) {
   const {
-    isGroupedProjectPending,
     isPending,
     jobLabel,
     onCommand,
     onOpenScope,
-    onProjectGroupedManualAnswer,
-    profile,
-    question,
+    questions,
     request,
   } = props;
   const isVerifying = request.state === "verifying";
+  // One shape for the whole card: a question step is a question and an answer
+  // box, not a browser hand-off with an answer editor bolted underneath it.
+  const isQuestionStep =
+    request.kind === "manual_answer" && questions.length > 0;
+  // A sign-in, account, or security-check step is a sentence and two buttons.
+  // It used to stack five paraphrases of "do it in the browser and come back"
+  // plus a retry-mechanics note the person cannot act on.
+  const isBlockerStep =
+    request.kind === "login" ||
+    request.kind === "signup" ||
+    request.kind === "mfa" ||
+    request.kind === "captcha" ||
+    request.kind === "email_verification" ||
+    request.kind === "existing_account_choice";
+  const stepHostLabel = (() => {
+    const raw = request.actionUrl ?? request.displayOrigin;
+    if (!raw) {
+      return null;
+    }
+    try {
+      return new URL(raw).hostname.replace(/^www\./i, "");
+    } catch {
+      return raw.split(/[/?#]/)[0] || null;
+    }
+  })();
   const attemptsExhausted = request.attemptCount >= request.maxAttempts;
   const presentation = userActionKindPresentations[request.kind];
   const scopeLabel =
@@ -309,8 +342,14 @@ function ActionCard(props: {
           <h3 className="font-semibold text-(--text-headline)">
             {stripScrapedGlyphs(request.title)}
           </h3>
+          {/* A question step's summary was four sentences restating the
+              heading, the question, and "do it in the browser and come back"
+              — none of which is true any more now that the answer box is
+              right here. */}
           <p className="max-w-3xl text-sm leading-6 text-foreground-soft">
-            {stripScrapedGlyphs(summaryParts.message)}
+            {isQuestionStep
+              ? "Nothing in your profile, resume, or saved answers covers this."
+              : stripScrapedGlyphs(summaryParts.message)}
           </p>
         </div>
         <Button
@@ -330,19 +369,19 @@ function ActionCard(props: {
       {/* The verification origin is deliberately path-stripped, so showing
           it alone told the user only "wellfound.com". The exact page the
           action opens is the useful fact; the bare origin is the fallback. */}
-      {(request.actionUrl ?? request.displayOrigin) ? (
-        <p className="break-all text-xs text-muted-foreground">
-          Page: {request.actionUrl ?? request.displayOrigin}
-        </p>
+      {/* The host, not a 900-character OAuth URL. The full link is what the
+          button opens; printing it here was a wall of query string. */}
+      {stepHostLabel ? (
+        <p className="text-xs text-muted-foreground">On: {stepHostLabel}</p>
       ) : null}
-      {instructionParts.length > 0 ? (
+      {instructionParts.length > 0 && !isQuestionStep && !isBlockerStep ? (
         <ol className="grid list-decimal gap-1 pl-5 text-sm leading-6 text-foreground-soft">
           {instructionParts.map((part) => (
             <li key={part.message}>{part.message}</li>
           ))}
         </ol>
       ) : null}
-      {technicalDetails.length > 0 ? (
+      {technicalDetails.length > 0 && !isBlockerStep ? (
         <details className="min-w-0">
           <summary className="cursor-pointer text-xs text-muted-foreground">
             {TECHNICAL_DETAILS_LABEL}
@@ -358,45 +397,46 @@ function ActionCard(props: {
         </details>
       ) : null}
 
-      {request.kind === "manual_answer" && profile && question ? (
-        <AnswerMemoryEditor
-          isPending={isPending}
-          onProjectGrouped={onProjectGroupedManualAnswer}
-          onSubmit={(answer, saveForFuture) =>
-            onCommand({
-              ...createCommand(request, "confirm_done"),
-              action: "submit_manual_answer",
-              answer,
-              saveForFuture,
-            })
-          }
-          profile={profile}
-          projectPending={isGroupedProjectPending(
-            deriveGroupedAnswerGroupKey(request.id),
-          )}
-          question={question}
-          request={request}
+      {isQuestionStep ? (
+        <QuestionAnswerForm
+          isPending={isPending || isVerifying}
+          onAnswer={async (answers, saveForFuture) => {
+            // One submit per question, in order. The last one carries the
+            // confirm base, which is exactly the single-question call this
+            // step has always made, so the retry still starts once.
+            for (const answer of answers) {
+              await onCommand({
+                ...createCommand(request, "confirm_done"),
+                action: "submit_manual_answer",
+                answer,
+                saveForFuture,
+              });
+            }
+          }}
+          questions={questions}
+          requestId={request.id}
         />
       ) : null}
       {/* The boxed treatment framed the boundary as fine print and repeated
           the steps above it inside a grey rectangle. The per-kind sentence
           and the one no-submit sentence stay; the box does not. */}
-      <p className="text-xs leading-5 text-muted-foreground">
-        {presentation.guidance}{" "}
-        {request.kind === "manual_answer"
-          ? 'This answer is used for this application only. Tick "Save for next time" if you want Job Finder to reuse it. '
-          : ""}
-        Confirming here cannot create an account or submit an application.
-      </p>
+      {isQuestionStep || isBlockerStep ? null : (
+        <p className="text-xs leading-5 text-muted-foreground">
+          {presentation.guidance} Confirming here cannot create an account or
+          submit an application.
+        </p>
+      )}
 
       <div
         className="flex flex-wrap gap-2"
         role="group"
         aria-label={`Actions for ${request.title}`}
       >
-        {request.actionUrl ? (
+        {isQuestionStep ? null : request.actionUrl ? (
           <Button
-            onClick={() => onCommand(createCommand(request, "open_page"))}
+            onClick={() => {
+              void onCommand(createCommand(request, "open_page"));
+            }}
             pending={isPending}
             size="compact"
             type="button"
@@ -414,10 +454,12 @@ function ActionCard(props: {
             <ArrowUpRight aria-hidden="true" /> Review {scopeLabel}
           </Button>
         )}
-        {request.kind !== "manual_answer" || !profile || !question ? (
+        {!isQuestionStep ? (
           <Button
             disabled={isVerifying || attemptsExhausted}
-            onClick={() => onCommand(createCommand(request, "confirm_done"))}
+            onClick={() => {
+              void onCommand(createCommand(request, "confirm_done"));
+            }}
             pending={isPending}
             size="compact"
             type="button"
@@ -438,13 +480,16 @@ function ActionCard(props: {
             as "put this aside" rather than "this application stops here". */}
         <Button
           aria-describedby={cancelConsequenceId}
-          onClick={() => onCommand(createCommand(request, "cancel"))}
+          onClick={() => {
+            void onCommand(createCommand(request, "cancel"));
+          }}
           pending={isPending}
           size="compact"
           type="button"
           variant="ghost"
         >
-          <Ban aria-hidden="true" /> Cancel this step
+          <Ban aria-hidden="true" />
+          {isQuestionStep ? "Skip this job" : "Cancel this step"}
         </Button>
       </div>
       <p
@@ -704,7 +749,11 @@ export function ActionsScreen(props: {
   isGroupedSnoozePending?: (decisionId: string) => boolean;
   isPending: (requestId: string) => boolean;
   onApplyGroupedManualAnswer?: (input: ApplyGroupedManualAnswerInput) => void;
-  onCommand: (command: UserActionCommandInput) => void;
+  /**
+   * Returning a promise lets the question step wait for the bridge call and
+   * say so when it is refused, instead of a click that records nothing.
+   */
+  onCommand: (command: UserActionCommandInput) => void | Promise<void>;
   onNavigate: (path: string) => void;
   onProjectGroupedManualAnswer?: (
     command: ProjectGroupedManualAnswerCommand,
@@ -1033,26 +1082,16 @@ export function ActionsScreen(props: {
                         const job = applicationScope
                           ? (jobsById.get(applicationScope.jobId) ?? null)
                           : null;
-                        const matchingAttempt = applicationScope
-                          ? ([...(props.applicationAttempts ?? [])]
-                              .filter(
-                                (attempt) =>
-                                  attempt.jobId === applicationScope.jobId &&
-                                  attempt.blocker?.code ===
-                                    "missing_candidate_answer",
-                              )
-                              .sort((left, right) =>
-                                right.updatedAt.localeCompare(left.updatedAt),
-                              )[0] ?? null)
-                          : null;
-                        const questions =
-                          matchingAttempt?.questions.filter(
-                            (question) => question.status === "detected",
-                          ) ?? [];
-                        const question =
-                          questions.length === 1
-                            ? (questions[0] ?? null)
-                            : null;
+                        // One selector, shared with Applications, so the
+                        // two screens can never disagree about how many
+                        // questions are pending for this application.
+                        const questions = applicationScope
+                          ? listPendingApplicationQuestions({
+                              applicationAttempts:
+                                props.applicationAttempts ?? [],
+                              jobId: applicationScope.jobId,
+                            })
+                          : [];
                         return (
                           <ActionCard
                             isGroupedProjectPending={
@@ -1069,7 +1108,7 @@ export function ActionsScreen(props: {
                               (() => undefined)
                             }
                             profile={props.profile ?? null}
-                            question={question}
+                            questions={questions}
                             onOpenScope={() =>
                               props.onNavigate(
                                 getUserActionContextRoute(
@@ -1098,5 +1137,195 @@ export function ActionsScreen(props: {
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Every question the form still needs, and one way to answer them.
+ *
+ * This replaced an "ANSWER MEMORY" panel with four competing buttons ("Use
+ * once", "Save for future & use", "Reuse for matching applications", "Reset
+ * draft"), a no-reusable-match report and a paragraph about when the service
+ * groups drafts — none of which was even in the accessibility tree. One
+ * labelled control per question, one checkbox, one button, and the same
+ * bridge call the old "Use once" made, which already records the answer and
+ * runs the retry that fills it in.
+ */
+export function QuestionAnswerForm(props: {
+  isPending: boolean;
+  onAnswer: (
+    answers: readonly string[],
+    saveForFuture: boolean,
+  ) => void | Promise<void>;
+  questions: readonly ApplicationAttemptQuestion[];
+  requestId: string;
+}) {
+  const { isPending, onAnswer, questions, requestId } = props;
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [saveForFuture, setSaveForFuture] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const saveId = `${requestId}-save-answer`;
+  const readAnswer = (questionId: string) => answers[questionId] ?? "";
+  const missingRequired = questions.some(
+    (question) => question.isRequired !== false && !readAnswer(question.id).trim(),
+  );
+  const isSingle = questions.length === 1;
+
+  return (
+    <form
+      className="grid min-w-0 gap-4"
+      data-testid="needs-you-question-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (missingRequired || isPending || working) {
+          return;
+        }
+        setFailure(null);
+        setWorking(true);
+        void Promise.resolve(
+          onAnswer(
+            // An optional question the person left blank is left blank on the
+            // form too; there is nothing to record for it.
+            questions
+              .map((question) => readAnswer(question.id).trim())
+              .filter((answer) => answer.length > 0),
+            saveForFuture,
+          ),
+        ).then(
+          () => {
+            setWorking(false);
+          },
+          (error: unknown) => {
+            // The typed answers stay exactly where they are; a refused save
+            // that silently recorded nothing is the whole defect here.
+            setWorking(false);
+            setFailure(
+              describeFailure(error, {
+                action: "save that answer",
+                unknownSentence:
+                  "Job Finder could not save that answer; try again.",
+              }).sentence,
+            );
+          },
+        );
+      }}
+    >
+      {questions.map((question) => {
+        const answerId = `${requestId}-answer-${question.id}`;
+        const label = formatQuestionPrompt(question.prompt);
+        const description = question.description?.trim();
+        // The site's own words about this field, when it has any. A
+        // description that is the label again, or the "nothing on file
+        // answers this" sentence already printed once at the top, is not one.
+        const showDescription =
+          description &&
+          description.toLowerCase() !== label.toLowerCase() &&
+          !/nothing in your profile, resume, or saved answers/i.test(
+            description,
+          );
+        const options = question.answerOptions ?? [];
+
+        return (
+          <div className="grid min-w-0 gap-1.5" key={question.id}>
+            <label
+              className="text-sm font-medium leading-6 text-foreground"
+              data-testid="needs-you-question-text"
+              htmlFor={answerId}
+            >
+              {/* Only the ones the site actually marks required hold the
+                  button back, so the ones it does not are said to be
+                  optional rather than looking like a missed step. */}
+              {question.isRequired === false ? `${label} (optional)` : label}
+            </label>
+            {showDescription ? (
+              <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                {stripScrapedGlyphs(description)}
+              </p>
+            ) : null}
+            {question.note ? (
+              <p
+                className="text-(length:--text-small) leading-5 text-(--warning-text)"
+                data-testid="needs-you-question-note"
+              >
+                {question.note}
+              </p>
+            ) : null}
+            {options.length > 0 ? (
+              <select
+                className="h-10 min-w-0 rounded-(--radius-small) border border-(--control-border) bg-background px-3 text-sm text-foreground"
+                id={answerId}
+                onChange={(event) =>
+                  setAnswers((current) => ({
+                    ...current,
+                    [question.id]: event.target.value,
+                  }))
+                }
+                value={readAnswer(question.id)}
+              >
+                <option value="">Choose an answer</option>
+                {options.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Textarea
+                id={answerId}
+                onChange={(event) =>
+                  setAnswers((current) => ({
+                    ...current,
+                    [question.id]: event.target.value,
+                  }))
+                }
+                rows={3}
+                value={readAnswer(question.id)}
+              />
+            )}
+          </div>
+        );
+      })}
+      <label className="flex items-start gap-2 text-(length:--text-small) leading-6 text-foreground-soft">
+        <input
+          checked={saveForFuture}
+          className="mt-1 size-4 shrink-0 accent-(--primary)"
+          id={saveId}
+          onChange={(event) => setSaveForFuture(event.target.checked)}
+          type="checkbox"
+        />
+        {isSingle
+          ? "Save this answer for next time"
+          : "Save these answers for next time"}
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          disabled={missingRequired || isPending || working}
+          pending={working}
+          size="compact"
+          type="submit"
+        >
+          Answer and continue
+        </Button>
+        {working ? (
+          <p
+            aria-live="polite"
+            className="text-(length:--text-small) leading-6 text-foreground-soft"
+            role="status"
+          >
+            Job Finder is filling it in…
+          </p>
+        ) : null}
+      </div>
+      {failure ? (
+        <p
+          className="text-(length:--text-small) leading-6 text-(--warning-text)"
+          data-testid="needs-you-answer-failure"
+          role="alert"
+        >
+          {failure}
+        </p>
+      ) : null}
+    </form>
   );
 }

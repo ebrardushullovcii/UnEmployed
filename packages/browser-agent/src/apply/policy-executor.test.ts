@@ -2,6 +2,7 @@ import { CandidateProfileSchema, type CandidateProfile } from "@unemployed/contr
 import { describe, expect, test, vi } from "vitest";
 
 import {
+  buildPendingQuestion,
   createApplyGuardState,
   executeApplyProposal,
 } from "./policy-executor";
@@ -48,6 +49,7 @@ function rawPage(overrides: Partial<RawApplyPage> = {}): RawApplyPage {
     bodyText: "Apply for the role",
     controls: [],
     actions: [],
+    links: [],
     validationErrors: [],
     stepLabel: null,
     ...overrides,
@@ -109,6 +111,7 @@ function configFor(
       }),
     uploadFile: (_ref, file) => Promise.resolve({ ok: true, observedValue: file.name }),
     clickAction: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+    followLink: () => Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
     ...overrides.hands,
   };
   return {
@@ -184,8 +187,8 @@ describe("apply policy executor", () => {
       { config, now, guardState: createApplyGuardState() },
     );
 
-    expect(outcome.kind).toBe("paused");
-    if (outcome.kind === "paused") {
+    expect(outcome.kind).toBe("needs_you");
+    if (outcome.kind === "needs_you") {
       expect(outcome.pause.code).toBe("declaration_needs_you");
       expect(outcome.pause.question?.prompt).toContain("I certify");
     }
@@ -234,8 +237,8 @@ describe("apply policy executor", () => {
       { config, now, guardState: createApplyGuardState() },
     );
 
-    expect(outcome.kind).toBe("paused");
-    if (outcome.kind === "paused") {
+    expect(outcome.kind).toBe("needs_you");
+    if (outcome.kind === "needs_you") {
       expect(outcome.pause.code).toBe("question_needs_you");
       expect(outcome.pause.summary).toContain("pay");
     }
@@ -262,8 +265,8 @@ describe("apply policy executor", () => {
       { config, now, guardState: createApplyGuardState() },
     );
 
-    expect(outcome.kind).toBe("paused");
-    if (outcome.kind === "paused") {
+    expect(outcome.kind).toBe("needs_you");
+    if (outcome.kind === "needs_you") {
       expect(outcome.pause.question?.prompt).toBe(
         "Which of our office locations would you prefer?",
       );
@@ -648,5 +651,303 @@ describe("being ready to send", () => {
     // complete application to review; pressing it stays theirs.
     expect(outcome.kind).toBe("ready_to_send");
     expect(clickAction).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A form that saves each answer as it is typed.
+ *
+ * The guard refuses every one of those saves, so nothing leaves the page. What
+ * changed is what happens next: the run keeps filling and writes the blocked
+ * save down, and only stops when the form will not go on without it.
+ */
+describe("a site that saves as you go", () => {
+  const savedAttempt = {
+    kind: "fetch" as const,
+    method: "POST",
+    url: "https://boards.example.test/applications/autosave",
+    at: "2026-09-14T10:00:01.000Z",
+    carriedPreparedValue: true,
+  };
+
+  function safetyThatBlocksOneSave() {
+    let handedOut = false;
+    return {
+      readBlockedAttempt: () => {
+        if (handedOut) return Promise.resolve(null);
+        handedOut = true;
+        return Promise.resolve(savedAttempt);
+      },
+      registerPreparedValue: () => Promise.resolve(),
+      openIntermediateWriteWindow: () => Promise.resolve(),
+      closeIntermediateWriteWindow: () => Promise.resolve(),
+      checkServiceWorker: () => Promise.resolve(null),
+    };
+  }
+
+  test("a blocked background save during an answer does not stop the run", async () => {
+    // The field keeps the answer, so the blocked save changed nothing.
+    const page = rawPage({
+      controls: [rawControl({ index: 0, label: "First Name" })],
+    });
+    const filled = rawPage({
+      controls: [
+        rawControl({ index: 0, label: "First Name", value: "Robin" }),
+      ],
+    });
+    let reads = 0;
+    const { config } = configFor(page, {
+      hands: {
+        observe: () => {
+          reads += 1;
+          return Promise.resolve(observationOf(reads === 1 ? page : filled));
+        },
+      },
+    });
+    const guardState = createApplyGuardState();
+
+    const outcome = await executeApplyProposal(
+      { tool: "answer_control", ref: "c0" },
+      observationOf(page).signature,
+      {
+        config: { ...config, safety: safetyThatBlocksOneSave() },
+        now,
+        guardState,
+      },
+    );
+
+    expect(outcome.kind).toBe("filled");
+    expect(guardState.notes).toEqual([
+      "Blocked a background save to boards.example.test while filling First Name.",
+    ]);
+    expect(guardState.blockedSaveCount).toBe(1);
+  });
+
+  test("a blocked save that stops the form moving on pauses, and names the site", async () => {
+    const page = rawPage({
+      controls: [rawControl({ index: 0, label: "First Name", value: "Robin" })],
+      actions: [{ index: 0, label: "Continue", visible: true, disabled: false }],
+    });
+    const { config } = configFor(page);
+    const guardState = createApplyGuardState();
+
+    const outcome = await executeApplyProposal(
+      { tool: "go_to_step", ref: "a0" },
+      observationOf(page).signature,
+      {
+        config: { ...config, safety: safetyThatBlocksOneSave() },
+        now,
+        guardState,
+      },
+    );
+
+    expect(outcome.kind).toBe("paused");
+    if (outcome.kind === "paused") {
+      expect(outcome.pause.blocker?.code).toBe("site_saves_as_you_go");
+      expect(outcome.pause.blocker?.summary).toBe(
+        "This site saves your answers as you type, and Job Finder is not allowed to let it.",
+      );
+      expect(outcome.pause.blocker?.nextActionLabel).toBe(
+        "Allow saving on this site",
+      );
+      expect(outcome.pause.blocker?.host).toBe("boards.example.test");
+    }
+  });
+
+  test("the page sending the form itself still stops everything", async () => {
+    const page = rawPage({
+      controls: [rawControl({ index: 0, label: "First Name" })],
+    });
+    const { config } = configFor(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "answer_control", ref: "c0" },
+      observationOf(page).signature,
+      {
+        config: {
+          ...config,
+          safety: {
+            ...safetyThatBlocksOneSave(),
+            readBlockedAttempt: () =>
+              Promise.resolve({ ...savedAttempt, kind: "form_submit" as const }),
+          },
+        },
+        now,
+        guardState: createApplyGuardState(),
+      },
+    );
+
+    expect(outcome.kind).toBe("paused");
+    if (outcome.kind === "paused") {
+      expect(outcome.pause.summary).toContain(
+        "tried to send the application on its own",
+      );
+    }
+  });
+});
+
+/**
+ * Two controls that say the same thing are still two questions.
+ *
+ * A phone number sits beside its country list, and both are labelled Phone.
+ * Treating them as one question gave the number field the country's 240
+ * choices and stopped the country being answered from the profile at all.
+ */
+describe("questions keep to their own control", () => {
+  const phoneCountry = rawControl({
+    index: 0,
+    tagName: "select",
+    inputType: "select-one",
+    label: "Country",
+    groupLabel: "Phone",
+    options: ["Afghanistan +93", "United Kingdom +44", "United States +1"],
+  });
+  const phoneNumber = rawControl({
+    index: 1,
+    inputType: "tel",
+    label: "Phone",
+    groupLabel: "Phone",
+  });
+  const yesNo = rawControl({
+    index: 2,
+    tagName: "select",
+    inputType: "select-one",
+    label: "Have you previously worked at or consulted for us?*",
+    options: ["Yes", "No"],
+  });
+
+  test("the phone country and the phone number are two different questions", () => {
+    const page = rawPage({ controls: [phoneCountry, phoneNumber, yesNo] });
+    const observation = observationOf(page);
+    const [country, number, choice] = observation.controls;
+    const build = (control: (typeof observation.controls)[number]) =>
+      buildPendingQuestion({
+        control,
+        jobId: "job_test",
+        detectedAt: "2026-09-14T10:00:00.000Z",
+        suggestion: null,
+      });
+
+    const countryQuestion = build(country);
+    const numberQuestion = build(number);
+    expect(countryQuestion.id).not.toBe(numberQuestion.id);
+    // The number field has no choices; the country list's do not leak onto it.
+    expect(numberQuestion.answerOptions).toEqual([]);
+    expect(countryQuestion.answerOptions).toHaveLength(3);
+    // Display still reads as one thing where the group only repeats the label.
+    expect(numberQuestion.prompt).toBe("Phone");
+    expect(countryQuestion.prompt).toBe("Phone — Country");
+
+    const choiceQuestion = build(choice);
+    expect(choiceQuestion.answerOptions).toEqual(["Yes", "No"]);
+    expect(choiceQuestion.answerControlType).toBe("single_choice");
+  });
+
+  test("the phone country is still answered from the profile", async () => {
+    const page = rawPage({ controls: [phoneCountry, phoneNumber] });
+    const { config, hands } = configFor(page);
+    const chooseOption = vi.spyOn(hands, "chooseOption");
+    const withPhone: ApplyAgentConfig = {
+      ...config,
+      sources: {
+        ...config.sources,
+        profile: {
+          ...config.sources.profile,
+          phone: "+44 7700 900000",
+          currentCountry: "United Kingdom",
+        },
+      },
+    };
+
+    const outcome = await executeApplyProposal(
+      { tool: "answer_control", ref: "c0" },
+      observationOf(page).signature,
+      { config: withPhone, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("filled");
+    if (outcome.kind === "filled") {
+      expect(outcome.filled.answer.provenanceLabel).toContain(
+        "the country your phone number belongs to",
+      );
+    }
+    expect(chooseOption).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The same question, the same handle, on every run.
+ *
+ * A retry reads the page fresh and the refs come out renumbered. If the
+ * question's identity moved with them, the answer the person gave yesterday
+ * belongs to a question nothing recognises today, and they are asked again.
+ */
+describe("a question keeps its name across runs", () => {
+  function askedPage(offset: number): RawApplyPage {
+    const before = Array.from({ length: offset }, (_, index) =>
+      rawControl({ index, label: `Filler ${index}` }),
+    );
+    return rawPage({
+      controls: [
+        ...before,
+        rawControl({
+          index: offset,
+          tagName: "select",
+          inputType: "select-one",
+          label: "Have you previously worked at or consulted for us?*",
+          options: ["Yes", "No"],
+          required: true,
+        }),
+      ],
+    });
+  }
+
+  test("renumbered refs do not change the question's id", () => {
+    const first = observationOf(askedPage(0));
+    const second = observationOf(askedPage(3));
+    const build = (observation: ApplyFormObservation, ref: string) =>
+      buildPendingQuestion({
+        control: observation.controls.find((entry) => entry.ref === ref)!,
+        siblings: observation.controls,
+        jobId: "job_test",
+        detectedAt: "2026-09-14T10:00:00.000Z",
+        suggestion: null,
+      });
+
+    expect(build(first, "c0").id).toBe(build(second, "c3").id);
+  });
+
+  test("two controls that say exactly the same thing are still told apart", () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          tagName: "select",
+          inputType: "select-one",
+          label: "Gender",
+          options: ["Male", "Female"],
+        }),
+        rawControl({
+          index: 1,
+          tagName: "select",
+          inputType: "select-one",
+          label: "Gender",
+          options: ["Male", "Female"],
+        }),
+      ],
+    });
+    const observation = observationOf(page);
+    const ids = observation.controls.map(
+      (control) =>
+        buildPendingQuestion({
+          control,
+          siblings: observation.controls,
+          jobId: "job_test",
+          detectedAt: "2026-09-14T10:00:00.000Z",
+          suggestion: null,
+        }).id,
+    );
+
+    expect(new Set(ids).size).toBe(2);
   });
 });

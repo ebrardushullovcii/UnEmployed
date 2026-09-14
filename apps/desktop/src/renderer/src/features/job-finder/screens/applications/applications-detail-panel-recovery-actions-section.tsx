@@ -21,21 +21,21 @@ import {
   OPEN_JOB_FINDER_BROWSER_ACTION,
   REOPEN_JOB_FINDER_BROWSER_ACTION,
   RUN_PREPARATION_AGAIN_ACTION,
-  RUN_PREPARATION_AGAIN_LATER_ACTION,
 } from "../../lib/job-finder-browser-handoff-copy";
 import { StatusBadge } from "../../components/status-badge";
 import {
-  applyResultIsServiceWorkerBlocked,
-  applyResultNeedsManualFieldFinish,
-  applyResultNeedsResumeAttachment,
   FINISH_IN_BROWSER_OPENED_STATUS,
   getApplyResultDestinationUrl,
   getCustomerFacingApplyText,
   getQueueRecoveryTone,
   getQueueStateExplanation,
-  getVerifiedExternalWriteRecoveryText,
   type QueueEntry,
 } from "./applications-detail-panel-helpers";
+import {
+  getApplicationHostLabel,
+  resolveApplicationRecoveryPresentation,
+  TRY_AGAIN_ACTION,
+} from "./applications-recovery-state";
 
 /**
  * Exact lineage handed to the page route so it can open or focus the managed
@@ -137,9 +137,16 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   excludedQueueRecoveryEntries: QueueEntry[];
   isApplyPending: boolean;
   onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
-  onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onOpenSafeguards?: () => void;
+  /** Takes the person to the Needs you step that holds the answer control. */
+  onOpenNeedsYou?: () => void;
+  /**
+   * Adds this host to the saved automation setting with saving-as-you-go
+   * allowed, then starts the retry. Without it the state has nothing that can
+   * change the refusal, so the control is not drawn.
+   */
+  onAllowSiteSaves?: (host: string | null) => void;
   /**
    * Reports what the hand-off did so the status beside it can say the same
    * thing. Every intermediate panel declares this same return type, so the
@@ -168,6 +175,8 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   selectedQueueOutcomeEntries: QueueEntry[];
   selectedQueueRecoveryEntries: QueueEntry[];
   selectedQueueRecoveryJobIds: string[];
+  /** How many questions the form is still waiting on, from the record. */
+  pausedQuestionCount?: number | null;
   selectedRecordJobId: string;
   selectedApplicationRecordId: string;
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
@@ -182,9 +191,10 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     excludedQueueRecoveryEntries,
     isApplyPending,
     onStartApplyCopilot,
-    onStartAutoApply,
     onStartAutoApplyQueue,
     onOpenSafeguards,
+    onOpenNeedsYou,
+    onAllowSiteSaves,
     onFinishInBrowser,
     onConfirmFinishedInBrowser,
     canConfirmFinishedInBrowser,
@@ -193,41 +203,36 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     selectedQueueOutcomeEntries,
     selectedQueueRecoveryEntries,
     selectedQueueRecoveryJobIds,
+    pausedQuestionCount,
     selectedRecordJobId,
     selectedApplicationRecordId,
     selectedRun,
     visibleApplyResult,
   } = props;
-  const isWaitingForSignIn =
-    visibleApplyResult?.blockerReason === "auth_required";
-  const isNavigationUnreachable =
-    visibleApplyResult?.blockerReason === "application_page_unreachable";
-  const needsResumeAttachment =
-    applyResultNeedsResumeAttachment(visibleApplyResult);
-  const isServiceWorkerBlocked =
-    applyResultIsServiceWorkerBlocked(visibleApplyResult);
-  const needsManualFieldFinish =
-    applyResultNeedsManualFieldFinish(visibleApplyResult);
-  const requiresSubmissionOutcomeVerification =
-    visibleApplyResult?.blockerReason === "submission_outcome_uncertain" ||
-    visibleApplyResult?.privacyReceipt?.submissionOutcome?.outcome ===
-      "outcome_uncertain";
-  // Finish-yourself pauses (site block or field conflicts) own the primary
-  // path — never show an in-progress spinner that contradicts Next step.
-  const needsUserFinishPath = isServiceWorkerBlocked || needsManualFieldFinish;
-  const showPreparingState =
-    isApplyPending &&
-    !needsUserFinishPath &&
-    !requiresSubmissionOutcomeVerification;
+  // One state, one sentence, one action. Everything visible in the top block
+  // below is chosen here rather than by six overlapping booleans, so the panel
+  // can no longer show a "Try again" pair beside a third automation button.
+  const presentation = resolveApplicationRecoveryPresentation({
+    canOpenSafeguards: Boolean(onOpenSafeguards),
+    destinationUrl: getApplyResultDestinationUrl(
+      visibleApplyResult?.privacyReceipt,
+    ),
+    isApplyPending,
+    pausedQuestionCount: pausedQuestionCount ?? null,
+    visibleApplyResult,
+  });
+  const { primaryAction } = presentation;
+  // A pause the person has to finish themselves owns the primary path — never
+  // show an in-progress spinner that contradicts the sentence above it.
+  const needsUserFinishPath =
+    presentation.state === "finish_in_browser" ||
+    presentation.state === "site_blocked";
+  const showPreparingState = presentation.state === "preparing";
   // The queue action is meaningful only when the selected run produced a
   // recoverable queue. Keep an empty or non-queue selection out of the action
   // group instead of leaving a disabled control without a target.
   const showQueueRecoveryAction =
-    canRestageQueueRun &&
-    selectedQueueRecoveryJobIds.length > 0;
-  const externalWriteRecoveryText = getVerifiedExternalWriteRecoveryText(
-    visibleApplyResult?.privacyReceipt,
-  );
+    canRestageQueueRun && selectedQueueRecoveryJobIds.length > 0;
   // The fixed local-day safeguard is enforced fail-closed by the workspace
   // service. When nothing remains, every start control is disabled here so no
   // dialog or run can begin, and the reached state is stated in plain text
@@ -257,16 +262,24 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
           selectedCount: selectedQueueRecoveryJobIds.length,
         })
       : null;
-  const secondaryRecoveryActionCount =
-    Number(!needsUserFinishPath && canRestageAutoRun) +
-    Number(showQueueRecoveryAction);
-  const secondaryRecoveryActionsClassName =
-    "flex min-w-0 max-w-full flex-wrap items-start justify-start gap-2";
+  // A fresh run is offered under More only where a fresh run could change
+  // anything. A structural stop — no apply route, closed listing, applying
+  // happens elsewhere — offers no retry at all, here or above.
+  const showSecondaryRunAgain =
+    canRestageAutoRun &&
+    primaryAction !== "try_again" &&
+    presentation.state !== "preparing" &&
+    presentation.state !== "verify_outcome" &&
+    presentation.state !== "structural_stop" &&
+    !isDailyCapacityExhausted;
+  // The site-saves state keeps the browser hand-off as its secondary way out,
+  // for a person who would rather finish it there than grant the permission.
+  const showSecondaryOpenBrowser =
+    presentation.state === "site_saves_as_you_go" &&
+    Boolean(onFinishInBrowser && visibleApplyResult);
+  const hasSecondaryActions =
+    showSecondaryRunAgain || showQueueRecoveryAction || showSecondaryOpenBrowser;
 
-  // Finish-first pauses already own the Next step callout above, which is in
-  // the accessibility tree. This section used to restate the same sentence in
-  // an sr-only paragraph as well, so the instruction arrived three times
-  // (list row, Next step, and here). It is action-only now.
   // What the Job Finder browser hand-off reported for the exact result it ran
   // for; reset whenever a different result is selected.
   const [finishInBrowserReport, setFinishInBrowserReport] = useState<{
@@ -274,9 +287,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     outcome: FinishInBrowserOutcome;
   } | null>(null);
   const finishInBrowserOutcome =
-    needsManualFieldFinish &&
-    visibleApplyResult &&
-    finishInBrowserReport?.resultId === visibleApplyResult.id
+    visibleApplyResult && finishInBrowserReport?.resultId === visibleApplyResult.id
       ? finishInBrowserReport.outcome
       : null;
   /**
@@ -340,9 +351,10 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   };
   const canConfirmFinished = Boolean(
     onConfirmFinishedInBrowser &&
-    canConfirmFinishedInBrowser &&
-    visibleApplyResult,
+      canConfirmFinishedInBrowser &&
+      visibleApplyResult,
   );
+  const showConfirmFinishedAction = needsUserFinishPath && canConfirmFinished;
   // The verification runs in the background after the click. Until it settles,
   // the button says so in place and stays disabled; when it comes back without
   // the step complete, the same place says why and offers the check again.
@@ -371,54 +383,71 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
       ),
     });
   };
+  const startFreshRun = () =>
+    onStartApplyCopilot({
+      jobId: selectedRecordJobId,
+      applicationRecordId: selectedApplicationRecordId,
+    });
+  // The hand-off is the one browser control; the label is whatever the state
+  // earned it. A structural stop opens the listing rather than the form.
+  const browserActionLabel = hasHandedOffToBrowser
+    ? REOPEN_JOB_FINDER_BROWSER_ACTION
+    : presentation.primaryActionLabel;
 
   return (
     <>
-      <section className="surface-card-tint grid gap-5 rounded-(--radius-field) border border-(--surface-panel-border) px-5 py-5">
-        {/* The saved-run count adds nothing above the one recovery action;
-            run history stays in its own section below. */}
+      <section
+        className="surface-card-tint grid gap-5 rounded-(--radius-field) border border-(--surface-panel-border) px-5 py-5"
+        data-recovery-state={presentation.state}
+      >
+        {/* The state in plain words, then the run's own sentence about why it
+            is in that state. "Job Finder could not finish this application"
+            with the reason three disclosures down in Run details is the
+            complaint this block answers. */}
         <div className="grid min-w-0 max-w-prose gap-1.5">
-          {/* The Next step callout above already says "finish this application
-              in the open browser". Repeating it as a heading here made one
-              instruction arrive in four stacked layers, so on that path the
-              section keeps only its accessible name and its action. */}
           <h3
-            className={
-              needsUserFinishPath && !requiresSubmissionOutcomeVerification
-                ? "sr-only"
-                : "text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground"
-            }
+            className="text-(length:--text-body) font-semibold text-(--text-headline)"
+            data-testid="applications-recovery-status-line"
           >
-            {requiresSubmissionOutcomeVerification
-              ? "Manual verification required"
-              : needsUserFinishPath
-                ? "Finish this application"
-                : "Try again"}
+            {presentation.statusLine}
           </h3>
-          {requiresSubmissionOutcomeVerification ? (
+          {presentation.reasonSentence ? (
             <p
               className="text-(length:--text-small) leading-6 text-foreground-soft"
-              data-testid="submission-outcome-verification-guidance"
+              data-testid="applications-recovery-reason"
             >
-              Check this application on the employer site before doing anything
-              else. Automatic retry and preparation stay unavailable until you
-              record what the employer site shows.
+              {presentation.reasonSentence}
             </p>
-          ) : needsUserFinishPath ? null : (
-            <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-              {isDailyCapacityExhausted
-                ? `"${RUN_PREPARATION_AGAIN_ACTION}" stays available after today's application slots reset.`
-                : isWaitingForSignIn
-                  ? `Job Finder is waiting while you sign in using ${JOB_FINDER_BROWSER_NAME}, right here in the app. It never handles or stores your credentials. Come back here after sign-in and run preparation again. That creates a fresh run and uses one of today's remaining application slots.`
-                  : isNavigationUnreachable
-                    ? `Last time, ${JOB_FINDER_BROWSER_NAME} could not open this employer page, so preparation stopped before anything was filled or submitted. That failed attempt did not count against today's application slots. Run preparation again below when you are ready.`
-                    : needsResumeAttachment
-                      ? `The approved resume was not attached. ${externalWriteRecoveryText} Use the action below to approve that attachment. Job Finder will prepare the page and stop before the final submit control.`
-                      : "Starts a fresh run for this job. It uses one of today's application slots and still stops before the final submit."}
-            </p>
-          )}
+          ) : null}
         </div>
-        {requiresSubmissionOutcomeVerification ? null : (
+        {showPreparingState ? (
+          <p
+            aria-live="polite"
+            className="flex min-w-0 items-center gap-2 text-(length:--text-small) leading-6 text-foreground-soft"
+            data-testid="applications-recovery-progress"
+            role="status"
+          >
+            <span
+              aria-hidden="true"
+              className="size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none"
+              data-testid="applications-recovery-progress-spinner"
+            />
+            <span>
+              {`Filling this application in ${JOB_FINDER_BROWSER_NAME} now. This can take up to a minute, and it stops before the employer's send control.`}
+            </span>
+          </p>
+        ) : null}
+        {presentation.state === "verify_outcome" ? (
+          <p
+            className="text-(length:--text-small) leading-6 text-foreground-soft"
+            data-testid="submission-outcome-verification-guidance"
+          >
+            Check this application on the employer site before doing anything
+            else, then record what you saw below. Trying again stays
+            unavailable until you do.
+          </p>
+        ) : null}
+        {primaryAction === "none" ? null : (
           <div
             aria-label="Application recovery actions"
             className="flex min-w-0 max-w-full flex-wrap items-start justify-start gap-2"
@@ -431,18 +460,19 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
               data-testid="applications-recovery-primary-action"
               role="group"
             >
-              {isServiceWorkerBlocked && onOpenSafeguards ? (
+              {primaryAction === "open_safeguards" && onOpenSafeguards ? (
                 <Button
                   className={RECOVERY_PRIMARY_ACTION_CLASS_NAME}
-                  data-testid="site-blocked-safeguards-primary"
+                  data-testid="applications-recovery-primary-action-button"
                   onClick={onOpenSafeguards}
                   type="button"
                   variant="primary"
                 >
-                  {`Open Safeguards to reset ${JOB_FINDER_BROWSER_NAME}`}
+                  {presentation.primaryActionLabel}
                 </Button>
               ) : null}
-              {needsManualFieldFinish ? (
+              {primaryAction === "open_browser" ||
+              primaryAction === "open_listing" ? (
                 <Button
                   aria-describedby={
                     canFinishInBrowser
@@ -450,22 +480,68 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                       : finishInBrowserUnavailableNoteId
                   }
                   className={
-                    hasHandedOffToBrowser
+                    hasHandedOffToBrowser && showConfirmFinishedAction
                       ? RECOVERY_ACTION_CLASS_NAME
                       : RECOVERY_PRIMARY_ACTION_CLASS_NAME
                   }
-                  data-testid="manual-field-finish-primary"
+                  data-testid="applications-recovery-primary-action-button"
                   disabled={!canFinishInBrowser}
                   onClick={handleFinishInBrowser}
                   type="button"
-                  variant={hasHandedOffToBrowser ? "secondary" : "primary"}
+                  variant={
+                    hasHandedOffToBrowser && showConfirmFinishedAction
+                      ? "secondary"
+                      : "primary"
+                  }
                 >
-                  {hasHandedOffToBrowser
-                    ? REOPEN_JOB_FINDER_BROWSER_ACTION
-                    : OPEN_JOB_FINDER_BROWSER_ACTION}
+                  {browserActionLabel}
                 </Button>
               ) : null}
-              {needsUserFinishPath && canConfirmFinished ? (
+              {primaryAction === "allow_site_saves" ? (
+                <Button
+                  className={RECOVERY_PRIMARY_ACTION_CLASS_NAME}
+                  data-testid="applications-recovery-primary-action-button"
+                  disabled={!onAllowSiteSaves}
+                  onClick={() =>
+                    onAllowSiteSaves?.(
+                      getApplicationHostLabel(
+                        getApplyResultDestinationUrl(
+                          visibleApplyResult?.privacyReceipt,
+                        ),
+                      ),
+                    )
+                  }
+                  type="button"
+                  variant="primary"
+                >
+                  {presentation.primaryActionLabel}
+                </Button>
+              ) : null}
+              {primaryAction === "answer_in_needs_you" ? (
+                <Button
+                  className={RECOVERY_PRIMARY_ACTION_CLASS_NAME}
+                  data-testid="applications-recovery-primary-action-button"
+                  disabled={!onOpenNeedsYou}
+                  onClick={() => onOpenNeedsYou?.()}
+                  type="button"
+                  variant="primary"
+                >
+                  {presentation.primaryActionLabel}
+                </Button>
+              ) : null}
+              {primaryAction === "try_again" ? (
+                <Button
+                  className={RECOVERY_PRIMARY_ACTION_CLASS_NAME}
+                  data-testid="applications-recovery-primary-action-button"
+                  disabled={isDailyCapacityExhausted}
+                  onClick={startFreshRun}
+                  type="button"
+                  variant="primary"
+                >
+                  {TRY_AGAIN_ACTION}
+                </Button>
+              ) : null}
+              {showConfirmFinishedAction ? (
                 <Button
                   aria-describedby={
                     confirmFinishedInBrowserStatusId ?? undefined
@@ -490,39 +566,6 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                   {isCheckingFinishedInBrowser
                     ? CONFIRM_STEP_DONE_PENDING_LABEL
                     : CONFIRM_STEP_DONE_ACTION}
-                </Button>
-              ) : null}
-              {!needsUserFinishPath || needsManualFieldFinish ? (
-                <Button
-                  className={
-                    needsUserFinishPath
-                      ? RECOVERY_ACTION_CLASS_NAME
-                      : RECOVERY_PRIMARY_ACTION_CLASS_NAME
-                  }
-                  onClick={() =>
-                    onStartApplyCopilot({
-                      jobId: selectedRecordJobId,
-                      applicationRecordId: selectedApplicationRecordId,
-                    })
-                  }
-                  pending={showPreparingState}
-                  type="button"
-                  variant={needsUserFinishPath ? "ghost" : "primary"}
-                  disabled={
-                    showPreparingState ||
-                    isDailyCapacityExhausted ||
-                    isServiceWorkerBlocked
-                  }
-                >
-                  {showPreparingState
-                    ? "Preparing safely..."
-                    : isWaitingForSignIn
-                      ? "I'm signed in — run preparation again"
-                      : needsResumeAttachment
-                        ? "Approve and reattach the resume"
-                        : needsManualFieldFinish
-                          ? RUN_PREPARATION_AGAIN_LATER_ACTION
-                          : RUN_PREPARATION_AGAIN_ACTION}
                 </Button>
               ) : null}
             </div>
@@ -550,82 +593,87 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                   </>
                 ) : (
                   <span>
-                    {`Not done yet — ${
-                      confirmFinishedInBrowserBlockerText?.trim() ||
-                      "the application page still shows the step you need to finish."
-                    } Switch to ${JOB_FINDER_BROWSER_NAME}, finish that step, then choose "${CONFIRM_STEP_DONE_ACTION}" again.`}
+                    {/* One sentence. This used to restate the whole pause
+                        paragraph and then add a second instruction on top of
+                        the button that is already on screen. */}
+                    {confirmFinishedInBrowserBlockerText?.trim() ||
+                      (presentation.state === "needs_answer"
+                        ? "Your answer did not fit this question; choose one of the options in Needs you."
+                        : `The application page still shows the step you need to finish in ${JOB_FINDER_BROWSER_NAME}.`)}
                   </span>
                 )}
               </p>
             ) : null}
-            {secondaryRecoveryActionCount > 0 ? (
-              <div
-                aria-label="Optional application preparation actions"
-                className="flex min-w-0 max-w-full flex-wrap items-start gap-2"
-                data-testid="applications-recovery-secondary-actions"
-                role="group"
-              >
-                <div
-                  className={secondaryRecoveryActionsClassName}
-                  data-testid="applications-recovery-secondary-action-list"
-                >
-                  {!needsUserFinishPath && canRestageAutoRun ? (
-                    <Button
-                      className={RECOVERY_ACTION_CLASS_NAME}
-                      onClick={() =>
-                        onStartAutoApply({
-                          jobId: selectedRecordJobId,
-                          applicationRecordId: selectedApplicationRecordId,
-                        })
-                      }
-                      pending={showPreparingState}
-                      type="button"
-                      variant="secondary"
-                      disabled={showPreparingState || isDailyCapacityExhausted}
-                    >
-                      Prepare this job automatically
-                    </Button>
-                  ) : null}
-                  {showQueueRecoveryAction ? (
-                    <div className="grid gap-1.5">
-                      {selectedRun?.state === "paused_for_user_review" ? (
-                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                          One of your safety limits was reached. It will not
-                          carry on by itself. Review the prepared job above.
-                          Use Prepare remaining jobs to finish the ones it did
-                          not get to in a fresh run under the same approved
-                          batch.
-                        </p>
-                      ) : null}
-                      <Button
-                        aria-describedby={
-                          dailyQueueRecoveryExceedsRemainingReason
-                            ? queueRecoveryExceedsNoteId
-                            : undefined
-                        }
-                        className={RECOVERY_ACTION_CLASS_NAME}
-                        onClick={() =>
-                          onStartAutoApplyQueue(selectedQueueRecoveryJobIds)
-                        }
-                        pending={showPreparingState}
-                        type="button"
-                        variant="secondary"
-                        disabled={
-                          showPreparingState ||
-                          isDailyCapacityExhausted ||
-                          selectedQueueRecoveryExceedsDailyRemaining
-                        }
-                      >
-                        Prepare remaining jobs
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
           </div>
         )}
-        {needsManualFieldFinish && !canFinishInBrowser ? (
+        {/* Everything that is not the one thing to do next. One disclosure,
+            closed by default — not a second row of buttons competing with the
+            first. */}
+        {hasSecondaryActions ? (
+          <details className="group min-w-0" data-testid="applications-recovery-more">
+            <summary className="w-fit cursor-pointer text-(length:--text-small) font-semibold leading-6 text-foreground-soft">
+              More
+            </summary>
+            <div
+              className="mt-2 flex min-w-0 max-w-full flex-wrap items-start justify-start gap-2"
+              data-testid="applications-recovery-secondary-action-list"
+            >
+              {showSecondaryOpenBrowser ? (
+                <Button
+                  className={RECOVERY_ACTION_CLASS_NAME}
+                  onClick={handleFinishInBrowser}
+                  type="button"
+                  variant="secondary"
+                >
+                  {OPEN_JOB_FINDER_BROWSER_ACTION}
+                </Button>
+              ) : null}
+              {showSecondaryRunAgain ? (
+                <Button
+                  className={RECOVERY_ACTION_CLASS_NAME}
+                  onClick={startFreshRun}
+                  type="button"
+                  variant="secondary"
+                >
+                  {RUN_PREPARATION_AGAIN_ACTION}
+                </Button>
+              ) : null}
+              {showQueueRecoveryAction ? (
+                <div className="grid gap-1.5">
+                  {selectedRun?.state === "paused_for_user_review" ? (
+                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                      One of your safety limits was reached, so the batch will
+                      not carry on by itself. Prepare remaining jobs finishes
+                      the ones it did not get to.
+                    </p>
+                  ) : null}
+                  <Button
+                    aria-describedby={
+                      dailyQueueRecoveryExceedsRemainingReason
+                        ? queueRecoveryExceedsNoteId
+                        : undefined
+                    }
+                    className={RECOVERY_ACTION_CLASS_NAME}
+                    onClick={() =>
+                      onStartAutoApplyQueue(selectedQueueRecoveryJobIds)
+                    }
+                    type="button"
+                    variant="secondary"
+                    disabled={
+                      isDailyCapacityExhausted ||
+                      selectedQueueRecoveryExceedsDailyRemaining
+                    }
+                  >
+                    Prepare remaining jobs
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          </details>
+        ) : null}
+        {(primaryAction === "open_browser" ||
+          primaryAction === "open_listing") &&
+        !canFinishInBrowser ? (
           <p
             className="text-(length:--text-small) leading-6 text-foreground-soft"
             data-testid="manual-field-finish-unavailable-note"
@@ -668,50 +716,6 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             {dailyCapacityReachedText}
           </p>
         ) : null}
-        {showPreparingState ? (
-          <p
-            aria-live="polite"
-            className="text-(length:--text-small) leading-6 text-foreground-soft"
-            role="status"
-          >
-            {/* The guidance paragraph above already ends on "still stops
-                before any final submit click"; two no-submit sentences at
-                once made the boundary read as boilerplate. */}
-            {`Preparing the application in ${JOB_FINDER_BROWSER_NAME} now. This can take up to a minute while Job Finder verifies every retained field.`}
-          </p>
-        ) : null}
-        <div className="grid gap-1 text-(length:--text-small) leading-6 text-foreground-soft">
-          {!needsUserFinishPath && !canRestageAutoRun ? (
-            <p>
-              Staging an automatic preparation stays available only while this
-              job is still review-ready.
-            </p>
-          ) : null}
-          {!needsUserFinishPath && selectedRun?.mode === "queue_auto" ? (
-            <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
-              <p>
-                Run recovery targets {selectedQueueRecoveryJobIds.length}
-                &nbsp;remaining, blocked, failed, or skipped job
-                {selectedQueueRecoveryJobIds.length === 1 ? "" : "s"} from the
-                selected run.
-              </p>
-              <div className="grid gap-2 2xl:grid-cols-2">
-                <QueueEntryList
-                  entries={selectedQueueRecoveryEntries}
-                  emptyMessage="No jobs from this run still need recovery."
-                  heading="Will be prepared"
-                  statusFallback="planned"
-                />
-                <QueueEntryList
-                  entries={excludedQueueRecoveryEntries}
-                  emptyMessage="No jobs are excluded from this historical run yet."
-                  heading="Already completed or review-ready"
-                  statusFallback="awaiting_review"
-                />
-              </div>
-            </div>
-          ) : null}
-        </div>
       </section>
       {!needsUserFinishPath && selectedRun?.mode === "queue_auto" ? (
         <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
@@ -756,6 +760,23 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             )}
           </p>
           <div className="grid gap-2">
+            {selectedQueueRecoveryEntries.length > 0 ||
+            excludedQueueRecoveryEntries.length > 0 ? (
+              <div className="grid gap-2 2xl:grid-cols-2">
+                <QueueEntryList
+                  entries={selectedQueueRecoveryEntries}
+                  emptyMessage="No jobs from this run still need recovery."
+                  heading="Will be prepared"
+                  statusFallback="planned"
+                />
+                <QueueEntryList
+                  entries={excludedQueueRecoveryEntries}
+                  emptyMessage="No jobs are excluded from this historical run yet."
+                  heading="Already completed or review-ready"
+                  statusFallback="awaiting_review"
+                />
+              </div>
+            ) : null}
             {selectedQueueOutcomeEntries.map((entry) => {
               const resolvedState = entry.runResult?.state ?? "planned";
 

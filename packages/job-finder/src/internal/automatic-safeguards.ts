@@ -167,6 +167,83 @@ export function deriveDiscoveryFailureEvidence(
   return evidence;
 }
 
+/**
+ * How many whole search runs in a row must fail before a plan pauses itself.
+ *
+ * A pause stops the person's searches, so it has to mean the plan is broken
+ * rather than that a source had a bad afternoon. One source returning an
+ * error while the others bring back jobs is not a broken plan: it is one
+ * source needing attention, which is where it is reported.
+ */
+export const AUTOMATIC_DISCOVERY_CONSECUTIVE_FAILED_RUNS = 3;
+
+/** True when this run brought back nothing because everything in it failed. */
+function runFailedOutright(run: DiscoveryRunRecord): boolean {
+  const attempted = run.targetExecutions.filter(
+    (execution) =>
+      execution.state !== "cancelled" && execution.state !== "skipped",
+  );
+  if (attempted.some((execution) => execution.state === "completed")) {
+    return false;
+  }
+  // Sign-in, consent and other things only the person can do are never
+  // counted as the plan failing.
+  if (
+    attempted.some(
+      (execution) =>
+        execution.state === "failed" &&
+        isUserOwnedBlockerEvidence(execution.warning),
+    ) ||
+    run.summary.warnings.some((warning) => isUserOwnedBlockerEvidence(warning))
+  ) {
+    return false;
+  }
+  if (attempted.length > 0) {
+    return attempted.every((execution) => execution.state === "failed");
+  }
+  return run.state !== "completed";
+}
+
+/**
+ * The run-level evidence behind a plan's automatic pause.
+ *
+ * Only the unbroken run of failures at the end of the history counts: one
+ * successful run clears it. Counting individual source attempts instead is
+ * what made two failed source checks out of five look like a broken plan.
+ */
+export function deriveDiscoveryRunFailureEvidence(
+  runs: readonly unknown[],
+): FailureAttemptEvidence[] {
+  const terminal = runs
+    .map((run) => parseDiscoveryRun(run))
+    .filter((run): run is DiscoveryRunRecord => run !== null)
+    .filter(
+      (run) =>
+        run.state !== "idle" &&
+        run.state !== "running" &&
+        run.state !== "cancelled",
+    )
+    .sort(
+      (left, right) =>
+        Date.parse(left.completedAt ?? left.startedAt) -
+          Date.parse(right.completedAt ?? right.startedAt) ||
+        left.id.localeCompare(right.id),
+    );
+
+  const streak: DiscoveryRunRecord[] = [];
+  for (let index = terminal.length - 1; index >= 0; index -= 1) {
+    const run = terminal[index];
+    if (!run || !runFailedOutright(run)) break;
+    streak.unshift(run);
+  }
+
+  return streak.map((run) => ({
+    attemptId: `discovery_run:${run.id}`,
+    failed: true,
+    occurredAt: run.completedAt ?? run.startedAt,
+  }));
+}
+
 function sourceAttemptIsUserOwned(attempt: SourceDebugWorkerAttempt): boolean {
   return (
     attempt.outcome === "blocked_auth" ||
@@ -299,9 +376,11 @@ async function persistAutomaticFailurePause(input: {
   campaign: JobSearchCampaign;
   pauseId: string;
   evidence: readonly FailureAttemptEvidence[];
+  /** Overrides the plan's own rule when a safeguard sets its own floor. */
+  minimumSample?: number;
+  failureRateThresholdPercent?: number;
   now: string;
 }): Promise<void> {
-  if (input.evidence.length === 0) return;
   if (typeof input.ctx.withIntelligenceTransition !== "function") return;
 
   await input.ctx.withIntelligenceTransition(async () => {
@@ -309,6 +388,9 @@ async function persistAutomaticFailurePause(input: {
     const existing = state.safeguards.abnormalFailurePauses.find(
       (pause) => pause.id === input.pauseId,
     );
+    // No evidence and nothing recorded is nothing to say. No evidence with a
+    // pause already standing still has to run, so the pause can lift.
+    if (input.evidence.length === 0 && !existing) return;
     const result = recordAbnormalFailureEvidence({
       safeguards: state.safeguards,
       pauseId: input.pauseId,
@@ -320,8 +402,11 @@ async function persistAutomaticFailurePause(input: {
       config: {
         windowDays: AUTOMATIC_FAILURE_WINDOW_DAYS,
         failureRateThresholdPercent:
+          input.failureRateThresholdPercent ??
           input.campaign.stopRules.pauseOnFailureRatePercent,
-        minimumSample: input.campaign.stopRules.failureRateMinimumSample,
+        minimumSample:
+          input.minimumSample ??
+          input.campaign.stopRules.failureRateMinimumSample,
         explanation:
           "Too many searches or source checks failed in a row, so this search plan paused itself.",
         recoveryGuidance:
@@ -358,7 +443,14 @@ export async function persistAutomaticDiscoverySafeguard(input: {
     ctx: input.ctx,
     campaign: input.campaign,
     pauseId: `${AUTOMATIC_DISCOVERY_FAILURE_PAUSE_ID}:${input.campaign.id}`,
-    evidence: deriveDiscoveryFailureEvidence(runs),
+    // Whole runs, not single source attempts, and only the unbroken run of
+    // failures at the end of the history.
+    evidence: deriveDiscoveryRunFailureEvidence(runs),
+    minimumSample: Math.max(
+      AUTOMATIC_DISCOVERY_CONSECUTIVE_FAILED_RUNS,
+      input.campaign.stopRules.failureRateMinimumSample,
+    ),
+    failureRateThresholdPercent: 100,
     now: input.now,
   });
 }

@@ -26,6 +26,7 @@ import { jobFinderListRegionClassName } from "../../components/list-row";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import { useStableCallback } from "../../hooks/use-stable-callback";
 import { ReviewQueueRow } from "./review-queue-list-row";
+import { stripInternalCodeParenthetical } from "./review-queue-mission-panel-helpers";
 import {
   focusCollectionItem,
   getAdjacentCollectionItemId,
@@ -51,6 +52,9 @@ interface ReviewQueueListPanelProps {
   draftPreparation?: TailoredDraftPreparationViewState;
   isJobPending: (jobId: string) => boolean;
   onPrepareTailoredDrafts?: () => void;
+  onOpenSafeguards?: () => void;
+  /** A safeguard holding every preparation start back, in plain words. */
+  safeguardBlocker?: string | null;
   onSelectItem: (jobId: string) => void;
   onStopTailoredDraftPreparation?: () => void;
   onToggleQueueSelection: (jobId: string, checked: boolean) => void;
@@ -77,6 +81,8 @@ export function ReviewQueueListPanel({
   },
   isJobPending,
   onPrepareTailoredDrafts = () => undefined,
+  onOpenSafeguards,
+  safeguardBlocker = null,
   onSelectItem,
   onStopTailoredDraftPreparation = () => undefined,
   onToggleQueueSelection,
@@ -194,6 +200,9 @@ export function ReviewQueueListPanel({
     () => countTailoredDraftPreparationEligible(queue, preparedJobIds),
     [preparedJobIds, queue],
   );
+  const safeguardBlockerSentence = safeguardBlocker?.trim()
+    ? stripInternalCodeParenthetical(safeguardBlocker)
+    : null;
   const draftPreparationBlocker = useMemo(
     () => describeTailoredDraftPreparationBlocker(queue, preparedJobIds),
     [preparedJobIds, queue],
@@ -369,26 +378,42 @@ export function ReviewQueueListPanel({
                         {draftPreparationResultMessage}
                       </p>
                     ) : null}
-                    <Button
-                      className="w-fit whitespace-normal text-sm font-medium normal-case tracking-normal"
-                      disabled={draftPreparationBlocker !== null}
-                      onClick={onPrepareTailoredDrafts}
-                      size="sm"
-                      type="button"
-                      variant="secondary"
-                    >
-                      Prepare up to {TAILORED_DRAFT_PREPARATION_LIMIT} drafts
-                      (review required)
-                    </Button>
+                    {/* Same rule as the single-job control: while a
+                        safeguard is refusing every start, the start button is
+                        replaced by the one action that can change that. */}
+                    {safeguardBlockerSentence ? (
+                      <Button
+                        className="w-fit whitespace-normal text-sm font-medium normal-case tracking-normal"
+                        data-testid="tailored-draft-preparation-safeguards"
+                        onClick={() => onOpenSafeguards?.()}
+                        size="sm"
+                        type="button"
+                        variant="secondary"
+                      >
+                        Open Safeguards
+                      </Button>
+                    ) : (
+                      <Button
+                        className="w-fit whitespace-normal text-sm font-medium normal-case tracking-normal"
+                        disabled={draftPreparationBlocker !== null}
+                        onClick={onPrepareTailoredDrafts}
+                        size="sm"
+                        type="button"
+                        variant="secondary"
+                      >
+                        Prepare up to {TAILORED_DRAFT_PREPARATION_LIMIT} drafts
+                        (review required)
+                      </Button>
+                    )}
                     {/* A greyed control with no reason beside it is the whole
                         defect: the person could not tell whether the app was
                         broken or they had already done the thing. */}
-                    {draftPreparationBlocker ? (
+                    {safeguardBlockerSentence || draftPreparationBlocker ? (
                       <p
                         className="m-0 text-xs text-foreground-muted"
                         data-testid="tailored-draft-preparation-blocker"
                       >
-                        {draftPreparationBlocker}
+                        {safeguardBlockerSentence ?? draftPreparationBlocker}
                       </p>
                     ) : null}
                   </div>

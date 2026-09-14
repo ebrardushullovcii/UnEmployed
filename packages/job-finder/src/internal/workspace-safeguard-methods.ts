@@ -283,10 +283,13 @@ export function createWorkspaceSafeguardMethods(input: {
    * Evaluates the safe-gate blockers that apply to preparing applications for
    * the given jobs. Company caps resolve through the persisted company
    * entities (the job's owning company), conflicts through the persisted
-   * application records, and listing signals directly per job. Global gates
-   * (abnormal failure pause, pending sample review) always apply; contradictory
-   * answers stay advisory. This never grants any submission authority: it only
-   * reports what the caller must clear before preparing.
+   * application records, and listing signals directly per job. Only
+   * apply-scoped safeguards count: the daily cap, an apply failure pause, a
+   * listing problem, a pending sample review, and a pause the person set
+   * themselves. A search plan that paused its own discovery runs does not
+   * stop an application. Contradictory answers stay advisory. This never
+   * grants any submission authority: it only reports what the caller must
+   * clear before preparing.
    */
   async function evaluateApplicationPreparationBlockers(
     jobIds: readonly string[],
@@ -323,6 +326,10 @@ export function createWorkspaceSafeguardMethods(input: {
       jobIds,
       companyIds: [...companyIdSet],
       applicationRecordJobIds: recordJobIds,
+      // Preparing an application is gated by what stands in the way of
+      // applying. A search plan that paused itself after failed searches has
+      // nothing to do with this application and never blocks it.
+      operation: "apply",
     });
   }
 
@@ -351,9 +358,11 @@ export function createWorkspaceSafeguardMethods(input: {
 
     // The exact reason and recovery action come from the persisted entry; the
     // thrown message surfaces both and points at the Safeguards screen.
+    // The person reads the reason and the thing to do next. The internal
+    // reference travels on the blocker itself (`code`), for logs and for a
+    // renderer that wants it behind a details control.
     throw new Error(
-      `Safeguards are blocking this step (${blocker.kind}: ${blocker.id}). ` +
-        `${blocker.explanation} ${blocker.recoveryGuidance} ` +
+      `${blocker.explanation} ${blocker.recoveryGuidance} ` +
         `Open Safeguards to resolve, dismiss, or retry before continuing.`,
     );
   }

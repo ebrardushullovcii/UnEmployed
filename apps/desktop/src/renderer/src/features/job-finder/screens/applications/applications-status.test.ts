@@ -7,6 +7,7 @@ import {
 } from "@unemployed/contracts";
 import {
   getApplicationLatestActivityLabel,
+  listPendingApplicationQuestions,
   getApplicationNextStepLabel,
   getApplicationReadableNextStepLabel,
   getApplicationStagePresentation,
@@ -471,5 +472,207 @@ describe("an application waiting for the person to send it", () => {
         readyToSendRecord({ automationMode: "prepare_only" }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("sign-in walls in the list row", () => {
+  it("says sign in on the employer instead of open the application", () => {
+    const record = createRecord({
+      company: "Built In Chicago",
+      lastAttemptState: "failed",
+      lastActionLabel: "Job Finder could not finish this application",
+      nextActionLabel: "Open the application and finish it",
+      latestBlocker: {
+        code: "site_login_required",
+        summary:
+          "Job Finder got stuck: Blocked by a Built In sign-in wall requiring login before applying.",
+      },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: "https://www.builtinchicago.org/auth/login",
+        checkpointCount: 1,
+        evidenceCount: 0,
+      },
+    });
+
+    // The site the sign-in actually happens on, not the employer name.
+    const label = getApplicationNextStepLabel(record);
+    expect(label).toBe("Sign in on builtinchicago.org");
+    expect(getApplicationReadableNextStepLabel(label)).toBe(
+      "Sign in on builtinchicago.org",
+    );
+  });
+
+  it("leaves an ordinary next step alone", () => {
+    const record = createRecord({
+      company: "Acme",
+      lastAttemptState: "paused",
+      nextActionLabel: "Fill it in",
+    });
+
+    expect(getApplicationNextStepLabel(record)).not.toMatch(/sign in on/i);
+  });
+});
+
+describe("account walls in the list row", () => {
+  it("says create an account on the employer", () => {
+    const record = createRecord({
+      company: "Built In Chicago",
+      lastAttemptState: "failed",
+      nextActionLabel: "Create the account yourself",
+      latestBlocker: {
+        code: "requires_manual_review",
+        summary:
+          "The site wants an account before you can apply. Job Finder never creates accounts for you.",
+      },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: "https://www.builtinchicago.org/jobs/apply",
+        checkpointCount: 1,
+        evidenceCount: 0,
+      },
+    });
+
+    expect(getApplicationNextStepLabel(record)).toBe(
+      "Create an account on builtinchicago.org",
+    );
+  });
+});
+
+describe("row next step and detail button stay one state", () => {
+  it("never sends the row to a question that does not exist", () => {
+    const record = createRecord({
+      company: "Caterpillar",
+      lastAttemptState: "failed",
+      lastActionLabel:
+        'The site tried to save your answer to "First Name" straight away.',
+      nextActionLabel: "Answer the question in Needs you",
+      latestBlocker: null,
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: "https://boards.example.com/apply/123",
+        checkpointCount: 1,
+        evidenceCount: 0,
+      },
+    });
+
+    expect(getApplicationNextStepLabel(record)).toBe(
+      "Allow saving on boards.example.com",
+    );
+  });
+
+  it("names the sign-in site, never the employer", () => {
+    const record = createRecord({
+      company: "Caterpillar",
+      lastAttemptState: "failed",
+      nextActionLabel: "Sign in",
+      latestBlocker: {
+        code: "site_login_required",
+        summary: "The site wants you signed in first.",
+      },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: "https://accounts.builtin.com/login?next=/apply",
+        checkpointCount: 1,
+        evidenceCount: 0,
+      },
+    });
+
+    const label = getApplicationNextStepLabel(record);
+    expect(label).toBe("Sign in on accounts.builtin.com");
+    expect(label).not.toContain("Caterpillar");
+  });
+
+  it("keeps the question label while a question is actually open", () => {
+    const record = createRecord({
+      lastAttemptState: "paused",
+      nextActionLabel: "Answer the question in Needs you",
+      latestBlocker: {
+        code: "missing_candidate_answer",
+        summary: "The form asks something you have not answered yet",
+      },
+    });
+
+    expect(getApplicationNextStepLabel(record)).toBe(
+      "Answer the question in Needs you",
+    );
+  });
+});
+
+describe("one pending-question list for both screens", () => {
+  it("counts the rendered question records, not the run summary's tally", () => {
+    const attempts = [
+      {
+        id: "attempt_old",
+        jobId: "job_1",
+        updatedAt: "2026-09-01T09:00:00.000Z",
+        blocker: { code: "missing_candidate_answer" },
+        questions: [
+          { id: "q_old", status: "detected" },
+          { id: "q_old_2", status: "detected" },
+        ],
+      },
+      {
+        id: "attempt_new",
+        jobId: "job_1",
+        updatedAt: "2026-09-01T10:00:00.000Z",
+        blocker: { code: "missing_candidate_answer" },
+        questions: [
+          { id: "q_a", status: "detected" },
+          { id: "q_b", status: "detected" },
+          { id: "q_c", status: "detected" },
+          { id: "q_d", status: "detected" },
+          // Already answered, so neither screen shows it.
+          { id: "q_done", status: "answered" },
+          { id: "q_done_2", status: "answered" },
+        ],
+      },
+      {
+        id: "attempt_other_job",
+        jobId: "job_2",
+        updatedAt: "2026-09-01T11:00:00.000Z",
+        blocker: { code: "missing_candidate_answer" },
+        questions: [{ id: "q_other", status: "detected" }],
+      },
+    ] as unknown as Parameters<
+      typeof listPendingApplicationQuestions
+    >[0]["applicationAttempts"];
+
+    // The record's own tally says six; the list both screens render is four.
+    const record = createRecord({
+      questionSummary: {
+        total: 6,
+        required: 6,
+        answered: 0,
+        unansweredRequired: 6,
+      },
+    });
+    expect(record.questionSummary.unansweredRequired).toBe(6);
+
+    const pending = listPendingApplicationQuestions({
+      applicationAttempts: attempts,
+      jobId: "job_1",
+    });
+    expect(pending.map((question) => question.id)).toEqual([
+      "q_a",
+      "q_b",
+      "q_c",
+      "q_d",
+    ]);
+  });
+
+  it("is empty when no attempt paused on a question", () => {
+    expect(
+      listPendingApplicationQuestions({
+        applicationAttempts: [],
+        jobId: "job_1",
+      }),
+    ).toEqual([]);
   });
 });

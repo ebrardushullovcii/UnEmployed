@@ -1,0 +1,609 @@
+import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
+import {
+  JOB_FINDER_BROWSER_NAME,
+  OPEN_JOB_FINDER_BROWSER_ACTION,
+} from "../../lib/job-finder-browser-handoff-copy";
+import {
+  applyResultIsServiceWorkerBlocked,
+  applyResultNeedsManualFieldFinish,
+  applyResultNeedsResumeAttachment,
+  getCustomerFacingApplyText,
+} from "./applications-detail-panel-helpers";
+
+type ApplyResult =
+  | JobFinderWorkspaceSnapshot["applyJobResults"][number]
+  | null;
+
+/**
+ * One state, one sentence, one action.
+ *
+ * The Applications detail panel used to stack a "Try again" group of two
+ * side-by-side buttons, a contradicting fact strip ("could not finish" next to
+ * "Nothing blocking"), and a third automation button, while the one thing the
+ * reader needed — the sentence the run itself wrote about why it stopped — was
+ * three disclosures deep in Run details. Every visible control on that panel is
+ * now chosen here, from the run, so there can only ever be one of them.
+ */
+export type ApplicationRecoveryState =
+  | "preparing"
+  | "verify_outcome"
+  | "site_blocked"
+  | "finish_in_browser"
+  | "needs_sign_in"
+  | "reattach_resume"
+  | "needs_answer"
+  | "site_saves_as_you_go"
+  | "structural_stop"
+  | "retry";
+
+/**
+ * Which control the state earns. `none` is a real answer: while a run is
+ * working there is nothing for the person to press, and drawing a button
+ * anyway is what made the screen a loop of clicks that changed nothing.
+ */
+export type ApplicationRecoveryPrimaryAction =
+  | "none"
+  | "open_browser"
+  | "open_safeguards"
+  | "open_listing"
+  | "answer_in_needs_you"
+  | "allow_site_saves"
+  | "try_again";
+
+export type ApplicationRecoveryPresentation = {
+  state: ApplicationRecoveryState;
+  /** The state in plain words, as a heading. */
+  statusLine: string;
+  /**
+   * Why, in the run's own words where it has them. Never null for a stopped
+   * run: a "could not finish" with no because is the complaint this module
+   * exists to answer.
+   */
+  reasonSentence: string | null;
+  primaryAction: ApplicationRecoveryPrimaryAction;
+  primaryActionLabel: string | null;
+};
+
+/**
+ * The question a run paused on, exactly as the site asks it. The runtime
+ * writes it into the stop sentence in quotes; the panel shows the question
+ * rather than a paragraph about the pause.
+ */
+export function getPausedQuestionText(result: ApplyResult): string | null {
+  const corpus = result
+    ? `${result.blockerSummary ?? ""} ${result.detail ?? ""} ${result.summary ?? ""}`
+    : "";
+  const quoted = corpus.match(/["“‘']([^"”’']{6,300})["”’']/);
+  const question = quoted?.[1]?.trim();
+  return question ? formatQuestionPrompt(question) : null;
+}
+
+/**
+ * The site writes every keystroke back to its own server as you type, and
+ * Job Finder has no permission to let it. Recognised from the blocker code
+ * once the runtime records one, and until then from the sentence it writes.
+ */
+const SITE_SAVES_AS_YOU_GO_PATTERN =
+  /tried to save your answer[^.]*straight away|saves your answers as you type/i;
+
+export function applyResultBlockedBySiteSaves(result: ApplyResult): boolean {
+  if (!result) {
+    return false;
+  }
+
+  return (
+    (result.blockerReason as string) === "site_saves_as_you_go" ||
+    SITE_SAVES_AS_YOU_GO_PATTERN.test(
+      `${result.blockerSummary ?? ""} ${result.detail ?? ""} ${result.summary ?? ""}`,
+    )
+  );
+}
+
+/** The record-level form of the same check, for the list row. */
+export function applicationRecordBlockedBySiteSaves(record: {
+  latestBlocker?: { code?: string | null; summary?: string | null } | null;
+  lastActionLabel?: string | null;
+  nextActionLabel?: string | null;
+}): boolean {
+  if (record.latestBlocker?.code === "site_saves_as_you_go") {
+    return true;
+  }
+
+  return SITE_SAVES_AS_YOU_GO_PATTERN.test(
+    `${record.latestBlocker?.summary ?? ""} ${record.lastActionLabel ?? ""} ${record.nextActionLabel ?? ""}`,
+  );
+}
+
+/** The one sentence that state earns. */
+export const SITE_SAVES_AS_YOU_GO_REASON =
+  "This site saves your answers as you type, and Job Finder is not allowed to let it.";
+
+/** The host the permission would be granted for, as a person would name it. */
+export function getApplicationHostLabel(
+  destinationUrl: string | null | undefined,
+): string | null {
+  if (!destinationUrl) {
+    return null;
+  }
+
+  try {
+    return new URL(destinationUrl).hostname.replace(/^www\./i, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The question as a person should read it. The runtime stores a field's label
+ * and its description joined by an em dash, and a field whose description is
+ * just its label again came out as "Phone — Phone".
+ */
+export function formatQuestionPrompt(prompt: string): string {
+  const halves = prompt.split(/\s+[—–-]\s+/);
+  const kept: string[] = [];
+  for (const half of halves) {
+    const text = half.trim();
+    if (!text) {
+      continue;
+    }
+    if (
+      kept.some((seen) => seen.toLowerCase() === text.toLowerCase())
+    ) {
+      continue;
+    }
+    kept.push(text);
+  }
+
+  return kept.join(" — ") || prompt.trim();
+}
+
+/** True when the run stopped because the form asked something it cannot answer. */
+export function applyResultPausedOnQuestion(result: ApplyResult): boolean {
+  return (
+    result?.blockerReason === "question_grounding_failed" ||
+    result?.blockerReason === "required_human_input" ||
+    result?.blockerReason === "field_interpretation_failed"
+  );
+}
+
+/**
+ * States the run record itself reports while it is still working. A local
+ * pending flag times out after a minute or so; a seven-minute run does not,
+ * and the screen used to offer "Try again" beside a run that was still
+ * filling the form.
+ */
+const RUNNING_RESULT_STATES = new Set([
+  "planned",
+  "filling",
+  "question_capture",
+  "submitting",
+]);
+
+export function applyResultIsStillRunning(result: ApplyResult): boolean {
+  return result !== null && RUNNING_RESULT_STATES.has(result.state);
+}
+
+/** "2 min" from a start timestamp, for a wait the person is watching. */
+export function formatElapsedMinutes(
+  startedAt: string | null | undefined,
+  now: number = Date.now(),
+): string | null {
+  if (!startedAt) {
+    return null;
+  }
+
+  const started = new Date(startedAt).getTime();
+  if (!Number.isFinite(started) || now < started) {
+    return null;
+  }
+
+  const minutes = Math.floor((now - started) / 60_000);
+  return minutes < 1 ? "under a minute" : `${minutes} min`;
+}
+
+/** The one sentence a working run earns, wherever it is said. */
+export const FILLING_IN_THE_FORM_STATUS = "Job Finder is filling in the form";
+
+/** The label every retry control on the Applications screen carries. */
+export const TRY_AGAIN_ACTION = "Try again";
+
+/** The label for a stop a retry cannot change. */
+export const OPEN_LISTING_ACTION = `Open the listing in ${JOB_FINDER_BROWSER_NAME}`;
+
+/**
+ * A stop that running the same thing again cannot change: the listing has no
+ * apply route Job Finder can drive, the posting is gone, or applying happens
+ * somewhere this run cannot reach. Offering "Try again" here is the button
+ * that does nothing.
+ */
+const STRUCTURAL_STOP_PATTERN =
+  /\b(?:no apply (?:link|button|form|route)|could not find (?:an?|the) apply|apply (?:link|button) (?:was |is )?(?:not |n't )?(?:found|present|available)|listing (?:is |was )?closed|no longer (?:accepting|available|open)|posting (?:is |was )?(?:closed|removed|expired)|applications? (?:are |is )?closed|apply(?:ing)? (?:happens|is handled|takes place) (?:elsewhere|externally|on another)|email your application|apply by email|redirect(?:s|ed)? to an? (?:external|third-party) (?:site|application))/i;
+
+/**
+ * A stop a fresh run can genuinely change: the site erred, the page timed out,
+ * or the browser could not reach it.
+ */
+const RETRYABLE_STOP_PATTERN =
+  /\b(?:timed? ?out|timeout|temporarily unavailable|try again later|network|connection|502|503|504|server error|rate limit|too many requests)\b/i;
+
+function readReasonCorpus(result: ApplyResult): string {
+  if (!result) {
+    return "";
+  }
+
+  return `${result.detail ?? ""} ${result.blockerSummary ?? ""} ${result.summary ?? ""}`;
+}
+
+/**
+ * How the runtime introduces its own stuck sentence. The words after the colon
+ * are the reason; the prefix is bookkeeping and reads as a second, vaguer
+ * restatement of the headline directly above it.
+ */
+const STUCK_PREFIX_PATTERN =
+  /^\s*job finder\s+(?:got stuck|stopped(?:\s+on\s+.+?)?\s+because it got stuck)\s*[:—-]\s*/i;
+
+/**
+ * Summaries that say a run ended without saying anything about why. These are
+ * never used as the reason sentence: "Job Finder could not finish this
+ * application" under the headline "Job Finder stopped before finishing this
+ * application" is the same non-answer twice.
+ */
+const GENERIC_SUMMARY_PATTERN =
+  /^\s*(?:job finder\s+)?(?:could not finish|did not finish|failed to finish|could not complete)\b[^.]*\.?\s*$|^\s*attempt (?:failed|finished)\.?\s*$|^\s*preparation (?:failed|stopped)\.?\s*$/i;
+
+/**
+ * True when the site is asking for an account rather than a sign-in. Same
+ * shape of answer — the person does it themselves in the browser — but the
+ * sentence and the row label say "account" rather than "sign in".
+ */
+export function looksLikeAccountWall(input: {
+  blockerCode?: string | null;
+  text?: string | null;
+}): boolean {
+  const { blockerCode, text } = input;
+
+  if (
+    blockerCode === "account_required" ||
+    blockerCode === "site_account_required" ||
+    blockerCode === "signup_consent_required"
+  ) {
+    return true;
+  }
+
+  return Boolean(text && ACCOUNT_WALL_PATTERN.test(text));
+}
+
+/** Words a page uses when it wants an account created before it shows a form. */
+const ACCOUNT_WALL_PATTERN =
+  /\b(?:wants an account|requires? (?:you to )?(?:create|register)|create an account|sign ?up (?:is )?required|register(?:ed)? before applying|account before you can apply)\b/i;
+
+/** Words a page uses when it is asking for a sign-in before it will show a form. */
+const LOGIN_WALL_PATTERN =
+  /\b(?:sign[- ]?in wall|log[- ]?in wall|paywall of a login|sign[- ]?in (?:is )?required|log ?in (?:is )?required|requires? (?:a )?(?:login|sign[- ]?in|account)|must (?:log|sign) ?in|need(?:s|ing)? to (?:log|sign) ?in|(?:login|sign[- ]?in) before applying|create an account before applying)\b/i;
+
+/** A URL the run finished on that is plainly a sign-in page rather than a form. */
+const LOGIN_URL_PATTERN =
+  /(?:^|[/.])(?:login|log-in|signin|sign-in|sign_in|auth|oauth|sso|account\/login)(?:[/?#]|$)/i;
+
+/**
+ * True when this stop is a site asking the person to sign in, whether the run
+ * recorded that as a blocker code, said it in its own sentence, or simply ended
+ * on the site's login page.
+ */
+export function looksLikeSignInWall(input: {
+  blockerCode?: string | null;
+  destinationUrl?: string | null;
+  text?: string | null;
+}): boolean {
+  const { blockerCode, destinationUrl, text } = input;
+
+  if (
+    blockerCode === "site_login_required" ||
+    blockerCode === "auth_required" ||
+    blockerCode === "account_required" ||
+    blockerCode === "site_account_required" ||
+    blockerCode === "signup_consent_required"
+  ) {
+    return true;
+  }
+
+  if (text && LOGIN_WALL_PATTERN.test(text)) {
+    return true;
+  }
+
+  if (!destinationUrl) {
+    return false;
+  }
+
+  try {
+    return LOGIN_URL_PATTERN.test(new URL(destinationUrl).pathname);
+  } catch {
+    return LOGIN_URL_PATTERN.test(destinationUrl);
+  }
+}
+
+/** The one sentence a sign-in wall earns, wherever it is said. */
+export const SIGN_IN_WALL_REASON = `This site asks you to sign in before applying. Sign in in ${JOB_FINDER_BROWSER_NAME} and Job Finder can pick the application back up.`;
+
+/** The one sentence an account wall earns. Job Finder never creates accounts. */
+export const ACCOUNT_WALL_REASON = `The site wants an account before you can apply. Job Finder never creates accounts for you. Make the account once in ${JOB_FINDER_BROWSER_NAME} and it can carry on from there.`;
+
+/**
+ * The run's own sentence about why it stopped, cleaned of transport wording
+ * and of the recorded blocked-attempt evidence line. The blocker summary wins
+ * over the general summary because it is the one the agent wrote about the
+ * stop rather than about the whole attempt.
+ */
+export function getApplicationStopReasonSentence(
+  result: ApplyResult,
+): string | null {
+  if (!result) {
+    return null;
+  }
+
+  // The run's own stop detail first — that is where the agent writes its
+  // "Job Finder got stuck: …" sentence, and it was reachable only three
+  // disclosures down in Run details. The general summary is the last resort
+  // and is dropped outright when it says nothing but "could not finish".
+  for (const candidate of [result.detail, result.blockerSummary]) {
+    const text = getCustomerFacingApplyText(candidate, result.privacyReceipt);
+    const stripped = text?.replace(STUCK_PREFIX_PATTERN, "").trim();
+    if (stripped && !GENERIC_SUMMARY_PATTERN.test(stripped)) {
+      return stripped;
+    }
+  }
+
+  const summary = getCustomerFacingApplyText(
+    result.summary,
+    result.privacyReceipt,
+  )
+    ?.replace(STUCK_PREFIX_PATTERN, "")
+    .trim();
+
+  return summary && !GENERIC_SUMMARY_PATTERN.test(summary) ? summary : null;
+}
+
+/**
+ * True when this run stopped for a reason that will still be true next time.
+ * Exported so the fact strip and the records row read the same evidence the
+ * button does.
+ */
+export function applyResultStoppedStructurally(result: ApplyResult): boolean {
+  if (!result) {
+    return false;
+  }
+
+  if (result.state !== "blocked" && result.state !== "failed") {
+    return false;
+  }
+
+  const corpus = readReasonCorpus(result);
+  if (RETRYABLE_STOP_PATTERN.test(corpus)) {
+    return false;
+  }
+
+  return STRUCTURAL_STOP_PATTERN.test(corpus);
+}
+
+/**
+ * Decides the whole top block of the Applications detail panel from the run.
+ *
+ * `isApplyPending` is the screen's own in-flight flag; a pause the person has
+ * to resolve themselves outranks it, because a spinner beside "finish this in
+ * the browser" tells the reader to wait for something that will never happen.
+ */
+export function resolveApplicationRecoveryPresentation(input: {
+  canOpenSafeguards: boolean;
+  /** The page the run finished on, used to recognise a login page by its URL. */
+  destinationUrl?: string | null;
+  isApplyPending: boolean;
+  /** The exact question the run paused on, when the caller already has it. */
+  pausedQuestion?: string | null;
+  /** How many questions the form is still waiting on. */
+  pausedQuestionCount?: number | null;
+  /** Injected so elapsed time is testable. */
+  now?: number;
+  visibleApplyResult: ApplyResult;
+}): ApplicationRecoveryPresentation {
+  const {
+    canOpenSafeguards,
+    destinationUrl = null,
+    isApplyPending,
+    pausedQuestion = null,
+    pausedQuestionCount = null,
+    now = Date.now(),
+    visibleApplyResult,
+  } = input;
+  const reasonSentence = getApplicationStopReasonSentence(visibleApplyResult);
+  const isServiceWorkerBlocked = applyResultIsServiceWorkerBlocked(
+    visibleApplyResult,
+  );
+  const needsManualFieldFinish = applyResultNeedsManualFieldFinish(
+    visibleApplyResult,
+  );
+  const requiresSubmissionOutcomeVerification =
+    visibleApplyResult?.blockerReason === "submission_outcome_uncertain" ||
+    visibleApplyResult?.privacyReceipt?.submissionOutcome?.outcome ===
+      "outcome_uncertain";
+
+  if (requiresSubmissionOutcomeVerification) {
+    return {
+      state: "verify_outcome",
+      statusLine: "Job Finder could not tell whether this was sent",
+      reasonSentence:
+        reasonSentence ??
+        "The last action finished without the employer site confirming one way or the other.",
+      primaryAction: "none",
+      primaryActionLabel: null,
+    };
+  }
+
+  if (isServiceWorkerBlocked) {
+    return {
+      state: "site_blocked",
+      statusLine: "This job site blocked automatic filling",
+      reasonSentence:
+        reasonSentence ??
+        `The site stopped ${JOB_FINDER_BROWSER_NAME} before anything was filled.`,
+      primaryAction: canOpenSafeguards ? "open_safeguards" : "open_browser",
+      primaryActionLabel: canOpenSafeguards
+        ? `Open Safeguards to reset ${JOB_FINDER_BROWSER_NAME}`
+        : OPEN_JOB_FINDER_BROWSER_ACTION,
+    };
+  }
+
+  if (needsManualFieldFinish) {
+    return {
+      state: "finish_in_browser",
+      statusLine: "Ready for you to finish and send",
+      reasonSentence:
+        reasonSentence ??
+        "Some fields on the page still need a person to settle them.",
+      primaryAction: "open_browser",
+      primaryActionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    };
+  }
+
+  // An account wall is the same shape of answer with a different sentence:
+  // Job Finder never creates accounts, so the person makes one and it carries
+  // on. "Try again" here reruns straight back into the same wall.
+  if (
+    looksLikeAccountWall({
+      blockerCode: visibleApplyResult?.blockerReason ?? null,
+      text: readReasonCorpus(visibleApplyResult),
+    })
+  ) {
+    return {
+      state: "needs_sign_in",
+      statusLine: "This application needs an account first",
+      reasonSentence: ACCOUNT_WALL_REASON,
+      primaryAction: "open_browser",
+      primaryActionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    };
+  }
+
+  // A sign-in wall, however the run recorded it: a blocker code, its own
+  // sentence, or simply ending on the site's login page. Offering "Try again"
+  // here reruns straight back into the same wall.
+  if (
+    looksLikeSignInWall({
+      blockerCode: visibleApplyResult?.blockerReason ?? null,
+      destinationUrl,
+      text: readReasonCorpus(visibleApplyResult),
+    })
+  ) {
+    return {
+      state: "needs_sign_in",
+      statusLine: "This application needs you to sign in",
+      reasonSentence: SIGN_IN_WALL_REASON,
+      primaryAction: "open_browser",
+      primaryActionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    };
+  }
+
+  if (
+    visibleApplyResult?.blockerReason === "site_protection" ||
+    visibleApplyResult?.blockerReason === "provider_submit_auth_unavailable"
+  ) {
+    return {
+      state: "needs_sign_in",
+      statusLine: "This application needs you on the job site",
+      reasonSentence:
+        reasonSentence ??
+        `The employer site asked for something only you can give — an account, a security check, or a consent. Do that step yourself in ${JOB_FINDER_BROWSER_NAME}.`,
+      primaryAction: "open_browser",
+      primaryActionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    };
+  }
+
+  // The site writes as you type. A retry alone reruns into the same refusal;
+  // the one thing that changes it is allowing saving on that host.
+  if (applyResultBlockedBySiteSaves(visibleApplyResult)) {
+    const host = getApplicationHostLabel(destinationUrl);
+    return {
+      state: "site_saves_as_you_go",
+      statusLine: "This site saves as you type",
+      reasonSentence: SITE_SAVES_AS_YOU_GO_REASON,
+      primaryAction: "allow_site_saves",
+      primaryActionLabel: host
+        ? `Allow saving on ${host} and try again`
+        : "Allow saving on this site and try again",
+    };
+  }
+
+  // The form asked something nothing on file answers. The answer control is
+  // the Needs you step, so that is the one button: "Try again" would rerun
+  // into the same unanswered question.
+  if (applyResultPausedOnQuestion(visibleApplyResult)) {
+    const question =
+      pausedQuestion?.trim() || getPausedQuestionText(visibleApplyResult);
+    const count = pausedQuestionCount ?? 0;
+    return {
+      state: "needs_answer",
+      statusLine:
+        count > 1
+          ? "This application is waiting on your answers"
+          : "This application is waiting on one answer",
+      reasonSentence:
+        count > 1
+          ? `The form asks ${count} questions.`
+          : question
+            ? `The form asks: ${question}`
+            : "The form asks something nothing in your profile, resume, or saved answers covers.",
+      primaryAction: "answer_in_needs_you",
+      primaryActionLabel: "Answer in Needs you",
+    };
+  }
+
+  // The run record, not a local pending flag: a seven-minute run kept the
+  // flag for ninety seconds and then offered "Try again" beside itself.
+  if (isApplyPending || applyResultIsStillRunning(visibleApplyResult)) {
+    const elapsed = formatElapsedMinutes(visibleApplyResult?.startedAt, now);
+    return {
+      state: "preparing",
+      statusLine: elapsed
+        ? `${FILLING_IN_THE_FORM_STATUS} (${elapsed})`
+        : FILLING_IN_THE_FORM_STATUS,
+      reasonSentence: null,
+      primaryAction: "none",
+      primaryActionLabel: null,
+    };
+  }
+
+  if (applyResultNeedsResumeAttachment(visibleApplyResult)) {
+    return {
+      state: "reattach_resume",
+      statusLine: "Your resume was not attached",
+      reasonSentence:
+        reasonSentence ??
+        "The page did not accept the resume file, so preparation stopped before anything was sent.",
+      primaryAction: "try_again",
+      primaryActionLabel: TRY_AGAIN_ACTION,
+    };
+  }
+
+  if (applyResultStoppedStructurally(visibleApplyResult)) {
+    return {
+      state: "structural_stop",
+      statusLine: "Job Finder cannot apply to this one for you",
+      reasonSentence:
+        reasonSentence ??
+        "This listing has no application Job Finder can fill in.",
+      primaryAction: "open_listing",
+      primaryActionLabel: OPEN_LISTING_ACTION,
+    };
+  }
+
+  return {
+    state: "retry",
+    statusLine:
+      visibleApplyResult?.state === "failed"
+        ? "This application did not finish"
+        : "Job Finder stopped before finishing this application",
+    reasonSentence:
+      reasonSentence ??
+      "The run ended without reaching the end of the application.",
+    primaryAction: "try_again",
+    primaryActionLabel: TRY_AGAIN_ACTION,
+  };
+}

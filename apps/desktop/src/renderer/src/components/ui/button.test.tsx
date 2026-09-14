@@ -108,7 +108,7 @@ describe("Button", () => {
   it("keeps primary funnel CTAs full-border weighted without diluted chrome", () => {
     render(
       <Button type="button" variant="primary">
-        Prepare application
+        Fill it in
       </Button>,
     );
 

@@ -4,6 +4,7 @@ import type {
   ApplicationRecord,
   CandidateProfile,
   JobFinderApplicationStartTarget,
+  JobFinderWorkspaceSnapshot,
   BrowserSessionState,
   GlobalDailyApplicationPreparationCapacity,
   ResumeApplicationMode,
@@ -74,6 +75,12 @@ interface ReviewQueueMissionPanelProps {
   onOpenJobDetails: (jobId: string) => void;
   onOpenApplication?: (recordId: string) => void;
   onOpenProfile: () => void;
+  /** Takes the person to Safeguards when one is holding preparation back. */
+  onOpenSafeguards?: () => void;
+  /** Live apply results, so the start control follows the run record. */
+  applyJobResults?: JobFinderWorkspaceSnapshot["applyJobResults"];
+  /** A safeguard holding preparation back, in plain words. */
+  safeguardBlocker?: string | null;
   onClaimResumeIdentity?: () => void;
   onKeepResumeIdentity?: () => void;
   onRecommendResumeStrategy: (input: {
@@ -127,6 +134,9 @@ export function ReviewQueueMissionPanel({
   onOpenJobDetails,
   onOpenApplication = () => undefined,
   onOpenProfile,
+  onOpenSafeguards,
+  applyJobResults = [],
+  safeguardBlocker = null,
   onClaimResumeIdentity,
   onKeepResumeIdentity,
   onRecommendResumeStrategy,
@@ -170,6 +180,17 @@ export function ReviewQueueMissionPanel({
     isSelectedJobPendingTooLong,
     queue,
     queueSelection,
+    safeguardBlocker,
+    selectedApplyResult:
+      applyJobResults.find(
+        (result) =>
+          selectedItem !== null &&
+          result.jobId === selectedItem.jobId &&
+          (result.state === "planned" ||
+            result.state === "filling" ||
+            result.state === "question_capture" ||
+            result.state === "submitting"),
+      ) ?? null,
     selectedAsset,
     selectedItem,
     selectedJob,
@@ -205,6 +226,9 @@ export function ReviewQueueMissionPanel({
         return;
       case "open_resume_workspace":
         onEditResumeWorkspace(selectedItem.jobId);
+        return;
+      case "open_safeguards":
+        onOpenSafeguards?.();
         return;
     }
   };
@@ -803,6 +827,11 @@ export function ReviewQueueMissionPanel({
                   (requiresApplicationChoice && !selectedApplicationChoice)
                 }
                 onClick={() => {
+                  if (primaryApplicationAction.kind === "open_safeguards") {
+                    onOpenSafeguards?.();
+                    return;
+                  }
+
                   if (primaryApplicationAction.kind === "generate_resume") {
                     void onGenerateResume(selectedItem.jobId);
                     return;
@@ -957,7 +986,7 @@ function PreparationReadinessCard({
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
             File and destination confirmed. Use{" "}
             <strong className="font-semibold text-(--text-headline)">
-              Prepare application
+              Fill it in
             </strong>{" "}
             when you're ready — final submit stays disabled for this run.
           </p>
@@ -1063,7 +1092,7 @@ function PreparationChecklistCard({
         <p className="m-0 text-(length:--text-small) leading-6 text-foreground-soft">
           Resume and apply path are ready. Choose{" "}
           <strong className="font-semibold text-(--text-headline)">
-            Prepare application
+            Fill it in
           </strong>{" "}
           when you're ready.
         </p>

@@ -1015,7 +1015,7 @@ describe("workspace campaign preparation capacity", () => {
 
     await expect(
       harness.workspaceService.approveApply("job_ready"),
-    ).rejects.toThrow(/Safeguards are blocking this step/);
+    ).rejects.toThrow(/Open Safeguards to resolve, dismiss, or retry/);
   });
 
   test("guarded legacy and queued paths retain prepare-only authority", async () => {

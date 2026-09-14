@@ -376,6 +376,9 @@ export function mapExecutionResultToApplyBlockerReason(
       return "required_human_input";
     case "site_login_required":
       return "auth_required";
+    case "site_saves_as_you_go":
+      // Only the person can allow this site to save as they type.
+      return "required_human_input";
     case "missing_consent":
       return "signup_consent_required";
     case "external_redirect":
@@ -538,7 +541,11 @@ export function buildApplyCopilotArtifacts(input: {
   const executionQuestionIdByPersistedId = new Map<string, string>();
   const lastCheckpointIndex = replayableExecutionCheckpoints.length - 1;
   input.executionResult.questions.forEach((question) => {
-    const persistedQuestionId = createUniqueId("apply_question");
+    // The same question on the same application keeps the same record, run
+    // after run. Minting a new id each time is what made the pending list
+    // double on every retry and left the answers filed against a question the
+    // retry no longer recognised.
+    const persistedQuestionId = `apply_question_${input.applicationRecordId}_${question.id}`;
     persistedQuestionIdByExecutionId.set(question.id, persistedQuestionId);
     executionQuestionIdByPersistedId.set(persistedQuestionId, question.id);
   });
@@ -633,6 +640,8 @@ export function buildApplyCopilotArtifacts(input: {
       applicationRecordId: input.applicationRecordId,
       resultId,
       prompt: question.prompt,
+      ...(question.description ? { description: question.description } : {}),
+      ...(question.note ? { note: question.note } : {}),
       kind: question.kind,
       answerControlType:
         question.answerControlType ??

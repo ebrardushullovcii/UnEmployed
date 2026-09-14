@@ -137,13 +137,7 @@ function mutationMessage(
   if (result.status === "stale") {
     return "This envelope changed elsewhere. The current revision was reloaded; review it before trying again.";
   }
-  return "This authority envelope no longer exists. The list was refreshed.";
-}
-
-function isPrepareOnlyEnvelope(
-  envelope: ApplicationAuthorityEnvelope | null,
-): envelope is ApplicationAuthorityEnvelope {
-  return envelope?.mode === "prepare_only";
+  return "This saved setting no longer exists. The list was refreshed.";
 }
 
 /**
@@ -468,15 +462,12 @@ export function SettingsApplicationAuthoritySection({
       await loadEnvelopes();
     } catch {
       setActionState({
-        message: "The authority envelope was not revoked. Try again.",
+        message: "That did not go back to fill-and-stop. Try again.",
         status: "failed",
       });
     }
   };
 
-  const activePrepareOnly =
-    isPrepareOnlyEnvelope(selectedEnvelope) &&
-    selectedEnvelope.status === "active";
   const activeSelected = selectedEnvelope?.status === "active";
   // A saved permission that is no longer active is read-only history.
   const selectedNonDraftable =
@@ -499,6 +490,99 @@ export function SettingsApplicationAuthoritySection({
         draft.campaignId.trim().length === 0 &&
         splitLines(draft.jobIds).length === 1 &&
         draft.expiresAt.trim().length > 0));
+
+  /**
+   * What this choice will actually do, once everything it needs is in place.
+   * One sentence, in the same words the choice itself uses.
+   */
+  const selectedModeOutcomeSentence =
+    draft.mode === "prepare_only"
+      ? "Job Finder will open each application, fill in what it can, and stop. Reading it and sending it stays yours."
+      : draft.mode === "confirm_before_submit"
+        ? "Job Finder will fill each application in and show you what it wrote. Nothing goes to an employer until you send it."
+        : "Job Finder will fill applications in and send the ones that fall inside the limits below. It still stops for anything it cannot answer honestly.";
+
+  /** Moves the person to the field a prerequisite is asking them to fill. */
+  const focusField = (fieldId: string) => {
+    const field = document.getElementById(fieldId);
+    if (field instanceof HTMLElement) {
+      field.scrollIntoView({ block: "center" });
+      field.focus();
+    }
+  };
+
+  /**
+   * Everything this choice still needs, each with the one control that
+   * supplies it. An empty list means the choice is ready to save.
+   */
+  const missingPrerequisites: ReadonlyArray<{
+    id: string;
+    explanation: string;
+    actionLabel: string;
+    onAct: () => void;
+  }> = [
+    ...(sendingModeSelected && readiness?.answerApprovalStatus !== "current"
+      ? [
+          {
+            id: "approved-answers",
+            explanation:
+              "Approving your saved answers lets Job Finder reuse exactly the answers you checked in Profile, and nothing else.",
+            actionLabel: "Approve your saved answers",
+            onAct: () => setApprovalConfirming(true),
+          },
+        ]
+      : []),
+    // Only the sending modes need a named site. Fill-and-stop writes nothing
+    // anywhere and prepares perfectly well with no website listed, so asking
+    // for one there invented a missing step that was never missing.
+    ...(sendingModeSelected && draft.allowedOrigins.trim().length === 0
+      ? [
+          {
+            id: "allowed-origins",
+            explanation:
+              "Websites Job Finder may send applications on. Sending is limited to the sites you name here, and nowhere else.",
+            actionLabel: "Add a website",
+            onAct: () => focusField(originsId),
+          },
+        ]
+      : []),
+    ...(sendingModeSelected &&
+    splitLines(draft.allowedResumeSha256).length === 0
+      ? [
+          {
+            id: "resume-fingerprint",
+            explanation:
+              "Job Finder checks the resume file against this fingerprint, so a different file cannot go out by mistake.",
+            actionLabel: "Add the resume fingerprint",
+            onAct: () => focusField(resumeDigestsId),
+          },
+        ]
+      : []),
+    ...(sendingModeSelected &&
+    draft.campaignId.trim().length === 0 &&
+    splitLines(draft.jobIds).length === 0
+      ? [
+          {
+            id: "scope",
+            explanation:
+              "Say which jobs this covers — a search plan or a list of job IDs — so it can never apply to something you did not mean.",
+            actionLabel: "Choose which jobs this covers",
+            onAct: () => focusField(jobIdsId),
+          },
+        ]
+      : []),
+    ...(sendingModeSelected && draft.expiresAt.trim().length === 0
+      ? [
+          {
+            id: "expiry",
+            explanation:
+              "Pick a date this stops applying. It expires on its own rather than staying on forever.",
+            actionLabel: "Set when this expires",
+            onAct: () => focusField(expiresAtId),
+          },
+        ]
+      : []),
+  ];
 
   return (
     <section className="surface-panel-shell grid min-w-0 content-start gap-3 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
@@ -554,11 +638,40 @@ export function SettingsApplicationAuthoritySection({
             </span>
           </button>
         ))}
-        {sendingModeSelected && readiness?.answerApprovalStatus !== "current" ? (
-          <p className="text-sm leading-5 text-foreground-muted">
-            Approve your saved answers above before Job Finder can send
-            applications for you.
-          </p>
+      </div>
+
+      {/* What this choice means, in one sentence, and then one button for each
+          thing still missing. The section used to state "Not approved" with no
+          way forward, which is a dead end rather than a next step. */}
+      <div
+        className="grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 p-3.5"
+        data-testid="application-automation-outcome"
+      >
+        <p className="text-sm leading-5 text-foreground">
+          {selectedModeOutcomeSentence}
+        </p>
+        {missingPrerequisites.length > 0 ? (
+          <ul
+            className="m-0 grid min-w-0 list-none gap-2 p-0"
+            data-testid="application-automation-prerequisites"
+          >
+            {missingPrerequisites.map((prerequisite) => (
+              <li className="grid min-w-0 gap-1" key={prerequisite.id}>
+                <span className="text-sm leading-5 text-foreground-soft">
+                  {prerequisite.explanation}
+                </span>
+                <Button
+                  className="w-fit max-w-full"
+                  disabled={selectedNonDraftable}
+                  onClick={prerequisite.onAct}
+                  type="button"
+                  variant="secondary"
+                >
+                  {prerequisite.actionLabel}
+                </Button>
+              </li>
+            ))}
+          </ul>
         ) : null}
       </div>
 
@@ -638,7 +751,7 @@ export function SettingsApplicationAuthoritySection({
                 ? "Current"
                 : readiness.answerApprovalStatus === "stale"
                   ? "Needs review"
-                  : "Not approved"}
+                  : "Needs approving"}
             </span>
           ) : null}
         </div>
@@ -672,7 +785,7 @@ export function SettingsApplicationAuthoritySection({
                 <dd className="m-0 break-words text-sm text-foreground">
                   {readiness.approvedSnapshot
                     ? `Approved (version ${readiness.approvedSnapshot.revision})`
-                    : "Not approved yet"}
+                    : "Not approved yet — use the button above"}
                 </dd>
               </div>
             </dl>
@@ -744,7 +857,7 @@ export function SettingsApplicationAuthoritySection({
       {envelopes.length > 0 ? (
         <div
           className="grid min-w-0 gap-2"
-          aria-label="Saved authority envelopes"
+          aria-label="Saved application-automation settings"
           role="list"
         >
           {envelopes.map((envelope) => (
@@ -929,22 +1042,8 @@ export function SettingsApplicationAuthoritySection({
             type="button"
             variant="primary"
           >
-            {selectedNonDraftable
-              ? "Editing unavailable"
-              : activePrepareOnly
-                ? "Save authority revision"
-                : "Save what Job Finder may do"}
+            {selectedNonDraftable ? "Editing unavailable" : "Save"}
           </Button>
-          {activeSelected ? (
-            <Button
-              disabled={actionState.status === "loading"}
-              onClick={() => setRevocationPending(true)}
-              type="button"
-              variant="secondary"
-            >
-              Revoke authority
-            </Button>
-          ) : null}
           {actionState.status !== "idle" && actionState.message ? (
             <p
               className={
@@ -958,37 +1057,54 @@ export function SettingsApplicationAuthoritySection({
             </p>
           ) : null}
         </div>
-        {activeSelected && revocationPending ? (
-          <div
-            className="grid gap-2 rounded-(--radius-field) border border-warning/45 bg-warning/8 px-3 py-3"
-            role="alert"
-          >
-            <p className="text-sm leading-5 text-foreground">
-              Revoke {selectedEnvelope.mode.replaceAll("_", " ")} revision{" "}
-              {selectedEnvelope.revision}? This immediately prevents this
-              envelope from authorizing future work and cannot be undone.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                disabled={actionState.status === "loading"}
-                onClick={() => void revokeEnvelope()}
-                type="button"
-                variant="secondary"
-              >
-                Confirm revoke authority
-              </Button>
-              <Button
-                disabled={actionState.status === "loading"}
-                onClick={() => setRevocationPending(false)}
-                type="button"
-                variant="ghost"
-              >
-                Keep authority
-              </Button>
-            </div>
-          </div>
-        ) : null}
       </div>
+
+      {/* The way back, under the section rather than beside the thing you
+          came here to do. It is one plain sentence about what changes. */}
+      {activeSelected ? (
+        <div
+          className="grid min-w-0 gap-2 border-t border-(--surface-panel-border) pt-3"
+          data-testid="application-automation-step-back"
+        >
+          {revocationPending ? (
+            <>
+              <p className="text-sm leading-5 text-foreground" role="alert">
+                Job Finder will go back to filling applications in and stopping.
+                It keeps nothing it was allowed to do beyond that, and you can
+                choose a wider setting again later.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  disabled={actionState.status === "loading"}
+                  onClick={() => void revokeEnvelope()}
+                  type="button"
+                  variant="secondary"
+                >
+                  Go back to fill-and-stop
+                </Button>
+                <Button
+                  disabled={actionState.status === "loading"}
+                  onClick={() => setRevocationPending(false)}
+                  type="button"
+                  variant="ghost"
+                >
+                  Keep this setting
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Button
+              className="w-fit max-w-full"
+              disabled={actionState.status === "loading"}
+              onClick={() => setRevocationPending(true)}
+              type="button"
+              variant="ghost"
+            >
+              Go back to fill-and-stop
+            </Button>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

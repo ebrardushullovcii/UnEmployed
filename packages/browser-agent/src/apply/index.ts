@@ -30,7 +30,20 @@ export {
 export {
   detectApplyBlocker,
   hasSubmissionConfirmationText,
+  looksLikeSignInPage,
+  siteLoginRequiredBlocker,
 } from "./blockers";
+export { planSourceAnsweredFills } from "./apply-plan";
+export {
+  findApplyEntry,
+  hasApplicationFormControls,
+  looksLikeApplyEntryText,
+  resolveApplyEntry,
+  type ApplyEntryCandidate,
+  type ApplyEntryFinding,
+  type ApplyEntryOutcome,
+  type ApplyEntryResolution,
+} from "./apply-entry";
 export {
   buildCoverLetterRequest,
   coverLetterDeliveryFor,
@@ -89,7 +102,9 @@ export type {
   ApplyFormControl,
   ApplyFormObservation,
   ApplyLetterProvider,
+  ApplyLinkDestination,
   ApplyPageHands,
+  ApplyPageLink,
   ApplyPause,
   ApplyPauseCode,
   ApplyProposal,

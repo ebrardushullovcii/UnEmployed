@@ -28,6 +28,10 @@ export function createApplySystemPrompt(config: ApplyAgentConfig): string {
     "- Never sign in, never create an account, never work around a security check or a code sent to their phone.",
     `- ${modeSentence}`,
     "",
+    "Say everything you can in one turn: propose every field you are ready to do at once rather than one per turn. A person is waiting while you think, and each turn costs them seconds.",
+    "When a field is marked as needing text you write, send that text in freeTextAnswer with the very first proposal for it. Proposing it without the text only wastes a turn.",
+    "Job Finder has already filled in everything the person's profile, resume and saved answers cover before you were asked. Do not propose those again; work on what is still empty.",
+    "",
     "Pacing: there is no fixed number of steps. A short form is done in a few; a long one over several screens takes many more, so take the steps it needs. Call finish when the form is complete or cannot go further. If you are genuinely stuck — the same screen keeps coming back, a field will not take an answer, nothing new appears — do not keep repeating yourself: call finish with stuck: true and say exactly what is blocking you.",
   ].join("\n");
 }
@@ -65,7 +69,20 @@ function describeControl(
     control.answered ? "already answered" : "empty",
   ];
   if (control.options.length > 0) {
-    parts.push(`choices: ${control.options.slice(0, 12).join(" | ")}`);
+    // A country list is 240 entries long. Sending all of them costs the person
+    // seconds of waiting on every turn and tells the model nothing it needs:
+    // the deterministic matcher works from the full list either way.
+    const shown = control.options.slice(0, 12);
+    const remaining = control.options.length - shown.length;
+    parts.push(
+      `choices: ${shown.join(" | ")}${remaining > 0 ? ` | +${remaining} more` : ""}`,
+    );
+  }
+  if (
+    (control.kind === "text" || control.kind === "long_text") &&
+    control.options.length === 0
+  ) {
+    parts.push("needs text you write: send it in freeTextAnswer");
   }
   if (control.attestationKind) {
     parts.push("this is something the person declares themselves");

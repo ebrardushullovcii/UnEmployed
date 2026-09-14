@@ -41,8 +41,28 @@ function isCrossOrigin(
 }
 
 export type BlockedAttemptJudgement =
-  | { stop: false; tolerated: boolean; note: string | null }
+  | {
+      stop: false;
+      tolerated: boolean;
+      note: string | null;
+      /**
+       * Set when the blocked request was the site saving an answer as it was
+       * typed. Nothing left the page and the run carries on; it only matters
+       * later, if the form will not move on without that save.
+       */
+      savesAsYouGo?: { host: string | null };
+    }
   | { stop: true; summary: string };
+
+/** The site a blocked request was heading for, in the person's words. */
+export function attemptHost(attempt: ApplyBlockedAttempt): string | null {
+  if (!attempt.url) return null;
+  try {
+    return new URL(attempt.url).hostname.replace(/^www\./iu, "");
+  } catch {
+    return null;
+  }
+}
 
 /**
  * What to do about the most recent blocked attempt.
@@ -107,10 +127,18 @@ export function judgeBlockedAttempt(input: {
     };
   }
 
+  // A form that saves each answer as it is typed is ordinary. The guard
+  // refuses the save, so nothing leaves the page, and the run keeps filling:
+  // stopping here left the person with a dead end and a Try again that did
+  // the same thing. It matters only if the form then will not move on.
+  const host = attemptHost(attempt);
+  const where = host ?? "the site";
   return {
-    stop: true,
-    summary: input.lastFieldLabel
-      ? `The site tried to save your answer to "${input.lastFieldLabel}" straight away. Job Finder blocked it and stopped, so nothing was sent.`
-      : "The site tried to send something while the form was being filled in. Job Finder blocked it and stopped, so nothing was sent.",
+    stop: false,
+    tolerated: true,
+    note: input.lastFieldLabel
+      ? `Blocked a background save to ${where} while filling ${input.lastFieldLabel}.`
+      : `Blocked a background save to ${where} while the form was being filled in.`,
+    savesAsYouGo: { host },
   };
 }

@@ -103,7 +103,6 @@ export function ApplicationsScreen(props: {
   onRevokeApplyRunApproval: (input: JobFinderApplyRunActionInput) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
-  onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onOpenCompany?: (companyId: string) => void;
   selectedApplyRunId: string | null;
   onSelectRecord: (recordId: string) => void;
@@ -126,6 +125,8 @@ export function ApplicationsScreen(props: {
   getOutcomeResumeStrategyId?: (jobId: string) => string | null;
   safeguardsBlockerCount?: number;
   onOpenSafeguards?: () => void;
+  onOpenNeedsYou?: () => void;
+  onAllowSiteSaves?: (host: string | null) => void;
   /**
    * Opens or focuses the managed Job Finder browser on the paused application
    * so the user can finish a field the site tried to save on its own. It
@@ -171,7 +172,6 @@ export function ApplicationsScreen(props: {
     onRevokeApplyRunApproval,
     onStartAutoApplyQueue,
     onStartApplyCopilot,
-    onStartAutoApply,
     selectedApplyRunId,
     onSelectRecord,
     selectedAttempt,
@@ -854,7 +854,13 @@ export function ApplicationsScreen(props: {
             onStartAutoApplyQueue={onStartAutoApplyQueue}
             onSelectApplyRun={handleSelectApplyRun}
             onStartApplyCopilot={onStartApplyCopilot}
-            onStartAutoApply={onStartAutoApply}
+            applicationAttempts={applicationAttempts}
+            {...(props.onOpenNeedsYou
+              ? { onOpenNeedsYou: props.onOpenNeedsYou }
+              : {})}
+            {...(props.onAllowSiteSaves
+              ? { onAllowSiteSaves: props.onAllowSiteSaves }
+              : {})}
             {...(props.onOpenSafeguards
               ? { onOpenSafeguards: props.onOpenSafeguards }
               : {})}

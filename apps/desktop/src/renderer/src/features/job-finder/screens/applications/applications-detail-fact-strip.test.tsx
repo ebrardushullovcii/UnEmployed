@@ -19,7 +19,6 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApplicationsDetailFactStrip } from "./applications-detail-fact-strip";
 import { ApplicationsDetailPanel } from "./applications-detail-panel";
-import { ApplicationsDetailPanelOverviewSections } from "./applications-detail-panel-overview-sections";
 import { ApplicationsDetailPanelAttemptSection } from "./applications-detail-panel-attempt-section";
 import { ApplicationsDetailPanelRunHistorySection } from "./applications-detail-panel-run-history-section";
 
@@ -174,11 +173,7 @@ describe("ApplicationsDetailFactStrip", () => {
     const primaryLabels = within(primaryDl)
       .getAllByRole("term")
       .map((term) => term.textContent);
-    expect(primaryLabels).toEqual([
-      "Latest activity",
-      "Preparation status",
-      "What stopped progress",
-    ]);
+    expect(primaryLabels).toEqual(["Latest activity", "Preparation status"]);
 
     fireEvent.click(screen.getByText("More about this application"));
 
@@ -246,35 +241,12 @@ describe("ApplicationsDetailFactStrip", () => {
       .filter((value) => value.className.includes("text-foreground-muted"))
       .map((value) => value.textContent);
 
-    expect(mutedValues).toEqual([
-      "No recent activity",
-      "Not started",
-      "Nothing blocking",
-    ]);
-    expect(container.querySelectorAll('[data-slot="badge"]')).toHaveLength(0);
-  });
-
-  it("names the safety-limit review instead of saying nothing is blocking", () => {
-    const emptyRecord: ApplicationRecord = {
-      ...baseRecord,
-      lastActionLabel: "",
-      lastAttemptState: null,
-      latestBlocker: null,
-    };
-    render(
-      <ApplicationsDetailFactStrip
-        selectedAttempt={null}
-        selectedRecord={emptyRecord}
-        visibleApplyResult={null}
-        visibleApplyRunId={null}
-        waitingOnSafetyLimitReview
-      />,
-    );
-
-    expect(
-      screen.getByText("Waiting for the batch safety-limit review"),
-    ).toBeTruthy();
+    // The stop sentence lives in the status block at the top of the panel;
+    // this strip no longer carries a "What stopped progress" cell at all.
+    expect(mutedValues).toEqual(["Not started"]);
+    expect(screen.queryByText("What stopped progress")).toBeNull();
     expect(screen.queryByText("Nothing blocking")).toBeNull();
+    expect(container.querySelectorAll('[data-slot="badge"]')).toHaveLength(0);
   });
 
   it("never repeats company, stage, or the full run id inside the fact region", () => {
@@ -386,130 +358,6 @@ describe("ApplicationsDetailFactStrip", () => {
 });
 
 describe("ApplicationsDetailPanelOverviewSections dedupe", () => {
-  it("uses the newer declined record next step instead of a stale consent attempt label", () => {
-    const declinedRecord: ApplicationRecord = {
-      ...baseRecord,
-      nextActionLabel: null,
-      lastUpdatedAt: "2026-08-09T09:00:00.000Z",
-      consentSummary: { status: "declined", pendingCount: 0 },
-    };
-    const staleConsentAttempt: ApplicationAttempt = {
-      id: "attempt_stale_consent",
-      jobId: declinedRecord.jobId,
-      applicationRecordId: declinedRecord.id,
-      state: "paused",
-      summary: "Consent was declined.",
-      detail: "The consent request was declined before the run continued.",
-      startedAt: "2026-08-09T07:00:00.000Z",
-      updatedAt: "2026-08-09T08:00:00.000Z",
-      completedAt: null,
-      outcome: null,
-      checkpoints: [],
-      questions: [],
-      blocker: null,
-      listingSignalEvidence: null,
-      consentDecisions: [],
-      replay: {
-        sourceDebugEvidenceRefIds: [],
-        sourceInstructionArtifactId: null,
-        lastUrl: null,
-        checkpointUrls: [],
-      },
-      visualEvidence: [],
-      visualObservationSets: [],
-      visualCheckpoints: [],
-      nextActionLabel:
-        "Review the consent request and decide whether to continue or skip this job",
-      executionTimings: [],
-    };
-
-    render(
-      <ApplicationsDetailPanelOverviewSections
-        selectedAttempt={staleConsentAttempt}
-        selectedRecord={declinedRecord}
-        visibleApplyResult={null}
-        visibleApplyRunId={null}
-        showFactStrip={false}
-      />,
-    );
-
-    expect(
-      screen.getByText("Restart the run if you want to try again later."),
-    ).toBeTruthy();
-    expect(
-      screen.queryByText(
-        "Review the consent request and decide whether to continue or skip this job",
-      ),
-    ).toBeNull();
-  });
-
-  it("owns the next step once and leaves title, company, stage, and state to other regions", () => {
-    const attempt: ApplicationAttempt = {
-      id: "attempt_1",
-      jobId: "job_1",
-      applicationRecordId: baseRecord.id,
-      state: "paused",
-      summary: "Paused before final review.",
-      detail: "Application detail",
-      startedAt: "2026-08-09T07:00:00.000Z",
-      updatedAt: "2026-08-09T09:00:00.000Z",
-      completedAt: null,
-      outcome: null,
-      checkpoints: [],
-      questions: [],
-      blocker: null,
-      listingSignalEvidence: null,
-      consentDecisions: [],
-      replay: {
-        sourceDebugEvidenceRefIds: [],
-        sourceInstructionArtifactId: null,
-        lastUrl: null,
-        checkpointUrls: [],
-      },
-      visualEvidence: [],
-      visualObservationSets: [],
-      visualCheckpoints: [],
-      nextActionLabel:
-        "Review the prepared application and submit manually when ready",
-      executionTimings: [],
-    };
-
-    render(
-      <ApplicationsDetailPanelOverviewSections
-        selectedAttempt={attempt}
-        selectedRecord={baseRecord}
-        visibleApplyResult={null}
-        visibleApplyRunId={null}
-      />,
-    );
-
-    // The panel header owns title and employer now; the overview only owns
-    // the next step.
-    expect(screen.queryByText("Senior Product Designer")).toBeNull();
-    expect(screen.queryByText("Signal Systems")).toBeNull();
-    expect(screen.queryByText("Needs action")).toBeNull();
-    expect(
-      screen.getAllByText("Submit the prepared application manually"),
-    ).toHaveLength(1);
-    expect(
-      screen.getAllByText(
-        "Saved follow-up: Review the prepared application and submit manually when ready",
-      ),
-    ).toHaveLength(1);
-    expect(screen.getAllByText("Needs follow-up")).toHaveLength(1);
-
-    for (const removedCardHeading of [
-      "Stage",
-      "Saved next step",
-      "Latest apply attempt",
-      "Questions on the form",
-    ]) {
-      expect(screen.queryByText(removedCardHeading)).toBeNull();
-    }
-  });
-});
-
-describe("ApplicationsDetailPanelAttemptSection dedupe", () => {
   it("keeps summary and detail but no longer repeats the attempt state or next step", () => {
     const attempt: ApplicationAttempt = {
       id: "attempt_1",
@@ -737,7 +585,6 @@ describe("ApplicationsDetailPanel container contract", () => {
         onRevokeApplyRunApproval={vi.fn()}
         onSelectApplyRun={vi.fn()}
         onStartApplyCopilot={vi.fn()}
-        onStartAutoApply={vi.fn()}
         onStartAutoApplyQueue={vi.fn()}
         selectedApplyRunId="run_latest01"
         selectedAttempt={null}
@@ -774,18 +621,17 @@ describe("ApplicationsDetailPanel container contract", () => {
     expect(detailRegion.className).toContain("overflow-y-auto");
     expect(detailRegion.className).toContain("overflow-x-hidden");
 
-    const nextStep = within(detailRegion).getByRole("heading", {
-      name: "Next step",
-    });
+    // The status block owns the next step now; there is no separate
+    // "Next step" heading restating it above the buttons.
+    expect(
+      within(detailRegion).queryByRole("heading", { name: "Next step" }),
+    ).toBeNull();
     const recoveryActions = within(detailRegion).getByTestId(
       "applications-recovery-actions",
     );
     const statusFacts = within(detailRegion).getByRole("region", {
       name: "Application status",
     });
-    expect(nextStep.compareDocumentPosition(recoveryActions)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
     expect(recoveryActions.compareDocumentPosition(statusFacts)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );

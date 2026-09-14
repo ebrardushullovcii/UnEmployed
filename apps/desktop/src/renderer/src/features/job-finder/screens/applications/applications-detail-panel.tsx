@@ -1,5 +1,4 @@
 import { inferApplicationCrmStageForView } from "./applications-crm-model";
-import { getApplicationSubmissionAnswer } from "./applications-status";
 import { useMemo } from "react";
 import type {
   ApplicationAttempt,
@@ -39,7 +38,10 @@ import {
   preparationApprovalActionLabel,
 } from "./applications-detail-panel-submit-approval-section";
 import { type ApplicationsViewFilter } from "./applications-filters";
-import { getApplicationStagePresentation } from "./applications-status";
+import {
+  getApplicationStagePresentation,
+  listPendingApplicationQuestions,
+} from "./applications-status";
 import { formatApplicationEmployerLine } from "../../lib/job-employer-location-display";
 
 function buildInterviewHelperApplicationHref(input: {
@@ -87,6 +89,7 @@ interface ApplicationsDetailPanelProps {
   } | null;
   applyRunDetailsError: string | null;
   applyRunDetailsStatus: "idle" | "loading" | "ready" | "error";
+  applicationAttempts?: readonly ApplicationAttempt[];
   applicationRecords: readonly ApplicationRecord[];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];
   dailyPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
@@ -129,9 +132,10 @@ interface ApplicationsDetailPanelProps {
   onRevokeApplyRunApproval: (input: JobFinderApplyRunActionInput) => void;
   onSelectApplyRun: (runId: string) => void;
   onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
-  onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onOpenSafeguards?: () => void;
+  onOpenNeedsYou?: () => void;
+  onAllowSiteSaves?: (host: string | null) => void;
   /**
    * Pass-through only. The declared return type has to match the leaf's, or
    * the outcome the leaf uses to decide what the hand-off status claims would
@@ -154,6 +158,7 @@ export function ApplicationsDetailPanel({
   applyRunDetailsTarget,
   applyRunDetailsError,
   applyRunDetailsStatus,
+  applicationAttempts = [],
   applicationRecords,
   applyJobResults,
   dailyPreparationCapacity,
@@ -166,19 +171,18 @@ export function ApplicationsDetailPanel({
   isApplyRequestPending,
   isApplyRunPending,
   onApproveApplyRun,
-  onCancelApplyRun,
   onOpenCompany,
   onExportApplicationPacket,
   onResolveSubmissionOutcome,
   onSaveApplicationAnswer,
   onClearApplicationAnswer,
   onResolveApplyConsentRequest,
-  onRevokeApplyRunApproval,
   onSelectApplyRun,
   onStartApplyCopilot,
-  onStartAutoApply,
   onStartAutoApplyQueue,
   onOpenSafeguards,
+  onOpenNeedsYou,
+  onAllowSiteSaves,
   onFinishInBrowser,
   onConfirmFinishedInBrowser,
   canConfirmFinishedInBrowser,
@@ -192,6 +196,12 @@ export function ApplicationsDetailPanel({
   onPrepareApplicationAgain,
 }: ApplicationsDetailPanelProps) {
   const visibleApplyResult = effectiveSelectedApplyResult;
+  const pendingQuestionCount = selectedRecord
+    ? listPendingApplicationQuestions({
+        applicationAttempts,
+        jobId: selectedRecord.jobId,
+      }).length
+    : 0;
   // Where this application stands, in the one vocabulary the screen uses.
   const applyPresentation = selectedRecord
     ? getApplicationApplyPresentation({
@@ -254,9 +264,6 @@ export function ApplicationsDetailPanel({
   const canRestageQueueRun =
     selectedRun?.mode === "queue_auto" &&
     selectedQueueRecoveryJobIds.length > 0;
-  const isSelectedRunPending = selectedRun
-    ? isApplyRunPending(selectedRun.id)
-    : false;
   const selectedStage = selectedRecord
     ? getApplicationStagePresentation(selectedRecord)
     : null;
@@ -316,9 +323,10 @@ export function ApplicationsDetailPanel({
       excludedQueueRecoveryEntries={excludedQueueRecoveryEntries}
       isApplyPending={isApplyPending}
       onStartApplyCopilot={onStartApplyCopilot}
-      onStartAutoApply={onStartAutoApply}
       onStartAutoApplyQueue={onStartAutoApplyQueue}
       {...(onOpenSafeguards ? { onOpenSafeguards } : {})}
+      {...(onOpenNeedsYou ? { onOpenNeedsYou } : {})}
+      {...(onAllowSiteSaves ? { onAllowSiteSaves } : {})}
       {...(onFinishInBrowser ? { onFinishInBrowser } : {})}
       {...(onConfirmFinishedInBrowser ? { onConfirmFinishedInBrowser } : {})}
       canConfirmFinishedInBrowser={canConfirmFinishedInBrowser ?? false}
@@ -329,6 +337,9 @@ export function ApplicationsDetailPanel({
       selectedQueueOutcomeEntries={selectedQueueEntries}
       selectedQueueRecoveryEntries={selectedQueueRecoveryEntries}
       selectedQueueRecoveryJobIds={selectedQueueRecoveryJobIds}
+      // The same selector Needs you renders from, so the two screens can
+      // never disagree about how many questions are pending.
+      pausedQuestionCount={pendingQuestionCount}
       selectedRecordJobId={selectedRecord.jobId}
       selectedApplicationRecordId={selectedRecord.id}
       selectedRun={selectedRun}
@@ -351,14 +362,11 @@ export function ApplicationsDetailPanel({
    * after the recovery actions so the action row is not pushed below the
    * fold at 1024x768.
    */
-  const submissionAnswer = selectedRecord
-      ? getApplicationSubmissionAnswer(
-        selectedRecord,
-        selectedRecordEmployerDisplay,
-        visibleApplyResult,
-      )
-    : null;
-
+  // Only a run that actually reached the employer's send control leaves the
+  // reader wondering whether something went out.
+  const showNotSubmittedPill =
+    visibleApplyResult?.privacyReceipt?.submissionOutcome?.outcome ===
+    "not_submitted";
   const convenienceLinks = selectedRecord ? (
     <>
       {selectedRecordCompanyId &&
@@ -443,9 +451,16 @@ export function ApplicationsDetailPanel({
             </strong>
           )}
         </div>
-        <StatusBadge tone={selectedStage ? selectedStage.tone : "muted"}>
-          {selectedRecord ? selectedStage?.label : "Nothing selected"}
-        </StatusBadge>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {showNotSubmittedPill ? (
+            <StatusBadge data-testid="applications-not-submitted-pill" tone="muted">
+              Not submitted
+            </StatusBadge>
+          ) : null}
+          <StatusBadge tone={selectedStage ? selectedStage.tone : "muted"}>
+            {selectedRecord ? selectedStage?.label : "Nothing selected"}
+          </StatusBadge>
+        </div>
       </div>
       {selectedRecord ? (
         // A scroller that only names one axis still resolves the other to
@@ -456,23 +471,11 @@ export function ApplicationsDetailPanel({
           className="grid min-h-0 min-w-0 flex-1 content-start gap-5 overflow-x-hidden overflow-y-auto pr-1"
           data-locked-pane-scroll-region
         >
-          {/* The plain answer, uncollapsed, before anything else: did I
-              apply, and is anything of mine on that site? Seven different
-              state words described this record and none of them said "Not
-              submitted". */}
-          {submissionAnswer ? (
-            <p
-              className="grid gap-1 rounded-(--radius-field) border border-(--control-border) px-4 py-3"
-              data-testid="applications-submission-answer"
-            >
-              <strong className="text-(length:--text-body) font-semibold text-(--text-headline)">
-                {submissionAnswer.headline}
-              </strong>
-              <span className="text-(length:--text-small) leading-6 text-foreground-soft">
-                {submissionAnswer.detail}
-              </span>
-            </p>
-          ) : null}
+          {/* "Not submitted" used to be a boxed paragraph above a NEXT STEP
+              callout above the status block above the fact strip — four
+              places for one fact. It is a pill beside the title now, and only
+              where a run actually reached a send control and the reader might
+              wonder. */}
           {needsPrimaryRecovery ? null : convenienceLinks}
           <ApplicationsDetailPanelOverviewSections
             selectedAttempt={selectedAttempt}
@@ -495,10 +498,7 @@ export function ApplicationsDetailPanel({
             )}
             showApproveAction={!awaitingPreparationApproval}
             isApplyRunPending={isApplyRunPending}
-            isSelectedRunPending={isSelectedRunPending}
             onApproveApplyRun={onApproveApplyRun}
-            onCancelApplyRun={onCancelApplyRun}
-            onRevokeApplyRunApproval={onRevokeApplyRunApproval}
             selectedApplicationTarget={{
               applicationRecordId: selectedRecord.id,
               jobId: selectedRecord.jobId,

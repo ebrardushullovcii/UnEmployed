@@ -6,7 +6,7 @@ import type { ToolCall } from "../types";
 import { runApplyAgent } from "./apply-agent";
 import type { RawApplyControl, RawApplyPage } from "@unemployed/contracts";
 import { buildApplyFormObservation } from "./page-hands";
-import type { ApplyWriteResult } from "@unemployed/contracts";
+import type { ApplyNavigationResult, ApplyWriteResult } from "@unemployed/contracts";
 import type {
   ApplyAgentConfig,
   ApplyDocument,
@@ -112,6 +112,7 @@ function buildRawPage(form: FixtureForm, state: FixtureState): RawApplyPage {
       visible: true,
       disabled: false,
     })),
+    links: [],
     validationErrors: [],
     stepLabel: screen.stepLabel ?? null,
   };
@@ -170,6 +171,8 @@ function createFixtureHands(form: FixtureForm): {
       }
       return Promise.resolve({ ok: true, observedValue: "clicked" });
     },
+    followLink: (): Promise<ApplyNavigationResult> =>
+      Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
   };
 
   return { hands, state };

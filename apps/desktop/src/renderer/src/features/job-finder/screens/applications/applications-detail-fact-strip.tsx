@@ -1,4 +1,3 @@
-import { APPLICATION_BLOCKER_LABELS } from "../../lib/status-copy";
 import { ApplicationsDisclosureSummary } from "./applications-disclosure-summary";
 import type {
   ApplicationAttempt,
@@ -14,7 +13,6 @@ import {
 import {
   applyResultIsFieldSavePause,
   FIELD_SAVE_PAUSE_ACTIVITY,
-  FIELD_SAVE_PAUSE_CAUSE,
   formatVisibleRunId,
   getCustomerFacingApplyText,
   applyResultIsServiceWorkerBlocked,
@@ -25,17 +23,6 @@ import {
 // same panel, so the detail pane had two label sizes with no rule behind them.
 export const APPLICATION_DETAIL_FACT_LABEL_CLASS =
   "text-(length:--text-eyebrow) font-semibold uppercase leading-4 tracking-(--tracking-badge) text-muted-foreground";
-
-/** Compares customer-facing copy ignoring case and trailing punctuation. */
-function isSameSentence(left: string, right: string): boolean {
-  const normalize = (value: string) =>
-    value
-      .trim()
-      .replace(/[.\s]+$/, "")
-      .toLowerCase();
-
-  return normalize(left) === normalize(right);
-}
 
 interface DetailFact {
   content: ReactNode;
@@ -126,17 +113,6 @@ export function ApplicationsDetailFactStrip(props: {
         ? "Automatic prep paused"
         : selectedRecord.lastActionLabel
       : null;
-  // The runtime writes the same pause sentence into the record's latest action
-  // and into the blocker summary. Printing both put one sentence in two of the
-  // three strip columns, so the blocker note is dropped when it repeats.
-  const showsBlockerNote =
-    Boolean(blockerNote) &&
-    !isSiteBlockedPause &&
-    !isFieldSavePause &&
-    !(
-      latestActivityContent !== null &&
-      isSameSentence(blockerNote ?? "", latestActivityContent)
-    );
   // On a finish-yourself pause the Next step callout directly above already
   // prints the whole sentence — the site acted, Job Finder stopped, finish in
   // the browser. "Latest activity" and "What stopped progress" were its two
@@ -155,34 +131,14 @@ export function ApplicationsDetailFactStrip(props: {
   const primaryFacts: DetailFact[] = nextStepOwnsPauseCause
     ? [preparationStatusFact]
     : [
-        latestActivityContent
-          ? {
-              content: latestActivityContent,
-              label: "Latest activity",
-            }
-          : {
-              content: "No recent activity",
-              label: "Latest activity",
-              muted: true,
-            },
+        // "What stopped progress" is gone: the status block at the top of the
+        // panel now carries that sentence, and printing it here as well made
+        // one event arrive in four places. Latest activity only survives when
+        // it is not the status title said again.
+        ...(latestActivityContent
+          ? [{ content: latestActivityContent, label: "Latest activity" }]
+          : []),
         preparationStatusFact,
-        latestBlocker
-          ? {
-              content: isFieldSavePause
-                ? FIELD_SAVE_PAUSE_CAUSE
-                : isSiteBlockedPause
-                  ? "Needs you on the job site"
-                  : APPLICATION_BLOCKER_LABELS[latestBlocker.code],
-              label: "What stopped progress",
-              ...(showsBlockerNote && blockerNote ? { note: blockerNote } : {}),
-            }
-          : {
-              content: props.waitingOnSafetyLimitReview
-                ? "Waiting for the batch safety-limit review"
-                : "Nothing blocking",
-              label: "What stopped progress",
-              muted: !props.waitingOnSafetyLimitReview,
-            },
       ];
 
   const detailFacts: DetailFact[] = [

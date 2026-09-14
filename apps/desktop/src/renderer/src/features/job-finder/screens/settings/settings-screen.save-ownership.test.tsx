@@ -40,7 +40,7 @@ beforeAll(() => {
 
 const WORKSPACE_BEHAVIOR_LABEL = "Browser & saved jobs";
 const APPLICATION_AUTHORITY_LABEL =
-  "What Job Finder may do on application sites";
+  "Applying";
 
 const browserSession = {
   source: "target_site",
@@ -184,7 +184,7 @@ describe("Settings section nav is real navigation", () => {
     });
     // The renamed tab still describes exactly the same boundary.
     expect(
-      within(authority).getByText(/never sends an application/i),
+      within(authority).getByText(/never creates an account/i),
     ).toBeTruthy();
     expect(
       within(authority).queryByRole("button", { name: /submit/i }),

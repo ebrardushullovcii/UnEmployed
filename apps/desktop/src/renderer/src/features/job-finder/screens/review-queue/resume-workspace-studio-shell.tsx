@@ -897,13 +897,13 @@ export function ResumeWorkspaceStudioShell(
               type="button"
               variant="primary"
             >
-              Prepare application
+              Fill it in
               <ArrowRight className="size-4" />
             </Button>
           ) : null}
           {/* One route back. `← Back to Shortlisted` already sits ~100px away
               in the workspace header, so a second `Continue to Shortlisted →`
-              beside `Prepare application →` read as forward progress to a
+              beside `Fill it in →` read as forward progress to a
               different place. It only appears when there is no Prepare action
               to offer, and then it points back. */}
           {props.canClearApproval ? (

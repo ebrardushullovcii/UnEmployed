@@ -60,16 +60,13 @@ function createAwaitingApprovalDetails(): ApplyRunDetails {
 }
 
 describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
-  it("frames approval as preparation without granting submission or account authority", () => {
+  it("asks in one sentence and offers one button, with nothing labelled approve", () => {
     const onApproveApplyRun = vi.fn();
     render(
       <ApplicationsDetailPanelSubmitApprovalSection
         approvalScopeEntries={[{ jobId: "job_1", label: "Engineer at Acme" }]}
         isApplyRunPending={() => false}
-        isSelectedRunPending={false}
         onApproveApplyRun={onApproveApplyRun}
-        onCancelApplyRun={vi.fn()}
-        onRevokeApplyRunApproval={vi.fn()}
         selectedApplyRunDetails={createAwaitingApprovalDetails()}
         selectedApplicationTarget={{
           jobId: "job-1",
@@ -78,26 +75,14 @@ describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("heading", { name: "Preparation approval" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/does not authorize account creation/i),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(
-        /Job Finder cannot create accounts or submit applications/i,
-      ),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/submit on each employer site yourself/i),
-    ).toBeTruthy();
-    expect(
-      screen.queryByText(/automatic application authorization/i),
-    ).toBeNull();
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(document.body.textContent ?? "").not.toMatch(
+      /approve|revoke|submit approval|apply copilot|restage/i,
+    );
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Approve safe preparation" }),
+      screen.getByRole("button", { name: "Start preparing this job" }),
     );
     expect(onApproveApplyRun).toHaveBeenCalledWith({
       runId: "run_1",
@@ -106,10 +91,7 @@ describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
     });
   });
 
-  it("hands the approve control to the panel footer without repeating it", () => {
-    // The approval was reachable only by tabbing into the pane at the panel's
-    // smallest height, so the panel pins it; the section must not then draw a
-    // second Approve button for the same decision.
+  it("hands the control to the panel footer without repeating it", () => {
     const details = createAwaitingApprovalDetails();
     expect(isAwaitingPreparationApproval(details)).toBe(true);
     expect(
@@ -119,14 +101,11 @@ describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
       }),
     ).toBe(false);
 
-    render(
+    const { container } = render(
       <ApplicationsDetailPanelSubmitApprovalSection
         approvalScopeEntries={[{ jobId: "job_1", label: "Engineer at Acme" }]}
         isApplyRunPending={() => false}
-        isSelectedRunPending={false}
         onApproveApplyRun={vi.fn()}
-        onCancelApplyRun={vi.fn()}
-        onRevokeApplyRunApproval={vi.fn()}
         selectedApplyRunDetails={details}
         selectedApplicationTarget={{
           jobId: "job-1",
@@ -136,22 +115,21 @@ describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
       />,
     );
 
-    expect(
-      screen.queryByRole("button", { name: /Approve safe preparation/ }),
-    ).toBeNull();
-    expect(screen.getByRole("button", { name: "Cancel run" })).toBeTruthy();
+    expect(container.innerHTML).toBe("");
   });
 
-  it("never teaches submit-approval or copilot wording at the approval decision point", () => {
-    render(
+  it("renders nothing at all when the run is not waiting on a decision", () => {
+    const details = createAwaitingApprovalDetails();
+    const { container } = render(
       <ApplicationsDetailPanelSubmitApprovalSection
-        approvalScopeEntries={[{ jobId: "job_1", label: "Engineer at Acme" }]}
+        approvalScopeEntries={[]}
         isApplyRunPending={() => false}
-        isSelectedRunPending={false}
         onApproveApplyRun={vi.fn()}
-        onCancelApplyRun={vi.fn()}
-        onRevokeApplyRunApproval={vi.fn()}
-        selectedApplyRunDetails={createAwaitingApprovalDetails()}
+        selectedApplyRunDetails={{
+          ...details,
+          run: { ...details.run, state: "running" },
+          submitApproval: { ...details.submitApproval!, status: "approved" },
+        }}
         selectedApplicationTarget={{
           jobId: "job-1",
           applicationRecordId: "application-1",
@@ -159,11 +137,6 @@ describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
       />,
     );
 
-    expect(document.body.textContent ?? "").toMatch(
-      /Preparation approval applies only to these jobs/,
-    );
-    expect(document.body.textContent ?? "").not.toMatch(
-      /submit approval|apply copilot|restage/i,
-    );
+    expect(container.innerHTML).toBe("");
   });
 });

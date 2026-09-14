@@ -19,9 +19,11 @@ import {
 
 import {
   applyCompanyApplicationEvidence,
+  deriveActiveSafeguardBlockers,
   deriveBatchSampleIds,
   deriveHighestPriorityBlocker,
   deriveLatestListingSignal,
+  deriveScopeBlockers,
   dismissContradictoryAnswerDetection,
   prepareBatchSampleReview,
   recordAbnormalFailureEvidence,
@@ -1595,5 +1597,76 @@ describe("deriveHighestPriorityBlocker", () => {
     });
 
     expect(deriveHighestPriorityBlocker({ safeguards })).toBeNull();
+  });
+});
+
+/**
+ * Which trouble stands in the way of which work.
+ *
+ * A search plan that paused its own runs after failed searches has nothing to
+ * say about an application the person is preparing, and the sentence a person
+ * reads never carries an internal reference.
+ */
+describe("safeguard blocker scope", () => {
+  const discoveryPause = () =>
+    AbnormalFailurePauseSchema.parse({
+      id: "automatic_discovery_failures:campaign_default",
+      windowStartedAt: day0,
+      failuresInWindow: 4,
+      sampleSize: 5,
+      failureRatePercent: 80,
+      failureRateThresholdPercent: 40,
+      minimumSample: 5,
+      paused: true,
+      explanation:
+        "Too many searches or source checks failed in a row, so this search plan paused itself.",
+      recoveryGuidance:
+        "Open Search history to see which source failed and why.",
+    });
+
+  test("a discovery pause never blocks preparing an application", () => {
+    const safeguards = buildSafeguards({ pauses: [discoveryPause()] });
+
+    expect(
+      deriveActiveSafeguardBlockers({ safeguards, operation: "apply" }),
+    ).toEqual([]);
+    expect(deriveScopeBlockers({ safeguards, operation: "apply" })).toEqual([]);
+    expect(
+      deriveActiveSafeguardBlockers({ safeguards, operation: "discovery" }),
+    ).toHaveLength(1);
+  });
+
+  test("a pause the person set themselves still stops everything", () => {
+    const safeguards = buildSafeguards({
+      pauses: [pausedPause("pause_1", day0)],
+    });
+
+    expect(
+      deriveActiveSafeguardBlockers({ safeguards, operation: "apply" }),
+    ).toHaveLength(1);
+    expect(
+      deriveActiveSafeguardBlockers({ safeguards, operation: "discovery" }),
+    ).toHaveLength(1);
+  });
+
+  test("the code travels beside the sentence, never inside it", () => {
+    const blocker = deriveActiveSafeguardBlockers({
+      safeguards: buildSafeguards({ pauses: [discoveryPause()] }),
+    })[0];
+
+    expect(blocker?.scope).toBe("discovery");
+    expect(blocker?.code).toBe(
+      "abnormal_failure_pause: automatic_discovery_failures:campaign_default",
+    );
+    expect(blocker?.explanation).not.toContain("abnormal_failure_pause");
+    expect(blocker?.explanation).not.toContain("campaign_default");
+  });
+
+  test("the Safeguards screen still sees everything active", () => {
+    expect(
+      deriveActiveSafeguardBlockers({
+        safeguards: buildSafeguards({ pauses: [discoveryPause()] }),
+      }),
+    ).toHaveLength(1);
   });
 });

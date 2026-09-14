@@ -327,10 +327,35 @@ function eligibilityAnswer(
 /**
  * A fact the person has already stated. Never inferred, never averaged.
  */
+/**
+ * The kinds that are a question about the person's circumstances, not a field
+ * to be filled from their address book.
+ *
+ * A question already read as one of these is only ever answered by what the
+ * person said about that thing. Letting the generic matchers have a second go
+ * is how "Will you require sponsorship for a visa to remain in your current
+ * location?" came back answered with the city they live in.
+ */
+const ELIGIBILITY_QUESTION_KINDS: ReadonlySet<string> = new Set([
+  "work_authorization",
+  "visa_sponsorship",
+  "relocation",
+  "travel",
+  "notice_period",
+  "availability",
+  "clearance",
+  "salary_expectation",
+  "experience",
+  "cover_letter",
+]);
+
 export function resolveExactProfileAnswer(
   control: ApplyFormControl,
   profile: CandidateProfile,
 ): ApplyAnswer | null {
+  if (ELIGIBILITY_QUESTION_KINDS.has(control.questionKind)) {
+    return eligibilityAnswer(control, profile);
+  }
   return (
     personalInfoAnswer(control, profile) ??
     locationAnswer(control, profile) ??
@@ -377,14 +402,22 @@ function answerLibraryScore(
   saved: CandidateReusableAnswer,
 ): number {
   const question = normalizeSignal(saved.question);
+  // The saved question can be the prompt as it was shown, group and label
+  // together; the field on the retry may show only one of them. Both readings
+  // count, so the same question keeps finding the same answer.
   const label = normalizeSignal(`${control.groupLabel} ${control.label}`);
+  const labelAlone = normalizeSignal(control.label);
   if (!question || !label) {
     return 0;
   }
-  if (question === label) {
+  if (question === label || (labelAlone && question === labelAlone)) {
     return 1;
   }
-  if (label.includes(question) || question.includes(label)) {
+  if (
+    label.includes(question) ||
+    question.includes(label) ||
+    (labelAlone && (labelAlone.includes(question) || question.includes(labelAlone)))
+  ) {
     return 0.9;
   }
   const questionWords = new Set(question.split(" ").filter((word) => word.length > 3));
@@ -440,6 +473,28 @@ export function acceptsWrittenAnswer(control: ApplyFormControl): boolean {
  * the same thing. A near-miss is not a match: an answer that is not offered
  * goes to the person rather than being rounded to the closest option.
  */
+/** The plain ways people write yes and no, in the words a form offers. */
+const AFFIRMATIVE_SYNONYMS = new Set([
+  "yes",
+  "y",
+  "true",
+  "i do",
+  "i have",
+  "affirmative",
+]);
+const NEGATIVE_SYNONYMS = new Set([
+  "no",
+  "n",
+  "none",
+  "nope",
+  "false",
+  "i do not",
+  "i have not",
+  "negative",
+  "not applicable",
+  "n a",
+]);
+
 export function matchOption(
   options: readonly string[],
   desiredValue: string,
@@ -452,8 +507,9 @@ export function matchOption(
   if (exact) {
     return exact;
   }
-  const yesish = desired === "yes" || desired.startsWith("yes ");
-  const noish = desired === "no" || desired.startsWith("no ");
+  const yesish =
+    AFFIRMATIVE_SYNONYMS.has(desired) || desired.startsWith("yes ");
+  const noish = NEGATIVE_SYNONYMS.has(desired) || desired.startsWith("no ");
   if (yesish || noish) {
     const wanted = yesish ? "yes" : "no";
     const affirmative = options.find((option) => {
@@ -468,7 +524,15 @@ export function matchOption(
     const normalized = normalizeSignal(option);
     return normalized.length > 0 && (normalized === desired || normalized.includes(desired));
   });
-  return contained.length === 1 ? (contained[0] ?? null) : null;
+  if (contained.length === 1) {
+    return contained[0] ?? null;
+  }
+  // One choice the answer is the beginning of, and only one, is that choice:
+  // "Bach" on a list offering "Bachelor's degree" and "Master's degree".
+  const prefixed = options.filter((option) =>
+    normalizeSignal(option).startsWith(desired),
+  );
+  return prefixed.length === 1 ? (prefixed[0] ?? null) : null;
 }
 
 /**
@@ -522,9 +586,11 @@ export function resolveApplyAnswer(input: {
     if (control.options.length > 0) {
       const option = matchOption(control.options, direct.value);
       if (!option) {
+        // Saying which answer did not fit and what the choices are is what
+        // stops the person answering the identical question over and over.
         return {
           status: "needs_you",
-          reason: `None of the choices on this page match "${direct.value}".`,
+          reason: `Your answer "${direct.value}" did not match one of the choices: ${control.options.slice(0, 12).join(", ")}`,
           suggestion: direct,
         };
       }

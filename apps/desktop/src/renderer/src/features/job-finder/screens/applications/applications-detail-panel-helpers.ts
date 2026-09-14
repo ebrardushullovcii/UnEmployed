@@ -38,7 +38,7 @@ const SERVICE_WORKER_BLOCK_PATTERN = /service worker/i;
 // same way as a field conflict — the person opens the page and finishes the
 // step — so it belongs on the same recovery path instead of being a dead end.
 const MANUAL_FIELD_FINISH_PATTERN =
-  /prefilled application values need manual review|conflicting (?:application )?fields|mismatched prefilled|could not safely save (?:a |this )?prepared (?:field|step)|complete the affected step manually|review the conflicting|finish (?:this |the )?application(?: step)? yourself|finish .+ manually in the open application|could not tell which control|choose the next application step manually|needs manual navigation/i;
+  /prefilled application values need manual review|conflicting (?:application )?fields|mismatched prefilled|could not safely save (?:a |this )?prepared (?:field|step)|complete the affected step manually|review the conflicting|finish (?:this |the )?application(?: step)? yourself|finish .+ manually in the open application|could not tell which control|choose the next application step manually|needs manual navigation|filled in what it could|questions? left for you|needs your answers? to \d+ questions?|open the browser and finish it/i;
 
 /**
  * A prepare-only autosave / intermediate-write pause: the job site tried to
@@ -247,7 +247,7 @@ const APPLY_RUN_MODE_LABELS: Partial<
   Record<JobFinderWorkspaceSnapshot["applyRuns"][number]["mode"], string>
 > = {
   // "Guided preparation" is a name used nowhere else in the product; every
-  // other surface says preparation or "Prepare application".
+  // other surface says preparation or "Fill it in".
   copilot: "Preparation",
   single_job_auto: "Automatic preparation",
   queue_auto: "Automatic preparation (several jobs)",
@@ -290,10 +290,10 @@ export function getVerifiedExternalWriteRecoveryText(
   ];
 
   if (verifiedCategories.length === 0) {
-    return "No verified writes to the employer page were recorded for this run. Check what remains on the employer site before retrying.";
+    return "Nothing was written to the employer page in this run.";
   }
 
-  return `Job Finder recorded writes to the employer page for ${verifiedCategories.join(", ")}. That does not confirm what the site kept — review the page before retrying.`;
+  return `Job Finder filled ${verifiedCategories.join(", ")} on the employer page. Check the page to see what the site kept.`;
 }
 
 /**
@@ -310,8 +310,14 @@ export function getApplyBlockedAttemptDetail(
 
 export function getCustomerFacingApplyText(
   value: string | null | undefined,
+  /**
+   * Kept for call-site compatibility. The recovery text it used to be stitched
+   * into is gone: a stop reason is one sentence, not a paragraph of write
+   * bookkeeping.
+   */
   receipt?: ApplicationPrivacyReceipt | null,
 ): string | null {
+  void receipt;
   const text = splitBlockedAttemptNote(value).message;
   if (!text) {
     return null;
@@ -325,12 +331,15 @@ export function getCustomerFacingApplyText(
     return text;
   }
 
-  const externalWriteText = getVerifiedExternalWriteRecoveryText(receipt);
+  // One sentence, said once. These used to be four stitched together — write
+  // bookkeeping, a retry instruction, a no-submit reassurance and a "report
+  // this" aside — and the whole paragraph was then printed again in the fact
+  // strip under a different label.
   if (/\b(?:resume|cv|attachment|upload)\b/i.test(text)) {
-    return `The selected resume could not be attached. ${externalWriteText} Approve and retry the attachment. Job Finder stopped without a submit click. Verify the outcome on the site, and treat an unexpected completed state as site behavior to report.`;
+    return "The resume file could not be attached.";
   }
 
-  return `The application page could not safely save this prepared step. ${externalWriteText} Job Finder stopped without a submit click. Verify the outcome on the site, and treat an unexpected completed state as site behavior to report.`;
+  return "The application page would not keep what Job Finder filled in.";
 }
 
 export function applyResultNeedsResumeAttachment(

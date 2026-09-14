@@ -205,6 +205,18 @@ const ATTESTATION_SIGNALS: ReadonlyArray<
       "veteran status",
       "disability status",
       "protected veteran",
+      // The bare words a form actually prints above these lists. Without
+      // them a self-identification question reads as an ordinary question and
+      // is put to the person, which is exactly what it must never be.
+      "gender",
+      "race",
+      "ethnicity",
+      "hispanic",
+      "latino",
+      "veteran",
+      "disability",
+      "sexual orientation",
+      "transgender",
     ],
   ],
   [

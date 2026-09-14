@@ -10,6 +10,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   deriveDiscoveryFailureEvidence,
+  deriveDiscoveryRunFailureEvidence,
   deriveSimultaneousApplicationConflicts,
   deriveSourceDebugCampaignWork,
   deriveSourceDebugFailureEvidence,
@@ -313,5 +314,79 @@ describe("automatic application safeguard identity", () => {
     expect(secondConflict?.conflictId).toBeTruthy();
     expect(firstConflict?.conflictId).not.toBe(secondConflict?.conflictId);
     expect(input(first)[0]?.conflictId).toBe(firstConflict?.conflictId);
+  });
+});
+
+/**
+ * What it takes for a plan to pause itself.
+ *
+ * A pause stops the person's searches, so it has to mean the plan is broken.
+ * One source failing while the others bring back jobs is one source needing
+ * attention, not a broken plan.
+ */
+describe("deriveDiscoveryRunFailureEvidence", () => {
+  function run(
+    id: string,
+    executions: readonly { targetId: string; state: "completed" | "failed" }[],
+    state: "completed" | "failed" = "completed",
+  ) {
+    return {
+      ...discoveryRun({ id, state, targetExecutions: executions }),
+      startedAt: `2026-08-1${id.slice(-1)}T10:00:00.000Z`,
+      completedAt: `2026-08-1${id.slice(-1)}T10:01:00.000Z`,
+    };
+  }
+
+  test("two failed sources out of five do not count as a failed run", () => {
+    const evidence = deriveDiscoveryRunFailureEvidence([
+      run("run1", [
+        { targetId: "a", state: "failed" },
+        { targetId: "b", state: "failed" },
+        { targetId: "c", state: "completed" },
+        { targetId: "d", state: "completed" },
+        { targetId: "e", state: "completed" },
+      ]),
+    ]);
+
+    expect(evidence).toEqual([]);
+  });
+
+  test("three whole runs failing in a row is the evidence a pause needs", () => {
+    const failed = (id: string) =>
+      run(id, [{ targetId: "a", state: "failed" }], "failed");
+    const evidence = deriveDiscoveryRunFailureEvidence([
+      failed("run1"),
+      failed("run2"),
+      failed("run3"),
+    ]);
+
+    expect(evidence).toHaveLength(3);
+    expect(evidence.every((entry) => entry.failed)).toBe(true);
+  });
+
+  test("one run that worked clears the streak behind it", () => {
+    const evidence = deriveDiscoveryRunFailureEvidence([
+      run("run1", [{ targetId: "a", state: "failed" }], "failed"),
+      run("run2", [{ targetId: "a", state: "failed" }], "failed"),
+      run("run3", [{ targetId: "a", state: "completed" }]),
+    ]);
+
+    expect(evidence).toEqual([]);
+  });
+
+  test("a run that only a sign-in stopped is not the plan failing", () => {
+    const evidence = deriveDiscoveryRunFailureEvidence([
+      {
+        ...discoveryRun({
+          id: "run1",
+          state: "failed",
+          targetExecutions: [
+            { targetId: "a", state: "failed", warning: "Sign in to continue" },
+          ],
+        }),
+      },
+    ]);
+
+    expect(evidence).toEqual([]);
   });
 });

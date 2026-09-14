@@ -31,7 +31,7 @@ describe("ApplicationsDetailPanelEmptyState", () => {
     ).toBeNull();
     expect(
       screen.getByText(
-        /choose Prepare application.*final submission stays disabled/i,
+        /choose Fill it in.*final submission stays disabled/i,
       ),
     ).toBeTruthy();
   });

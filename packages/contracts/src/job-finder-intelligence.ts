@@ -1778,12 +1778,27 @@ export type SafeguardMutationInputData = z.input<
   typeof SafeguardMutationInputSchema
 >;
 
+export const safeguardBlockerScopeValues = [
+  "discovery",
+  "apply",
+  "all",
+] as const;
+export const SafeguardBlockerScopeSchema = z.enum(safeguardBlockerScopeValues);
+export type SafeguardBlockerScope = z.infer<typeof SafeguardBlockerScopeSchema>;
+
 export const SafeguardBlockerViewSchema = z
   .object({
     priority: z.number().int().min(1).max(6),
     kind: SafeguardEntryKindSchema,
     id: NonEmptyStringSchema,
     severity: z.enum(["blocker", "advisory"]),
+    /** The work this safeguard actually stands in the way of. */
+    scope: SafeguardBlockerScopeSchema.default("all"),
+    /**
+     * The internal reference. For logs and for a renderer that wants it behind
+     * a details control; it never belongs in a sentence a person reads.
+     */
+    code: NonEmptyStringSchema.default("unknown"),
     explanation: NonEmptyStringSchema,
     recoveryGuidance: NonEmptyStringSchema,
   })

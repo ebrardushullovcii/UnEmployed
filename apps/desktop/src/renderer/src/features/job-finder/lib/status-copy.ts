@@ -90,6 +90,8 @@ export const APPLICATION_BLOCKER_LABELS = {
   external_redirect: "The application continues on another site",
   site_login_required: "The job site wants you to sign in first",
   application_page_unreachable: "The application page did not open",
+  site_saves_as_you_go:
+    "This site saves your answers as you type, and Job Finder is not allowed to let it",
   unknown: "Job Finder stopped and could not say why",
 } as const satisfies Record<ApplicationBlockerCode, string>;
 

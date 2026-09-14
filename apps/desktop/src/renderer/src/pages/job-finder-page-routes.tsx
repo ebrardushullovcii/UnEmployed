@@ -1365,6 +1365,7 @@ function JobFinderReviewQueueRouteContent() {
           context.workspace.dashboard
             ?.globalDailyApplicationPreparationCapacity ?? null
         }
+        applyJobResults={context.workspace.applyJobResults}
         isApplyPending={context.isPending(jobFinderPendingActions.apply())}
         isJobPending={(jobId) =>
           context.isPending(jobFinderPendingActions.resumeJob(jobId))
@@ -1398,6 +1399,23 @@ function JobFinderReviewQueueRouteContent() {
           context.onNavigateSafely("/job-finder/applications");
         }}
         onOpenProfile={context.onOpenProfile}
+        {...(() => {
+          // A safeguard that has paused the plan refuses every preparation
+          // start. Shortlisted needs to say so on the control itself instead
+          // of opening a dialog that closes and changes nothing.
+          const blockingPause = projectPlanSafeguardPauses(
+            context.workspace.intelligence?.safeguards,
+            context.workspace.campaigns,
+          )[0];
+          return blockingPause
+            ? {
+                safeguardBlocker: blockingPause.explanation,
+                onOpenSafeguards: () => {
+                  context.onNavigateSafely(blockingPause.route);
+                },
+              }
+            : {};
+        })()}
         onClaimResumeIdentity={context.onClaimResumeIdentity}
         onKeepResumeIdentity={context.onKeepResumeIdentity}
         onRemoveReviewJob={context.onRemoveReviewJob}
@@ -1892,7 +1910,6 @@ export function JobFinderApplicationsRoute() {
           void context.onStartAutoApplyQueue(jobIds);
         }}
         onStartApplyCopilot={context.onStartApplyCopilot}
-        onStartAutoApply={context.onStartAutoApply}
         onSelectRecord={handleSelectRecord}
         selectedApplyRunId={selectedApplyRunId}
         selectedAttempt={selectedAttempt}
@@ -1903,6 +1920,24 @@ export function JobFinderApplicationsRoute() {
         onOpenSafeguards={() =>
           context.onNavigateSafely("/job-finder/safeguards")
         }
+        onOpenNeedsYou={() => context.onNavigateSafely("/job-finder/actions")}
+        onAllowSiteSaves={(host) => {
+          // The same saved-automation update Settings makes when you add a
+          // website and allow saving as it goes, then the retry. Without both
+          // halves the button would grant a permission and leave the person
+          // to find the retry themselves.
+          void allowSiteSavesThenRetry({
+            host,
+            onRetry: () => {
+              if (selectedRecord) {
+                context.onStartApplyCopilot({
+                  jobId: selectedRecord.jobId,
+                  applicationRecordId: selectedRecord.id,
+                });
+              }
+            },
+          });
+        }}
         onFinishInBrowser={(input) =>
           runJobFinderApplicationBrowserHandoff({
             // `rethrowError` is passed HERE and nowhere else. Every other
@@ -2215,4 +2250,60 @@ export function JobFinderResumeStrategiesRoute() {
       />
     </JobFinderHydrationGate>
   );
+}
+
+/**
+ * Adds one host to the saved application-automation setting with saving as it
+ * goes allowed, then starts the retry. This is the Applications-side entry to
+ * the same envelope update the Settings section performs; it never widens
+ * anything else about what Job Finder may do.
+ */
+async function allowSiteSavesThenRetry(input: {
+  host: string | null;
+  onRetry: () => void;
+}): Promise<void> {
+  const { host, onRetry } = input;
+  const api = window.unemployed?.jobFinder;
+  if (!api || !host) {
+    return;
+  }
+
+  const origin = `https://${host}`;
+  try {
+    const envelopes = await api.listApplicationAuthorityEnvelopes();
+    const active = envelopes.find((envelope) => envelope.status === "active");
+    if (active) {
+      await api.updateApplicationAuthorityEnvelope({
+        allowedOrigins: [...new Set([...active.allowedOrigins, origin])],
+        allowedResumeSha256: [...active.allowedResumeSha256],
+        expectedRevision: active.revision,
+        expiresAt: active.expiresAt,
+        id: active.id,
+        intermediateMutationsAuthorized: true,
+        maxApplicationsPerLocalDay: active.maxApplicationsPerLocalDay,
+        maxApplicationsPerRun: active.maxApplicationsPerRun,
+        mode: active.mode,
+        scope: {
+          campaignId: active.scope.campaignId,
+          jobIds: [...active.scope.jobIds],
+        },
+      });
+    } else {
+      await api.createApplicationAuthorityEnvelope({
+        allowedOrigins: [origin],
+        allowedResumeSha256: [],
+        expiresAt: null,
+        intermediateMutationsAuthorized: true,
+        maxApplicationsPerLocalDay: 20,
+        maxApplicationsPerRun: 10,
+        mode: "prepare_only",
+        scope: { campaignId: null, jobIds: [] },
+      });
+    }
+  } catch {
+    // A refused or failed permission change must not silently start a run.
+    return;
+  }
+
+  onRetry();
 }

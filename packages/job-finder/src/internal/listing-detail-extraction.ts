@@ -9,6 +9,8 @@
  * reader falls back to the visible text of the page and says so.
  */
 
+import { looksLikeApplyEntryText } from "@unemployed/browser-agent";
+
 const MAX_HTML_LENGTH = 1_500_000;
 const MAX_DESCRIPTION_LENGTH = 24_000;
 const MAX_PAGE_TEXT_LENGTH = 12_000;
@@ -350,6 +352,55 @@ function readDirectApplyUrl(node: JsonRecord): string | null {
   return directApply === true && url ? url : null;
 }
 
+const ANCHOR_PATTERN =
+  /<a\b([^>]*?)>([\s\S]*?)<\/a\s*>/giu;
+const HREF_PATTERN = /\bhref\s*=\s*["']([^"']+)["']/iu;
+const ARIA_LABEL_PATTERN = /\baria-label\s*=\s*["']([^"']+)["']/iu;
+
+/**
+ * The plain apply link on a listing page, when the page has one.
+ *
+ * Most listings put the way in behind an ordinary anchor whose text says so.
+ * Reading it here means the run starts on the employer's form rather than on
+ * the listing. It is the same reading of the words the apply run does, so the
+ * rule lives in one place. Best-effort by design: a page that builds its apply
+ * control in script has none of this in its HTML, and the run walks the page
+ * itself instead.
+ */
+export function findApplyLinkInHtml(html: string, baseUrl: string): string | null {
+  ANCHOR_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = ANCHOR_PATTERN.exec(html)) !== null) {
+    const attributes = match[1] ?? "";
+    const href = HREF_PATTERN.exec(attributes)?.[1];
+    if (!href) {
+      continue;
+    }
+    const text = collapseWhitespace(htmlToPlainText(match[2] ?? ""));
+    const label =
+      text ||
+      collapseWhitespace(
+        decodeHtmlEntities(ARIA_LABEL_PATTERN.exec(attributes)?.[1] ?? ""),
+      );
+    if (!looksLikeApplyEntryText(label)) {
+      continue;
+    }
+    try {
+      const resolved = new URL(decodeHtmlEntities(href), baseUrl);
+      if (resolved.protocol !== "https:" && resolved.protocol !== "http:") {
+        continue;
+      }
+      if (resolved.toString() === baseUrl) {
+        continue;
+      }
+      return resolved.toString();
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 function scoreTitleMatch(
   candidate: string | null,
   expected: string | null | undefined,
@@ -430,7 +481,8 @@ function extractJobPostingFromJsonLd(
     postedAt: readIsoDate(node.datePosted),
     validThrough: readIsoDate(node.validThrough),
     workModeHints: [...new Set(combinedHints)],
-    directApplyUrl: readDirectApplyUrl(node),
+    directApplyUrl:
+      readDirectApplyUrl(node) ?? findApplyLinkInHtml(html, input.url),
   };
 }
 
@@ -582,7 +634,7 @@ function extractListingDetailFromPageText(
     postedAt: null,
     validThrough: null,
     workModeHints: detectWorkModeHints(text),
-    directApplyUrl: null,
+    directApplyUrl: findApplyLinkInHtml(html, input.url),
   };
 }
 

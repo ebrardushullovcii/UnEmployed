@@ -969,7 +969,16 @@ export { JobFinderOpeningShell };
  */
 export function ApplyCopilotVisualCheckpointDialog(props: {
   onClose: () => void;
-  onResolve: (visualCheckpointsEnabled: boolean) => void;
+  /**
+   * Returns a refusal sentence when the start could not begin. The dialog then
+   * stays open and says so: pressing "Fill it in" and watching the
+   * dialog close with nothing else happening is the defect this return value
+   * exists to prevent.
+   */
+  onResolve: (
+    visualCheckpointsEnabled: boolean,
+  ) => string | null | void | Promise<string | null | void>;
+  onOpenSafeguards?: () => void;
   request: ApplyCopilotVisualCheckpointRequest | null;
 }) {
   const dialogTitleId = useId();
@@ -980,6 +989,8 @@ export function ApplyCopilotVisualCheckpointDialog(props: {
   const confirmRef = useRef<HTMLButtonElement | null>(null);
   const [visualCheckpointsEnabled, setVisualCheckpointsEnabled] =
     useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const open = props.request !== null;
   useModalFocusTrap(open, dialogRef, props.onClose);
 
@@ -988,6 +999,8 @@ export function ApplyCopilotVisualCheckpointDialog(props: {
   useEffect(() => {
     if (open) {
       setVisualCheckpointsEnabled(false);
+      setRefusal(null);
+      setStarting(false);
     }
   }, [open, props.request]);
 
@@ -1039,7 +1052,7 @@ export function ApplyCopilotVisualCheckpointDialog(props: {
         <div className="flex items-start justify-between gap-4">
           <div className="grid gap-2">
             <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-              Prepare application
+              Fill it in
             </p>
             {/* The heading is the identity: which application this gate is
                 actually about. Group 6 supplies the subject line. */}
@@ -1107,18 +1120,59 @@ export function ApplyCopilotVisualCheckpointDialog(props: {
             </span>
           </span>
         </label>
+        {refusal ? (
+          <p
+            className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-item) leading-6 text-foreground"
+            data-apply-checkpoint-dialog-refusal
+            role="alert"
+          >
+            {refusal}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
           <Button onClick={props.onClose} type="button" variant="secondary">
-            Cancel
+            {refusal ? "Close" : "Cancel"}
           </Button>
-          <Button
-            onClick={() => props.onResolve(visualCheckpointsEnabled)}
-            ref={confirmRef}
-            type="button"
-            variant="primary"
-          >
-            Prepare application
-          </Button>
+          {refusal && /safeguard/i.test(refusal) && props.onOpenSafeguards ? (
+            <Button
+              onClick={props.onOpenSafeguards}
+              type="button"
+              variant="primary"
+            >
+              Open Safeguards
+            </Button>
+          ) : refusal ? null : (
+            <Button
+              disabled={starting}
+              onClick={() => {
+                setStarting(true);
+                void Promise.resolve(
+                  props.onResolve(visualCheckpointsEnabled),
+                ).then(
+                  (message) => {
+                    const sentence =
+                      typeof message === "string" ? message.trim() : "";
+                    setStarting(false);
+                    if (sentence) {
+                      setRefusal(sentence);
+                    }
+                  },
+                  () => {
+                    setStarting(false);
+                    setRefusal(
+                      "Job Finder could not start this preparation. Nothing was opened and nothing was sent.",
+                    );
+                  },
+                );
+              }}
+              pending={starting}
+              ref={confirmRef}
+              type="button"
+              variant="primary"
+            >
+              Fill it in
+            </Button>
+          )}
         </div>
       </div>
     </div>,
