@@ -1393,9 +1393,19 @@ export function sanitizeResumeDraft(input: {
   const orderedDraft = normalizeResumeDraftEntryOrdering(input.draft);
   const nextSections = orderedDraft.sections.map((section) => {
     const normalizedSectionText = normalizeText(section.text ?? "");
+    // A summary the generator wrote badly is replaced by the person's own,
+    // never dropped: an export that starts at Experience with no summary is
+    // worse than the summary they already approved on their profile.
+    const profileSummaryFallback = (): string | null => {
+      if (section.kind !== "summary") return null;
+      const fallback = input.profile?.summary?.trim() || null;
+      if (!fallback || seenLines.has(normalizeText(fallback))) return null;
+      seenLines.add(normalizeText(fallback));
+      return fallback;
+    };
     const nextText = (() => {
       if (!section.text?.trim()) {
-        return null;
+        return profileSummaryFallback();
       }
       if (section.locked) {
         seenLines.add(normalizedSectionText);
@@ -1412,7 +1422,7 @@ export function sanitizeResumeDraft(input: {
           hasUnsupportedQuantifiedClaim(section.text, profileSupportBank) ||
           looksLikeUnsupportedAbsoluteClaim(section.text, profileSupportBank))
       ) {
-        return null;
+        return profileSummaryFallback();
       }
       if (canSuppressGeneratedSummary) {
         // A summary is the pitch. Generators copy "Position ended in a
@@ -1421,7 +1431,7 @@ export function sanitizeResumeDraft(input: {
         const withoutEmploymentEnd = stripEmploymentEndSentences(section.text);
         if (withoutEmploymentEnd !== section.text.trim()) {
           if (!withoutEmploymentEnd) {
-            return null;
+            return profileSummaryFallback();
           }
           seenLines.add(normalizeText(withoutEmploymentEnd));
           return withoutEmploymentEnd;

@@ -1770,15 +1770,25 @@ function resolveProviderCompanyLabel(input: {
     .replace(/\s+/gu, " ")
     .trim();
 
-  if (cleanedTargetLabel) {
+  const normalizedTargetLabel = normalizeText(cleanedTargetLabel);
+  const isGenericTargetLabel = [
+    "primary target",
+    "target site",
+    "job source",
+    "careers source",
+  ].includes(normalizedTargetLabel);
+  if (cleanedTargetLabel && !isGenericTargetLabel) {
     return cleanedTargetLabel;
   }
 
-  return (input.providerIdentifier ?? input.targetLabel)
+  const providerCompany = (input.providerIdentifier ?? input.targetLabel)
     .replace(/[._-]+/gu, " ")
     .replace(/\bjobs?\b/giu, " ")
     .replace(/\s+/gu, " ")
     .trim();
+  return providerCompany.replace(/\b\p{L}/gu, (character) =>
+    character.toLocaleUpperCase(),
+  );
 }
 
 function createProviderApiTimeoutSignal() {
@@ -2095,10 +2105,15 @@ export function applyDiscoveryTitleTriage(input: {
     };
   }
 
-  if (CLOSED_LISTING_BODY_PATTERN.test(`${posting.summary ?? ""} ${posting.description}`)) {
+  if (
+    CLOSED_LISTING_BODY_PATTERN.test(
+      `${posting.summary ?? ""} ${posting.description}`,
+    )
+  ) {
     return {
       outcome: "skip_title" as const,
-      reason: "The listing says it is closed or no longer accepting applications.",
+      reason:
+        "The listing says it is closed or no longer accepting applications.",
     };
   }
 

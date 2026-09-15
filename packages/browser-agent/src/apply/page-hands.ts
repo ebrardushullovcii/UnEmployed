@@ -246,10 +246,27 @@ export function buildApplyFormObservation(
     origin,
     title: raw.title,
     step: readStepPosition(raw.stepLabel, raw.bodyText),
-    bodyTextExcerpt: raw.bodyText.slice(0, 4_000),
+    bodyTextExcerpt: raw.bodyText.slice(0, 6_000),
+    headings: raw.headings.map((heading) => ({
+      level: heading.level,
+      text: heading.text,
+    })),
     controls,
     actions,
     links,
+    clickables: raw.clickables.map((clickable) => ({
+      ref: `e${clickable.index}`,
+      label: clickable.label,
+      role: clickable.role,
+      tagName: clickable.tagName,
+      visible: clickable.visible,
+    })),
+    openedTabs: raw.openedTabs.map((tab) => ({
+      index: tab.index,
+      url: tab.url,
+      title: tab.title,
+    })),
+    loading: raw.loading,
     validationErrors: raw.validationErrors,
     blocker: detectApplyBlocker({
       bodyText: raw.bodyText,
@@ -271,11 +288,20 @@ export function createApplyPageHands(
   return {
     observe: async () =>
       buildApplyFormObservation(await mechanics.readPage(), now().toISOString()),
+    navigate: (url) => mechanics.navigate(url),
+    clickElement: (ref) => mechanics.clickElement(ref),
+    scroll: (direction) => mechanics.scroll(direction),
+    wait: (milliseconds) => mechanics.wait(milliseconds),
+    goBack: () => mechanics.goBack(),
+    readText: (ref) => mechanics.readText(ref),
     fillText: (ref, value) => mechanics.fillText(ref, value),
     chooseOption: (ref, optionLabel) => mechanics.chooseOption(ref, optionLabel),
     setToggle: (ref, checked) => mechanics.setToggle(ref, checked),
     uploadFile: (ref, file) => mechanics.uploadFile(ref, file),
     clickAction: (ref) => mechanics.clickAction(ref),
     followLink: (ref) => mechanics.followLink(ref),
+    ...(mechanics.adoptOpenedTab
+      ? { adoptOpenedTab: (index) => mechanics.adoptOpenedTab!(index) }
+      : {}),
   };
 }

@@ -249,6 +249,68 @@ describe("ApplicationsDetailFactStrip", () => {
     expect(container.querySelectorAll('[data-slot="badge"]')).toHaveLength(0);
   });
 
+  it("shows an active run as in progress when no attempt row exists yet", () => {
+    renderStrip({
+      record: {
+        ...baseRecord,
+        lastAttemptState: null,
+        lastActionLabel: "Application preparation started.",
+      },
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "filling",
+        completedAt: null,
+        privacyReceipt: null,
+      },
+    });
+
+    expect(screen.getByText("In progress")).toBeTruthy();
+    expect(screen.queryByText("Not started")).toBeNull();
+  });
+
+  it("shows a new active run ahead of an older selected attempt", () => {
+    const olderAttempt: ApplicationAttempt = {
+      id: "attempt_older",
+      jobId: "job_1",
+      applicationRecordId: baseRecord.id,
+      state: "failed",
+      summary: "An earlier preparation failed.",
+      detail: "Earlier run detail.",
+      startedAt: "2026-08-08T07:00:00.000Z",
+      updatedAt: "2026-08-08T08:00:00.000Z",
+      completedAt: "2026-08-08T08:00:00.000Z",
+      outcome: null,
+      checkpoints: [],
+      questions: [],
+      blocker: null,
+      listingSignalEvidence: null,
+      consentDecisions: [],
+      replay: {
+        sourceDebugEvidenceRefIds: [],
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointUrls: [],
+      },
+      visualEvidence: [],
+      visualObservationSets: [],
+      visualCheckpoints: [],
+      nextActionLabel: null,
+      executionTimings: [],
+    };
+    renderStrip({
+      selectedAttempt: olderAttempt,
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "filling",
+        completedAt: null,
+        privacyReceipt: null,
+      },
+    });
+
+    expect(screen.getByText("In progress")).toBeTruthy();
+    expect(screen.queryByText("Attempt failed")).toBeNull();
+  });
+
   it("never repeats company, stage, or the full run id inside the fact region", () => {
     const { container } = renderStrip();
 

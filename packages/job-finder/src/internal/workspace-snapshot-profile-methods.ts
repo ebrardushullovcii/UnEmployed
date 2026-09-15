@@ -61,6 +61,7 @@ import {
   recoverInterruptedApplyRun,
   recoverInterruptedExactLineageProjections,
   refreshTerminalizedApplyRunCounters,
+  cancelInterruptedApplyJobResult,
 } from "./workspace-apply-run-recovery";
 import { persistAutomaticApplicationSafeguards } from "./automatic-safeguards";
 import { reconcileStaleMissingResumeBlockers } from "./workspace-application-blocker-sync";
@@ -381,7 +382,8 @@ export function createWorkspaceSnapshotProfileMethods(
               // Plans own only the on/off choice. A source newly added in
               // Profile follows Profile's current setting in every plan until
               // the person changes that plan.
-              enabled: existingTargets.get(target.id)?.enabled ?? target.enabled,
+              enabled:
+                existingTargets.get(target.id)?.enabled ?? target.enabled,
             }),
           );
           const campaignPreferences =
@@ -446,7 +448,19 @@ export function createWorkspaceSnapshotProfileMethods(
       // once stranded non-terminal rows under it forever, because only running
       // runs were swept. The recovery summary pins provenance, so user-owned
       // cancelled/completed runs keep their parked rows and counters untouched.
+      // Any terminal run, not only recovery-terminalized ones: a cancelled
+      // run whose in-flight rows were never stopped (older builds) would
+      // otherwise show "filling in the form" forever. Parked awaiting_review
+      // rows are not in-flight and are never touched here.
       const partiallyRecoveredRunIds = new Set(
+        runs
+          .filter(
+            (run) =>
+              isRecoveryTerminalizedApplyRun(run) || run.state !== "running",
+          )
+          .map((run) => run.id),
+      );
+      const recoveryTerminalizedRunIds = new Set(
         runs.filter(isRecoveryTerminalizedApplyRun).map((run) => run.id),
       );
       const hasPartiallyRecoveredOrphans =
@@ -454,7 +468,9 @@ export function createWorkspaceSnapshotProfileMethods(
         allResults.some(
           (result) =>
             partiallyRecoveredRunIds.has(result.runId) &&
-            isInterruptedApplyJobState(result.state),
+            isInterruptedApplyJobState(result.state) &&
+            (recoveryTerminalizedRunIds.has(result.runId) ||
+              result.state !== "planned"),
         );
 
       if (interruptedRuns.length === 0 && !hasPartiallyRecoveredOrphans) {
@@ -530,14 +546,22 @@ export function createWorkspaceSnapshotProfileMethods(
             if (!run) continue;
             const runResults = resultsByRunId.get(runId) ?? [];
             const orphanWrites: Promise<void>[] = [];
+            const recoveryTerminalized = isRecoveryTerminalizedApplyRun(run);
             for (const result of runResults) {
               if (!isInterruptedApplyJobState(result.state)) {
                 continue;
               }
-              const recoveredResult = recoverInterruptedApplyJobResult(
-                result,
-                completedAt,
-              );
+              // Under a run the person ended or that finished on its own,
+              // only rows still claiming live work are swept; queued
+              // "planned" rows are that run's own record and stay.
+              if (!recoveryTerminalized && result.state === "planned") {
+                continue;
+              }
+              const recoveredResult = recoveryTerminalized
+                ? recoverInterruptedApplyJobResult(result, completedAt)
+                : run.state === "cancelled"
+                  ? cancelInterruptedApplyJobResult(result, completedAt)
+                  : recoverInterruptedApplyJobResult(result, completedAt);
               if (!recoveredResult) {
                 continue;
               }

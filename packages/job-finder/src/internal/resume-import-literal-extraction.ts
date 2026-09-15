@@ -5,6 +5,7 @@ import type {
 } from "@unemployed/contracts";
 
 import { toCandidate } from "./resume-import-candidate-utils";
+import { isClearlyResumeDateRange } from "./resume-import-common";
 
 function normalizeEmail(value: string): string | null {
   const trimmed = value.trim();
@@ -26,16 +27,25 @@ const nonNamePhrasePattern =
   /\b(software|engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|consulting|technical|mentorship|leadership|performance|productivity|quality|security|platform|platforms|systems|cloud|devops|support|experience|summary|profile|skills|project|projects|work|professional|staff|senior|principal|lead|frontend|backend|full-stack|scale)\b/i;
 
 function trimTrailingContactFragments(value: string): string {
-  return cleanLocationCandidate(value.split(/\s*[·|]\s*/)[0] ?? value)
-    ?.replace(/\s+(?:\(?\+?\d[\d\s().-]{7,}\d\)?|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|https?:\/\/\S+|(?:www\.)?(?:linkedin|github)\.com\/\S+)$/i, "")
-    .trim() ?? "";
+  return (
+    cleanLocationCandidate(value.split(/\s*[·|]\s*/)[0] ?? value)
+      ?.replace(
+        /\s+(?:\(?\+?\d[\d\s().-]{7,}\d\)?|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|https?:\/\/\S+|(?:www\.)?(?:linkedin|github)\.com\/\S+)$/i,
+        "",
+      )
+      .trim() ?? ""
+  );
 }
 
 function extractNameFromHeaderLine(line: string): string | null {
   const cleaned = line.trim().replace(/\s+/g, " ");
   const tokens = cleaned.split(/\s+/).filter(Boolean);
 
-  for (let tokenCount = 2; tokenCount <= Math.min(4, tokens.length); tokenCount += 1) {
+  for (
+    let tokenCount = 2;
+    tokenCount <= Math.min(4, tokens.length);
+    tokenCount += 1
+  ) {
     const candidate = tokens.slice(0, tokenCount).join(" ");
     const remainder = tokens.slice(tokenCount).join(" ").trim();
 
@@ -65,7 +75,10 @@ function extractNameFromHeaderLine(line: string): string | null {
   return null;
 }
 
-function extractLocationFromHeaderLine(line: string, fullName: string | null): string | null {
+function extractLocationFromHeaderLine(
+  line: string,
+  fullName: string | null,
+): string | null {
   let candidate = line.trim().replace(/\s+/g, " ");
 
   if (fullName) {
@@ -93,7 +106,11 @@ function isLikelyPersonName(value: string): boolean {
     return false;
   }
 
-  if (/(about me|about|summary|profile|skills|experience|education|language skills|work experience)/i.test(trimmed)) {
+  if (
+    /(about me|about|summary|profile|skills|experience|education|language skills|work experience)/i.test(
+      trimmed,
+    )
+  ) {
     return false;
   }
 
@@ -125,13 +142,19 @@ function isLikelyLocationValue(value: string): boolean {
     return false;
   }
 
-  if (/\b(recently|decided|return|passion|experience|building|driven|improving)\b/i.test(cleaned)) {
+  if (
+    /\b(recently|decided|return|passion|experience|building|driven|improving)\b/i.test(
+      cleaned,
+    )
+  ) {
     return false;
   }
 
   return (
     /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Za-z][A-Za-z\s.'-]+$/.test(cleaned) ||
-    /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(cleaned) ||
+    /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(
+      cleaned,
+    ) ||
     /^[A-Za-z][A-Za-z\s.'-]+\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?$/.test(cleaned)
   );
 }
@@ -145,7 +168,9 @@ function isGithubUrl(url: string): boolean {
 }
 
 function isPortfolioUrl(url: string): boolean {
-  return /(?:https?:\/\/)?(?:www\.)?(?:behance\.net|dribbble\.com)\//i.test(url);
+  return /(?:https?:\/\/)?(?:www\.)?(?:behance\.net|dribbble\.com)\//i.test(
+    url,
+  );
 }
 
 function isPersonalWebsiteUrl(url: string): boolean {
@@ -166,14 +191,24 @@ export function extractLiteralCandidates(
   const nameBlock = documentBundle.blocks
     .slice(0, 8)
     .find((block) => isLikelyPersonName(block.text));
-  const emailMatches = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
-  const phoneMatches = text.match(/(\(?\+?\d[\d\s().-]{7,}\d\)?)/g) ?? [];
+  const emailMatches =
+    text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+  const phoneMatches =
+    text.match(
+      /(\(?\+?\d[\d\s().-]{5,}\d\)?(?:\s*(?:ext\.?|x)\s*\d{1,6})?)/gi,
+    ) ?? [];
   const urlMatches = text.match(/https?:\/\/[^\s)]+/gi) ?? [];
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const firstBlockId = documentBundle.blocks[0]?.id;
   const literalName =
     nameBlock?.text ??
-    lines.slice(0, 12).map((line) => extractNameFromHeaderLine(line)).find(Boolean) ??
+    lines
+      .slice(0, 12)
+      .map((line) => extractNameFromHeaderLine(line))
+      .find(Boolean) ??
     lines.find((line) => isLikelyPersonName(line)) ??
     null;
   const inlineLocation =
@@ -183,7 +218,9 @@ export function extractLiteralCandidates(
       .find((line) => line && isLikelyLocationValue(line)) ?? null;
   const locationLine =
     inlineLocation ??
-    lines.find((line) => /^Address:/i.test(line) && isLikelyLocationValue(line)) ??
+    lines.find(
+      (line) => /^Address:/i.test(line) && isLikelyLocationValue(line),
+    ) ??
     lines.find((line) => isLikelyLocationValue(line)) ??
     null;
 
@@ -195,8 +232,15 @@ export function extractLiteralCandidates(
       value: normalizedName,
       normalizedValue: normalizedName,
       valuePreview: normalizedName,
-      evidenceText: normalizedName.length > 400 ? `${normalizedName.slice(0, 400)}...` : normalizedName,
-      sourceBlockIds: nameBlock ? [nameBlock.id] : firstBlockId ? [firstBlockId] : [],
+      evidenceText:
+        normalizedName.length > 400
+          ? `${normalizedName.slice(0, 400)}...`
+          : normalizedName,
+      sourceBlockIds: nameBlock
+        ? [nameBlock.id]
+        : firstBlockId
+          ? [firstBlockId]
+          : [],
       confidence: 0.99,
       notes: [],
       alternatives: [],
@@ -221,7 +265,9 @@ export function extractLiteralCandidates(
     });
   }
 
-  const phone = phoneMatches[0]?.trim();
+  const phone = phoneMatches
+    .find((value) => !isClearlyResumeDateRange(value))
+    ?.trim();
   if (phone) {
     drafts.push({
       target: { section: "contact", key: "phone", recordId: null },
@@ -303,6 +349,13 @@ export function extractLiteralCandidates(
   }
 
   return drafts.map((draft, index) =>
-    toCandidate(documentBundle, runId, "parser_literal", createdAt, draft, index),
+    toCandidate(
+      documentBundle,
+      runId,
+      "parser_literal",
+      createdAt,
+      draft,
+      index,
+    ),
   );
 }

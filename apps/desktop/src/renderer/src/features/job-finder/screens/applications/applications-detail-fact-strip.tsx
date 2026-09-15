@@ -79,7 +79,17 @@ export function ApplicationsDetailFactStrip(props: {
   const { consentSummary, latestBlocker, questionSummary, replaySummary } =
     selectedRecord;
   const resolvedRunId = visibleApplyRunId ?? visibleApplyResult?.runId ?? null;
-  const attemptStateLabel = selectedAttempt
+  const visibleRunIsActive =
+    visibleApplyResult?.completedAt === null &&
+    (visibleApplyResult.state === "planned" ||
+      visibleApplyResult.state === "question_capture" ||
+      visibleApplyResult.state === "filling" ||
+      visibleApplyResult.state === "submitting");
+  const selectedAttemptBelongsToVisibleRun =
+    selectedAttempt?.userActionResumption?.runId === resolvedRunId;
+  const attemptStateLabel = visibleRunIsActive && !selectedAttemptBelongsToVisibleRun
+    ? "In progress"
+    : selectedAttempt
     ? getAttemptLabel(selectedAttempt.state)
     : selectedRecord.lastAttemptState
       ? getAttemptLabel(selectedRecord.lastAttemptState)

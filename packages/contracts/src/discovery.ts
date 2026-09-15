@@ -1910,6 +1910,25 @@ export const ApplicationAttemptSchema = z.object({
 export type ApplicationAttempt = z.infer<typeof ApplicationAttemptSchema>;
 export type ApplicationAttemptInput = z.input<typeof ApplicationAttemptSchema>;
 
+/**
+ * One use of a model during application preparation, for the privacy
+ * receipt. The agent that fills a form is a model loop; a receipt that says
+ * nothing went to a model is false, and this is how it stays true.
+ */
+export const ApplyExecutionModelUseSchema = z.object({
+  purpose: z.enum([
+    "application_answering",
+    "resume_generation",
+    "visual_interpretation",
+    "other",
+  ]),
+  providerLabel: NonEmptyStringSchema,
+  modelLabel: NonEmptyStringSchema.nullable().default(null),
+  occurredAt: IsoDateTimeSchema,
+  turns: z.number().int().nonnegative().default(0),
+});
+export type ApplyExecutionModelUse = z.infer<typeof ApplyExecutionModelUseSchema>;
+
 export const ApplyExecutionResultSchema = z.object({
   state: ApplicationAttemptStateSchema,
   summary: NonEmptyStringSchema,
@@ -1933,6 +1952,7 @@ export const ApplyExecutionResultSchema = z.object({
   externalWrites: z
     .array(ApplicationAttemptExternalWriteEvidenceSchema)
     .optional(),
+  modelUse: z.array(ApplyExecutionModelUseSchema).default([]),
 });
 export type ApplyExecutionResult = z.infer<typeof ApplyExecutionResultSchema>;
 

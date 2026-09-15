@@ -9,7 +9,74 @@
  * reader falls back to the visible text of the page and says so.
  */
 
-import { looksLikeApplyEntryText } from "@unemployed/browser-agent";
+/**
+ * Whether a link's text reads as the one that starts an application.
+ *
+ * This is discovery, not the apply harness: it records a likely apply URL from
+ * a listing's HTML before any run begins, so a later run has somewhere to
+ * start. Nothing here gates what the harness may click — the harness reads the
+ * page itself and decides (ADR 0021).
+ */
+const APPLY_ENTRY_PHRASES: readonly string[] = [
+  "apply",
+  "apply now",
+  "apply here",
+  "apply today",
+  "apply for this job",
+  "apply for this role",
+  "apply for this position",
+  "apply to this job",
+  "easy apply",
+  "quick apply",
+  "one click apply",
+  "apply on company site",
+  "apply on company website",
+  "apply on employer site",
+  "apply externally",
+  "apply with your resume",
+  "apply for job",
+  "start your application",
+  "start application",
+  "begin application",
+  "i m interested",
+  "im interested",
+  "i am interested",
+  "view job and apply",
+  "see job and apply",
+];
+
+const NOT_AN_ENTRY_PHRASES: readonly string[] = [
+  "apply filter",
+  "apply filters",
+  "apply changes",
+  "applied",
+  "how to apply",
+  "jobs you applied",
+  "why apply",
+  "apply for other",
+  "apply to other",
+  "similar jobs",
+  "back to",
+  "apply for a different",
+];
+
+function normalizeApplyEntrySignal(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim();
+}
+
+function looksLikeApplyEntryText(text: string): boolean {
+  const signal = normalizeApplyEntrySignal(text);
+  if (!signal || signal.length > 60) {
+    return false;
+  }
+  if (NOT_AN_ENTRY_PHRASES.some((phrase) => signal.includes(phrase))) {
+    return false;
+  }
+  return APPLY_ENTRY_PHRASES.some((phrase) => signal.includes(phrase));
+}
 
 const MAX_HTML_LENGTH = 1_500_000;
 const MAX_DESCRIPTION_LENGTH = 24_000;

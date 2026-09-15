@@ -1381,8 +1381,9 @@ export function createWorkspaceApplicationMethods(
     const unresolvedOmissionSuggestions =
       await loadUnresolvedWorkHistoryOmissionSuggestions(ctx, draft);
     if (unresolvedOmissionSuggestions.length > 0) {
+      const count = unresolvedOmissionSuggestions.length;
       throw new Error(
-        `Work-history omission reviews for '${job.title}' still need an explicit acknowledgment in Resume Studio before staging automatic apply.`,
+        `The resume for '${job.title}' leaves out ${count === 1 ? "a role" : `${count} roles`} that Job Finder wants you to confirm first. Open this job's resume in Resume Studio, confirm the hidden ${count === 1 ? "role is" : "roles are"} intentional, then apply again.`,
       );
     }
 
@@ -1513,8 +1514,7 @@ export function createWorkspaceApplicationMethods(
             input.questionSummary !== undefined
               ? input.questionSummary
               : existingRecord.questionSummary,
-          automationMode:
-            input.automationMode ?? existingRecord.automationMode,
+          automationMode: input.automationMode ?? existingRecord.automationMode,
           latestBlocker:
             input.latestBlocker !== undefined
               ? input.latestBlocker
@@ -1557,7 +1557,10 @@ export function createWorkspaceApplicationMethods(
       ...input.applicationRecord,
       id: input.existingRecord.id,
       status: input.existingRecord.status,
-      lastAttemptState: input.existingRecord.lastAttemptState,
+      lastAttemptState:
+        input.applicationRecord.latestBlocker?.code === "missing_resume"
+          ? input.existingRecord.lastAttemptState
+          : input.applicationRecord.lastAttemptState,
       questionSummary: input.applicationRecord.questionSummary,
       latestBlocker: input.applicationRecord.latestBlocker,
       consentSummary: input.applicationRecord.consentSummary,
@@ -2853,6 +2856,21 @@ export function createWorkspaceApplicationMethods(
       !selectedBaseResume?.fullText
         ? `Strategy base resume document "${selectedBaseResumeDocumentId}" was unavailable, so the current profile resume was used as the grounded source.`
         : null;
+    const existingDraftRevisions = existingDraft
+      ? await ctx.repository.listResumeDraftRevisions(existingDraft.id)
+      : [];
+    const hasExplicitDraftTemplate = existingDraftRevisions.some(
+      (revision) =>
+        (revision.actor === "user" || revision.actor === "restore") &&
+        revision.diff?.templateChanged === true,
+    );
+    const hasExplicitStrategyTemplate =
+      strategyPolicy?.effectiveSource === "selection";
+    const lockedTemplateId = hasExplicitDraftTemplate
+      ? (existingDraft?.templateId ?? null)
+      : hasExplicitStrategyTemplate
+        ? (strategyContext.templateId ?? null)
+        : null;
     // Generation, rendering, and persistence failures must leave durable
     // queue truth behind: record the failed tailored asset before
     // propagating the original error to callers.
@@ -2873,6 +2891,59 @@ export function createWorkspaceApplicationMethods(
         strategy: strategyPolicy,
         evidence,
         researchContext,
+        availableTemplates: templates,
+        selectedTemplateId:
+          lockedTemplateId ??
+          existingDraft?.templateId ??
+          strategyContext.templateId ??
+          settings.resumeTemplateId,
+        templateSelectionLocked: lockedTemplateId !== null,
+        renderPreview: async ({ draft: previewDraft, templateId }) => {
+          const template =
+            templates.find((candidate) => candidate.id === templateId) ?? null;
+          if (!template || !isResumeTemplateApplyEligible(template)) {
+            throw new Error(
+              `Resume template '${templateId}' is unavailable or not apply-safe.`,
+            );
+          }
+          const previewAt = new Date().toISOString();
+          const previewResumeDraft = sanitizeResumeDraft({
+            draft: buildResumeDraftFromTailoredDraft({
+              job,
+              templateId: template.id,
+              draft: previewDraft,
+              createdAt: previewAt,
+              updatedAt: previewAt,
+              existingDraftId: existingDraft?.id ?? null,
+              previousWorkHistoryReviewAcknowledgments:
+                existingDraft?.workHistoryReviewAcknowledgments ?? [],
+              generationMethod: "ai",
+              profile,
+              research,
+            }),
+            job,
+            profile,
+            ...(strategyPolicy
+              ? { sourceSkills: previewDraft.coreSkills }
+              : {}),
+          });
+          const rendered = await ctx.documentManager.renderResumeArtifact({
+            job,
+            profile,
+            renderDocument: buildResumeRenderDocument(
+              profile,
+              previewResumeDraft,
+            ),
+            templateId: template.id,
+            settings,
+          });
+          return {
+            templateId: template.id,
+            pageCount: rendered.pageCount ?? null,
+            warnings: rendered.warnings ?? [],
+            fileName: rendered.fileName,
+          };
+        },
       });
       // Prefer the structured provenance recorded by the AI boundary; the
       // note-prose inference stays only for legacy clients that omit it.
@@ -2902,7 +2973,11 @@ export function createWorkspaceApplicationMethods(
       // unapproved and the per-job approval/staleness checks stay
       // authoritative.
       const strategyTemplateId =
-        existingDraft?.templateId ?? strategyContext.templateId ?? null;
+        lockedTemplateId ??
+        draft.recommendedTemplateId ??
+        existingDraft?.templateId ??
+        strategyContext.templateId ??
+        null;
       const strategyDisplayName =
         strategyContext.selectedStrategyName ??
         strategyContext.recommendedStrategyName ??
@@ -5607,7 +5682,12 @@ export function createWorkspaceApplicationMethods(
         // run nobody can cancel: register a durable cancellable running row
         // first, then commit the blocked artifacts inside the run transition so
         // a winning cancel writes nothing after cancellation.
-        async function persistMissingResumeCopilotOutcome(): Promise<void> {
+        async function persistResumePrerequisiteCopilotOutcome(prerequisite?: {
+          kind: "work_history_review";
+          summary: string;
+          detail: string;
+          nextActionLabel: string;
+        }): Promise<void> {
           if (!job) {
             throw new Error(
               `Unable to start apply copilot for unknown job '${jobId}'.`,
@@ -5618,6 +5698,7 @@ export function createWorkspaceApplicationMethods(
             applicationRecord: selectedApplicationRecord,
             job,
             detectedAt,
+            ...(prerequisite ? { prerequisite } : {}),
           });
           await assertDirectApplyExecutionCanContinue(claim);
           await assertCurrentResumeProfile(
@@ -5721,13 +5802,30 @@ export function createWorkspaceApplicationMethods(
           );
 
           if (!approvedFileExists) {
-            await persistMissingResumeCopilotOutcome();
+            await persistResumePrerequisiteCopilotOutcome();
             return ctx.getWorkspaceSnapshot();
           }
         }
 
         if (shouldBlockForMissingResume) {
-          await persistMissingResumeCopilotOutcome();
+          await persistResumePrerequisiteCopilotOutcome();
+          return ctx.getWorkspaceSnapshot();
+        }
+
+        const unresolvedOmissionSuggestions =
+          !usesOriginalResume && draft
+            ? await loadUnresolvedWorkHistoryOmissionSuggestions(ctx, draft)
+            : [];
+        if (unresolvedOmissionSuggestions.length > 0) {
+          const count = unresolvedOmissionSuggestions.length;
+          const summary = `The resume for '${job.title}' leaves out ${count === 1 ? "a role" : `${count} roles`} that Job Finder wants you to confirm first.`;
+          const nextActionLabel = `Open this job's resume in Resume Studio, confirm the hidden ${count === 1 ? "role is" : "roles are"} intentional, then apply again.`;
+          await persistResumePrerequisiteCopilotOutcome({
+            kind: "work_history_review",
+            summary,
+            detail: `${summary} ${nextActionLabel}`,
+            nextActionLabel,
+          });
           return ctx.getWorkspaceSnapshot();
         }
 

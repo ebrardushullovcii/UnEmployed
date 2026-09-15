@@ -137,7 +137,9 @@ import {
   importResumeFromSourcePath,
   isDesktopTestApiEnabled,
   loadApplyQueueDemoState,
+  loadAgentOwnedBrowserDriveState,
   loadResumeWorkspaceDemoState,
+  loadWorkHistoryReviewDriveState,
   parseResumeImportPathPayload,
   resetJobFinderWorkspace,
   getJobFinderStartupResetRecoveryFact,
@@ -176,7 +178,9 @@ function parseSourceReadabilityTimeout(payload: unknown): number | null {
   if (!payload || typeof payload !== "object") return null;
   const timeoutMs = (payload as { readabilityTimeoutMs?: unknown })
     .readabilityTimeoutMs;
-  return typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+  return typeof timeoutMs === "number" &&
+    Number.isFinite(timeoutMs) &&
+    timeoutMs > 0
     ? Math.min(Math.trunc(timeoutMs), 15_000)
     : null;
 }
@@ -1094,6 +1098,44 @@ export function registerJobFinderRouteHandlers(
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
   });
+
+  ipcMain.handle("job-finder:test-load-work-history-review-demo", async () => {
+    if (!isDesktopTestApiEnabled()) {
+      throw new Error(
+        "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+      );
+    }
+
+    const snapshot = await loadWorkHistoryReviewDriveState();
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+  });
+
+  ipcMain.handle(
+    "job-finder:test-load-agent-owned-browser-demo",
+    async (_event, rawInput: unknown) => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+      if (!rawInput || typeof rawInput !== "object") {
+        throw new Error("Local browser demo URLs are required.");
+      }
+      const candidate = rawInput as Record<string, unknown>;
+      if (
+        typeof candidate.sourceUrl !== "string" ||
+        typeof candidate.applicationUrl !== "string"
+      ) {
+        throw new Error("Local browser demo URLs are required.");
+      }
+      const parsed = {
+        sourceUrl: new URL(candidate.sourceUrl).href,
+        applicationUrl: new URL(candidate.applicationUrl).href,
+      };
+      return loadAgentOwnedBrowserDriveState(parsed);
+    },
+  );
 
   ipcMain.handle(
     "job-finder:test-fail-next-save",

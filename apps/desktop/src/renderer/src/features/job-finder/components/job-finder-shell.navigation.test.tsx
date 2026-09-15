@@ -161,11 +161,6 @@ function getModuleOption(
 
 const SIDEBAR_SECONDARY_DESTINATIONS = [
   "Documents",
-  "Companies",
-  "Outcomes",
-  "Search plans",
-  "Resume approaches",
-  "Safeguards",
   "Settings",
 ] as const;
 
@@ -755,8 +750,9 @@ describe("JobFinderShell section navigation", () => {
     // reference and configuration surfaces follow it inline.
     expect(sidebarNavigation.textContent).toContain("Your job search");
     expect(sidebarNavigation.textContent).toContain("Everything else");
-    expect(sidebarNavigation.textContent).toContain("Your data");
-    expect(sidebarNavigation.textContent).toContain("Setup and safety");
+    expect(sidebarNavigation.textContent).toContain("Workspace");
+    expect(sidebarNavigation.textContent).not.toContain("Search plans");
+    expect(sidebarNavigation.textContent).not.toContain("Safeguards");
 
     const workflowButtons = [
       within(sidebar).getByRole("button", { name: /^Profile$/ }),
@@ -842,9 +838,9 @@ describe("JobFinderShell section navigation", () => {
       sidebar.querySelectorAll<HTMLElement>("span.tabular-nums"),
     ).map((element) => element.className);
 
-    // Primary rows, attention rows (Companies, Safeguards) and inventory rows
-    // (Outcomes, Search plans, Resume approaches) all reach this list.
-    expect(countClassNames.length).toBeGreaterThanOrEqual(6);
+    // Only the journey carries inventory counts; retired secondary workflow
+    // surfaces no longer add badges to the main product map.
+    expect(countClassNames.length).toBeGreaterThanOrEqual(1);
     // Previously this asserted ONE class for every sidebar count and forbade
     // any fill. That is the defect RC-05 records: an attention count then
     // rendered as a bare number beside a destination name, so the Companies
@@ -859,10 +855,7 @@ describe("JobFinderShell section navigation", () => {
       (className) => !className.includes("bg-transparent"),
     );
     expect(inventoryClassNames.length).toBeGreaterThan(0);
-    expect(attentionClassNames.length).toBeGreaterThan(0);
     expect(new Set(inventoryClassNames).size).toBe(1);
-    expect(new Set(attentionClassNames).size).toBe(1);
-    expect(inventoryClassNames[0]).not.toBe(attentionClassNames[0]);
 
     // An inventory count is a number, not a chip: no fill, no pill,
     // right-aligned.
@@ -875,8 +868,7 @@ describe("JobFinderShell section navigation", () => {
     expect(countClassName).not.toContain("rounded-full");
     // An attention count is filled and carries a noun, so it cannot be read as
     // inventory volume.
-    expect(attentionClassNames[0]).toContain("bg-primary");
-    expect(attentionClassNames[0]).toContain("rounded-full");
+    expect(attentionClassNames).toHaveLength(0);
 
     // Collapsing the rail moves every count to the same corner marker; it is
     // still exactly one treatment, never a per-destination variant.
@@ -911,13 +903,8 @@ describe("JobFinderShell section navigation", () => {
       name: "Everything else",
     });
 
-    // Two labelled groups, in the same order and with the same names the
-    // compact More menu uses, so the two widths teach one map.
     expect(
-      within(secondary).getByRole("group", { name: "Your data" }),
-    ).toBeTruthy();
-    expect(
-      within(secondary).getByRole("group", { name: "Setup and safety" }),
+      within(secondary).getByRole("group", { name: "Workspace" }),
     ).toBeTruthy();
 
     for (const label of SIDEBAR_SECONDARY_DESTINATIONS) {
@@ -947,9 +934,9 @@ describe("JobFinderShell section navigation", () => {
     expect(screen.queryByRole("navigation", { name: "More" })).toBeNull();
 
     fireEvent.click(
-      within(secondary).getByRole("button", { name: /^Safeguards/u }),
+      within(secondary).getByRole("button", { name: /^Settings/u }),
     );
-    expect(onNavigate).toHaveBeenCalledWith("/job-finder/safeguards");
+    expect(onNavigate).toHaveBeenCalledWith("/job-finder/settings");
     // Opening the shortcuts dialog stays a dialog, not a second popover.
     fireEvent.click(shortcutsEntry);
     expect(
@@ -984,17 +971,17 @@ describe("JobFinderShell section navigation", () => {
     }
     // Group eyebrows collapse to screen-reader text rather than wrapping.
     const eyebrow = Array.from(secondary.querySelectorAll("span")).find(
-      (element) => element.textContent === "Setup and safety",
+      (element) => element.textContent === "Workspace",
     );
     expect(eyebrow?.className).toContain("sr-only");
 
-    const companies = within(secondary).getByRole("button", {
-      name: /^Companies/u,
+    const documents = within(secondary).getByRole("button", {
+      name: /^Documents/u,
     });
-    fireEvent.pointerEnter(companies, { pointerType: "mouse" });
-    fireEvent.pointerMove(companies, { pointerType: "mouse" });
+    fireEvent.pointerEnter(documents, { pointerType: "mouse" });
+    fireEvent.pointerMove(documents, { pointerType: "mouse" });
     const tooltip = await screen.findByRole("tooltip");
-    expect(tooltip.textContent).toContain("Companies");
+    expect(tooltip.textContent).toContain("Documents");
     expect(screen.queryByRole("navigation", { name: "More" })).toBeNull();
   });
 
@@ -1482,10 +1469,10 @@ describe("JobFinderShell section navigation", () => {
     });
     expect(menu).toBeTruthy();
     expect(
-      within(menu).getByRole("button", { name: /Search plans/ }),
+      within(menu).getByRole("button", { name: /Documents/ }),
     ).toBeTruthy();
     expect(
-      within(menu).getByRole("group", { name: "Setup and safety" }),
+      within(menu).getByRole("group", { name: "Workspace" }),
     ).toBeTruthy();
     expect(document.activeElement).toBe(
       within(menu).getByRole("button", { name: /^Documents/ }),
@@ -1504,10 +1491,10 @@ describe("JobFinderShell section navigation", () => {
     fireEvent.click(
       within(screen.getByRole("navigation", { name: "More" })).getByRole(
         "button",
-        { name: /Resume approaches/ },
+        { name: /Settings/ },
       ),
     );
-    expect(onNavigate).toHaveBeenCalledWith("/job-finder/resume-strategies");
+    expect(onNavigate).toHaveBeenCalledWith("/job-finder/settings");
     expect(screen.queryByRole("navigation", { name: "More" })).toBeNull();
   });
 
@@ -1755,15 +1742,7 @@ describe("JobFinderShell section navigation", () => {
         }),
       );
     }
-    for (const destination of [
-      "Search plans",
-      "Outcomes",
-      "Resume approaches",
-      "Companies",
-      "Safeguards",
-      "Documents",
-      "Settings",
-    ]) {
+    for (const destination of ["Documents", "Settings"]) {
       fireEvent.click(
         within(navigation).getByRole("button", {
           name: "More",
@@ -1784,26 +1763,18 @@ describe("JobFinderShell section navigation", () => {
       }),
     );
 
-    expect(onNavigate).toHaveBeenCalledTimes(13);
+    expect(onNavigate).toHaveBeenCalledTimes(8);
     expect(onNavigate).toHaveBeenNthCalledWith(1, "/job-finder/home");
     expect(onNavigate).toHaveBeenNthCalledWith(2, "/job-finder/profile/setup");
     expect(onNavigate).toHaveBeenNthCalledWith(3, "/job-finder/discovery");
     expect(onNavigate).toHaveBeenNthCalledWith(4, "/job-finder/review-queue");
     expect(onNavigate).toHaveBeenNthCalledWith(5, "/job-finder/applications");
-    expect(onNavigate).toHaveBeenNthCalledWith(6, "/job-finder/campaigns");
-    expect(onNavigate).toHaveBeenNthCalledWith(7, "/job-finder/analytics");
-    expect(onNavigate).toHaveBeenNthCalledWith(
-      8,
-      "/job-finder/resume-strategies",
-    );
-    expect(onNavigate).toHaveBeenNthCalledWith(9, "/job-finder/companies");
-    expect(onNavigate).toHaveBeenNthCalledWith(10, "/job-finder/safeguards");
-    expect(onNavigate).toHaveBeenNthCalledWith(11, "/job-finder/documents");
-    expect(onNavigate).toHaveBeenNthCalledWith(12, "/job-finder/settings");
-    expect(onNavigate).toHaveBeenNthCalledWith(13, "/job-finder/actions");
+    expect(onNavigate).toHaveBeenNthCalledWith(6, "/job-finder/documents");
+    expect(onNavigate).toHaveBeenNthCalledWith(7, "/job-finder/settings");
+    expect(onNavigate).toHaveBeenNthCalledWith(8, "/job-finder/actions");
   });
 
-  it("counts extra search plans in the More menu without treating plans as attention", () => {
+  it("does not expose retired search plans in the More menu", () => {
     const workspace = createWorkspace();
     workspace.campaigns = [
       { id: "campaign_default", name: "My job search" },
@@ -1820,13 +1791,13 @@ describe("JobFinderShell section navigation", () => {
 
     fireEvent.click(getCompactMoreButton());
     const menu = screen.getByRole("navigation", { name: "More" });
-    const campaignsButton = within(menu).getByRole("button", {
+    const campaignsButton = within(menu).queryByRole("button", {
       name: /^Search plans/u,
     });
-    expect(campaignsButton.textContent).toContain("2");
+    expect(campaignsButton).toBeNull();
   });
 
-  it("shows no plan badge while only the default plan exists", () => {
+  it("keeps the compact menu focused on documents and settings", () => {
     const workspace = createWorkspace();
     workspace.campaigns = [
       { id: "campaign_default", name: "My job search" },
@@ -1842,9 +1813,8 @@ describe("JobFinderShell section navigation", () => {
 
     fireEvent.click(getCompactMoreButton());
     const menu = screen.getByRole("navigation", { name: "More" });
-    expect(
-      within(menu).getByRole("button", { name: "Search plans" }).textContent,
-    ).not.toMatch(/\d/);
+    expect(within(menu).getByRole("button", { name: "Documents" })).toBeTruthy();
+    expect(within(menu).getByRole("button", { name: "Settings" })).toBeTruthy();
   });
 
   it("keeps the Task center launcher in header flow instead of over page content", () => {
@@ -2104,7 +2074,7 @@ describe("JobFinderShell compact nav responsive contract", () => {
     },
   );
 
-  it("never hides the active advanced route behind the Planning trigger", () => {
+  it("does not advertise retired advanced routes through More", () => {
     render(
       <MemoryRouter initialEntries={["/job-finder/analytics"]}>
         <JobFinderShell platform="win32" workspace={createWorkspace()}>
@@ -2114,7 +2084,7 @@ describe("JobFinderShell compact nav responsive contract", () => {
     );
 
     const moreButton = getCompactMoreButton();
-    expect(moreButton.className).toContain("bg-(--nav-active-surface)");
+    expect(moreButton.className).not.toContain("bg-(--nav-active-surface)");
     expect(moreButton.getAttribute("aria-expanded")).toBe("false");
   });
 
@@ -2161,19 +2131,6 @@ describe("JobFinderShell compact nav responsive contract", () => {
     // while the labeled destination stays the sole announced content.
     expect(inventoryBadge?.getAttribute("aria-hidden")).toBe("true");
 
-    workspace.intelligence = {
-      safeguards: {
-        abnormalFailurePauses: [],
-        companyApplicationCaps: [{ id: "cap_1", limitReached: true }],
-        contradictoryAnswerDetections: [],
-        listingSignals: [],
-        preparedBatchSampleReviews: [],
-        safeguardDismissals: [],
-        simultaneousApplicationConflicts: [],
-        updatedAt: null,
-      },
-    } as unknown as JobFinderWorkspaceSnapshot["intelligence"];
-
     cleanup();
     render(
       <MemoryRouter initialEntries={["/job-finder/home"]}>
@@ -2183,20 +2140,6 @@ describe("JobFinderShell compact nav responsive contract", () => {
       </MemoryRouter>,
     );
 
-    const sidebarWithAttention = screen.getByRole("complementary", {
-      name: "Job Finder sidebar",
-    });
-    // Safeguards is an ordinary inline sidebar row now, so its attention count
-    // is announced on the destination itself instead of rolled up onto a
-    // dropdown trigger that hid which surface was waiting.
-    expect(
-      within(sidebarWithAttention).getByRole("button", {
-        name: "Safeguards: 1 blocked",
-      }),
-    ).toBeTruthy();
-    expect(
-      within(sidebarWithAttention).queryByRole("button", { name: /^More/u }),
-    ).toBeNull();
     const needsYouButton = screen.getByRole("button", {
       name: "Needs you: 1 unresolved",
     });
@@ -2209,20 +2152,13 @@ describe("JobFinderShell compact nav responsive contract", () => {
     expect(needsYouButton.textContent).toContain("1");
 
     const planningTrigger = within(getSectionNavigation()).getByRole("button", {
-      name: "More: 1 need attention",
+      name: "More",
     });
     fireEvent.click(planningTrigger);
-    const safeguardsButton = within(
-      screen.getByRole("navigation", { name: "More" }),
-    ).getByRole("button", { name: "Safeguards: 1 blocked" });
-    const attentionBadge = safeguardsButton.querySelector("span.tabular-nums");
-    expect(attentionBadge?.textContent).toBe("1blocked");
-    // Attention work waiting on the user stays announced.
-    expect(attentionBadge?.getAttribute("aria-hidden")).toBeNull();
     expect(
       within(screen.getByRole("navigation", { name: "More" })).getByRole(
         "button",
-        { name: "Safeguards: 1 blocked" },
+        { name: "Documents" },
       ),
     ).toBeTruthy();
 
@@ -3135,15 +3071,7 @@ describe("JobFinderShell responsive shell contract", () => {
     const menu = screen.getByRole("navigation", { name: "More" });
     // Every destination is present, and none of the ~270px of non-navigation
     // content that used to stop the menu from showing itself.
-    for (const label of [
-      "Documents",
-      "Companies",
-      "Outcomes",
-      "Search plans",
-      "Resume approaches",
-      "Safeguards",
-      "Settings",
-    ]) {
+    for (const label of SIDEBAR_SECONDARY_DESTINATIONS) {
       expect(
         within(menu).getByRole("button", { name: new RegExp(`^${label}`) }),
       ).toBeTruthy();
@@ -3232,15 +3160,7 @@ describe("JobFinderShell responsive shell contract", () => {
 
     // Every destination plus the footer entry is present and enabled, reachable
     // through the scroll region rather than by resizing the window.
-    for (const label of [
-      "Documents",
-      "Companies",
-      "Outcomes",
-      "Search plans",
-      "Resume approaches",
-      "Safeguards",
-      "Settings",
-    ]) {
+    for (const label of SIDEBAR_SECONDARY_DESTINATIONS) {
       const item = within(menu).getByRole("button", {
         name: new RegExp(`^${label}`),
       });
@@ -3257,7 +3177,7 @@ describe("JobFinderShell responsive shell contract", () => {
     // Arrow keys still walk the whole list, footer entry included, so the
     // scrolled-out rows stay reachable from the keyboard.
     const items = within(menu).getAllByRole("button");
-    expect(items).toHaveLength(8);
+    expect(items).toHaveLength(3);
   });
 
   it("flips the More menu above its trigger and stays inside a short window", () => {
@@ -3288,15 +3208,7 @@ describe("JobFinderShell responsive shell contract", () => {
       "[data-job-finder-more-menu-scroll-region]",
     );
     expect(scrollRegion?.className).toContain("overflow-y-auto");
-    for (const label of [
-      "Documents",
-      "Companies",
-      "Outcomes",
-      "Search plans",
-      "Resume approaches",
-      "Safeguards",
-      "Settings",
-    ]) {
+    for (const label of SIDEBAR_SECONDARY_DESTINATIONS) {
       expect(
         within(menu).getByRole("button", { name: new RegExp(`^${label}`) }),
       ).toBeTruthy();

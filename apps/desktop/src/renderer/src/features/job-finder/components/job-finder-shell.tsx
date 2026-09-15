@@ -711,17 +711,8 @@ export function JobFinderShell({
     ids.flatMap((id) => screenDefinitions.filter((screen) => screen.id === id));
   const menuGroups = [
     {
-      label: "Your data",
-      screens: selectMenuScreens(["documents", "companies", "analytics"]),
-    },
-    {
-      label: "Setup and safety",
-      screens: selectMenuScreens([
-        "campaigns",
-        "resume-strategies",
-        "safeguards",
-        "settings",
-      ]),
+      label: "Workspace",
+      screens: selectMenuScreens(["documents", "settings"]),
     },
   ];
   const moreMenuItemCount = menuGroups.reduce(
@@ -733,12 +724,7 @@ export function JobFinderShell({
       .flatMap((group) => group.screens)
       .map((screen, index) => [screen.id, index] as const),
   );
-  const hiddenAttentionCount =
-    countUnreadCampaignNotifications(workspace.campaignNotifications) +
-    (screenDefinitions.find((screen) => screen.id === "companies")?.count ??
-      0) +
-    (screenDefinitions.find((screen) => screen.id === "safeguards")?.count ??
-      0);
+  const hiddenAttentionCount = 0;
   // The sidebar leads with the journey. The reference and configuration
   // surfaces follow it inline under "Everything else": the 17rem rail has the
   // room, so hiding seven destinations behind a dropdown inside a persistent

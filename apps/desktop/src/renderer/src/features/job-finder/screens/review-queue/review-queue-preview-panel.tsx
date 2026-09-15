@@ -42,6 +42,7 @@ interface ReviewQueuePreviewPanelProps {
    * apart, from the same data.
    */
   preparedJobIds?: ReadonlySet<string>;
+  applicationPreparingJobIds?: ReadonlySet<string>;
   previewState: PreviewState;
   queue: readonly ReviewQueueItem[];
   selectedAsset: TailoredAsset | null;
@@ -61,6 +62,7 @@ export function ReviewQueuePreviewPanel({
   onGenerateResume,
   originalResume,
   preparedJobIds,
+  applicationPreparingJobIds,
   previewState,
   queue,
   selectedAsset,
@@ -81,6 +83,7 @@ export function ReviewQueuePreviewPanel({
     selectedAsset,
     isSelectedJobPending,
     preparedJobIds,
+    applicationPreparingJobIds,
   );
   const previewTone =
     previewState === "missing" ? "critical" : workflowStatus.tone;

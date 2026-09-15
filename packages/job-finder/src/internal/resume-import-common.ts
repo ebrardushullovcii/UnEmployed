@@ -9,6 +9,15 @@ export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+export function isClearlyResumeDateRange(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const trimmed = value.trim();
+  return /^(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)\d{2}$/u.test(trimmed);
+}
+
 export function stringifyCandidateTarget(
   candidate: ResumeImportFieldCandidate,
 ): string {
@@ -89,15 +98,17 @@ export function toNarrativeStringArray(value: unknown): string[] {
         ? value.filter((entry): entry is string => typeof entry === "string")
         : [];
 
-  return entries
-    .flatMap((entry) => entry.split(/\r?\n+/))
-    // Inline bullet glyphs ("• a • b") and long multi-sentence blobs are one
-    // resume's ten bullets glued together; downstream tailoring can only
-    // select, reorder and rewrite what arrives as separate entries.
-    .flatMap((entry) => entry.split(/\s+[•·▪◦‣]\s+/u))
-    .flatMap((entry) => splitLongNarrativeBlob(entry))
-    .map((entry) => entry.trim().replace(/^(?:[-*•·▪◦‣]\s+|\d+[.)]\s+)/u, ""))
-    .filter(Boolean);
+  return (
+    entries
+      .flatMap((entry) => entry.split(/\r?\n+/))
+      // Inline bullet glyphs ("• a • b") and long multi-sentence blobs are one
+      // resume's ten bullets glued together; downstream tailoring can only
+      // select, reorder and rewrite what arrives as separate entries.
+      .flatMap((entry) => entry.split(/\s+[•·▪◦‣]\s+/u))
+      .flatMap((entry) => splitLongNarrativeBlob(entry))
+      .map((entry) => entry.trim().replace(/^(?:[-*•·▪◦‣]\s+|\d+[.)]\s+)/u, ""))
+      .filter(Boolean)
+  );
 }
 
 const LONG_NARRATIVE_BLOB_MIN_LENGTH = 240;

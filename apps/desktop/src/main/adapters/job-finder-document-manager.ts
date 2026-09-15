@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BrowserWindow } from "electron";
 import type { JobFinderDocumentManager } from "@unemployed/job-finder";
+import JSZip from "jszip";
 
 import { getPdfPageCount } from "./resume-document";
 import {
@@ -56,6 +57,64 @@ function renderLetterHtml(text: string, authorName: string): string {
 ${paragraphs}
   </body>
 </html>`;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;")
+    .replace(/'/gu, "&apos;");
+}
+
+async function renderLetterDocx(text: string): Promise<Buffer> {
+  const zip = new JSZip();
+  const paragraphs = text
+    .split(/\n{2,}/u)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => {
+      const runs = paragraph
+        .split(/\n/u)
+        .map(
+          (line, index) =>
+            `${index > 0 ? "<w:br/>" : ""}<w:t xml:space="preserve">${escapeXml(line)}</w:t>`,
+        )
+        .join("");
+      return `<w:p><w:pPr><w:spacing w:after="200" w:line="360" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="23"/></w:rPr>${runs}</w:r></w:p>`;
+    })
+    .join("");
+
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`,
+  );
+  zip.folder("_rels")?.file(
+    ".rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`,
+  );
+  zip.folder("word")?.file(
+    "document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>${paragraphs}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1247" w:right="1134" w:bottom="1247" w:left="1134"/></w:sectPr></w:body>
+</w:document>`,
+  );
+  return zip.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
 }
 
 interface CreateLocalJobFinderDocumentManagerOptions {
@@ -142,21 +201,27 @@ export function createLocalJobFinderDocumentManager(
      * export uses, so a letter and the resume beside it are produced the same
      * way and land in the same place.
      *
-     * A form that insists on .docx gets nothing: there is no Word writer here,
-     * and sending a PDF under a .docx name would be a lie the person would
-     * only discover after applying.
+     * PDF uses the same print path as resume export. DOCX is a real Office
+     * Open XML package, not renamed PDF bytes.
      */
     async renderLetterArtifact(input) {
-      if (input.fileType === "docx") {
-        return {
-          ok: false,
-          reason:
-            "This form asks for a Word file, and Job Finder can only produce a PDF.",
-        };
-      }
-
       await mkdir(options.outputDirectory, { recursive: true });
       const baseName = `${Date.now()}_${sanitizeSegment(input.profile.fullName ?? "")}_${sanitizeSegment(input.job.company)}_letter`;
+      if (input.fileType === "docx") {
+        const docxPath = path.join(options.outputDirectory, `${baseName}.docx`);
+        await writeFile(docxPath, await renderLetterDocx(input.text));
+        const sha256 = createHash("sha256")
+          .update(await readFile(docxPath))
+          .digest("hex");
+        return {
+          ok: true,
+          fileName: path.basename(docxPath),
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          storagePath: docxPath,
+          sha256,
+        };
+      }
       const htmlPath = path.join(options.outputDirectory, `${baseName}.html`);
       const pdfPath = path.join(options.outputDirectory, `${baseName}.pdf`);
 

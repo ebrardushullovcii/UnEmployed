@@ -66,6 +66,8 @@ export function getReviewQueueWorkflowStatus(
   isPending = false,
   /** Jobs whose application is already prepared; see isQueueStageReady. */
   preparedJobIds?: ReadonlySet<string>,
+  /** Jobs with a preparation attempt that is still running. */
+  applicationPreparingJobIds?: ReadonlySet<string>,
 ): ReviewQueueWorkflowStatus {
   if (!item) {
     return {
@@ -84,6 +86,13 @@ export function getReviewQueueWorkflowStatus(
   if (isPending) {
     return {
       label: "Preparing resume",
+      tone: "active",
+    };
+  }
+
+  if (applicationPreparingJobIds?.has(item.jobId)) {
+    return {
+      label: "Preparing application",
       tone: "active",
     };
   }
@@ -194,6 +203,21 @@ export function collectPreparedApplicationJobIds(
   return new Set(
     (applicationRecords ?? [])
       .filter((record) => isPreparedApplicationStatus(record))
+      .map((record) => record.jobId),
+  );
+}
+
+export function collectInProgressApplicationJobIds(
+  applicationRecords:
+    | readonly {
+        jobId: string;
+        lastAttemptState?: "in_progress" | string | null | undefined;
+      }[]
+    | undefined,
+): ReadonlySet<string> {
+  return new Set(
+    (applicationRecords ?? [])
+      .filter((record) => record.lastAttemptState === "in_progress")
       .map((record) => record.jobId),
   );
 }

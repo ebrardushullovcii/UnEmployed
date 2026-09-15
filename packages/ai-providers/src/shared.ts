@@ -22,6 +22,7 @@ import {
   type JobPosting,
   type JobSearchPreferences,
   type ResumeDraft,
+  type ResumeTemplateDefinition,
   ResumeStrategyCoveragePolicySchema,
   ResumeStrategyEvidenceBoundariesSchema,
   ResumeStrategyHeadlinePolicySchema,
@@ -189,6 +190,7 @@ export type TailoredResumeGenerationProvenance = z.infer<
 >;
 
 export const TailoredResumeDraftSchema = z.object({
+  recommendedTemplateId: ResumeTemplateIdSchema.nullable().optional(),
   label: NullableStringSchema,
   summary: NonEmptyStringSchema,
   experienceHighlights: z.array(NonEmptyStringSchema).default([]),
@@ -341,6 +343,18 @@ export interface TailorResumeInput {
 }
 
 export interface CreateResumeDraftInput extends TailorResumeInput {
+  availableTemplates?: readonly ResumeTemplateDefinition[];
+  selectedTemplateId?: string | null;
+  templateSelectionLocked?: boolean;
+  renderPreview?: (input: {
+    draft: TailoredResumeDraft;
+    templateId: string;
+  }) => Promise<{
+    templateId: string;
+    pageCount: number | null;
+    warnings: readonly string[];
+    fileName: string | null;
+  }>;
   strategy?: ResumeGenerationStrategyPolicy | null;
   evidence?: {
     summary: readonly string[];

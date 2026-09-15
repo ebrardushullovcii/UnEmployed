@@ -50,6 +50,10 @@ function rawPage(overrides: Partial<RawApplyPage> = {}): RawApplyPage {
     controls: [],
     actions: [],
     links: [],
+    headings: [],
+    clickables: [],
+    openedTabs: [],
+    loading: false,
     validationErrors: [],
     stepLabel: null,
     ...overrides,
@@ -102,6 +106,12 @@ function configFor(
 ): { config: ApplyAgentConfig; hands: ApplyPageHands } {
   const hands: ApplyPageHands = {
     observe: () => Promise.resolve(observationOf(page)),
+    navigate: () => Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
+    clickElement: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+    scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
+    wait: () => Promise.resolve(),
+    goBack: () => Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
+    readText: () => Promise.resolve("Apply for the role"),
     fillText: (_ref, value) => Promise.resolve({ ok: true, observedValue: value }),
     chooseOption: (_ref, option) => Promise.resolve({ ok: true, observedValue: option }),
     setToggle: (_ref, checked) =>
@@ -153,11 +163,7 @@ describe("apply policy executor", () => {
     const observation = observationOf(page);
 
     const outcome = await executeApplyProposal(
-      {
-        tool: "answer_control",
-        ref: "c0",
-        freeTextAnswer: "someone.else@example.test",
-      },
+      { tool: "type", ref: "c0", text: "someone.else@example.test" },
       observation.signature,
       { config, now, guardState: createApplyGuardState() },
     );
@@ -182,13 +188,13 @@ describe("apply policy executor", () => {
     const observation = observationOf(page);
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "set_checkbox", ref: "c0", checked: true },
       observation.signature,
       { config, now, guardState: createApplyGuardState() },
     );
 
-    expect(outcome.kind).toBe("needs_you");
-    if (outcome.kind === "needs_you") {
+    expect(outcome.kind).toBe("paused");
+    if (outcome.kind === "paused") {
       expect(outcome.pause.code).toBe("declaration_needs_you");
       expect(outcome.pause.question?.prompt).toContain("I certify");
     }
@@ -211,7 +217,7 @@ describe("apply policy executor", () => {
     const observation = observationOf(page);
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "set_checkbox", ref: "c0", checked: true },
       observation.signature,
       { config, now, guardState: createApplyGuardState() },
     );
@@ -232,15 +238,16 @@ describe("apply policy executor", () => {
     const observation = observationOf(page);
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "suggest_answer", ref: "c0" },
       observation.signature,
       { config, now, guardState: createApplyGuardState() },
     );
 
-    expect(outcome.kind).toBe("needs_you");
-    if (outcome.kind === "needs_you") {
-      expect(outcome.pause.code).toBe("question_needs_you");
-      expect(outcome.pause.summary).toContain("pay");
+    expect(outcome.kind).toBe("suggestion");
+    if (outcome.kind === "suggestion") {
+      expect(outcome.answer).toBeNull();
+      expect(outcome.note).toContain("pay");
+      expect(outcome.note).toContain("needs the person");
     }
   });
 
@@ -260,17 +267,18 @@ describe("apply policy executor", () => {
     const observation = observationOf(page);
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "suggest_answer", ref: "c0" },
       observation.signature,
       { config, now, guardState: createApplyGuardState() },
     );
 
-    expect(outcome.kind).toBe("needs_you");
-    if (outcome.kind === "needs_you") {
-      expect(outcome.pause.question?.prompt).toBe(
+    expect(outcome.kind).toBe("suggestion");
+    if (outcome.kind === "suggestion") {
+      // The exact question is recorded, so the person gets its own words.
+      expect(outcome.question?.prompt).toBe(
         "Which of our office locations would you prefer?",
       );
-      expect(outcome.pause.question?.answerOptions).toEqual(["Leeds", "Bristol"]);
+      expect(outcome.question?.answerOptions).toEqual(["Leeds", "Bristol"]);
     }
   });
 
@@ -282,7 +290,7 @@ describe("apply policy executor", () => {
     const fillText = vi.spyOn(hands, "fillText");
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "type", ref: "c0", text: "" },
       "a-signature-from-an-older-page",
       { config, now, guardState: createApplyGuardState() },
     );
@@ -291,7 +299,7 @@ describe("apply policy executor", () => {
     expect(fillText).not.toHaveBeenCalled();
   });
 
-  test("a form that moved to another site stops the run", async () => {
+  test("a page on a site the person did not allow is refused, with the reason", async () => {
     const page = rawPage({
       url: "https://somewhere-else.example.test/form",
       controls: [rawControl({ index: 0, label: "Email", inputType: "email" })],
@@ -302,37 +310,117 @@ describe("apply policy executor", () => {
     const observation = observationOf(page);
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "type", ref: "c0", text: "robin@example.test" },
       observation.signature,
       { config, now, guardState: createApplyGuardState() },
     );
 
-    expect(outcome.kind).toBe("paused");
-    if (outcome.kind === "paused") {
-      expect(outcome.pause.summary).toContain("outside what you allowed");
+    expect(outcome.kind).toBe("refused");
+    if (outcome.kind === "refused") {
+      expect(outcome.reason).toContain("outside the sites you allowed");
     }
   });
 
-  test("a sign-in wall stops the run without touching anything", async () => {
+  test("a hop to another site is reported as a fact when nothing forbids it", async () => {
+    // A listing on one site whose form lives on another is the ordinary shape
+    // of job applications, so it is told to the model rather than blocked.
+    const page = rawPage({
+      url: "https://boards.example-ats.test/form",
+      controls: [rawControl({ index: 0, label: "Email", inputType: "email" })],
+    });
+    const { config } = configFor(page);
+    const guardState = createApplyGuardState();
+
+    const outcome = await executeApplyProposal(
+      { tool: "navigate", url: "https://boards.example-ats.test/form" },
+      observationOf(page).signature,
+      { config, now, guardState },
+    );
+
+    expect(outcome.kind).toBe("moved");
+    if (outcome.kind === "moved") {
+      expect(outcome.note).toContain("a different site from the listing");
+    }
+  });
+
+  test("with a reviewer, leaving the listing's site needs a reason the review accepts", async () => {
+    const listing = rawPage({ url: "https://apply.example.test/form", controls: [] });
+    const employer = rawPage({
+      url: "https://boards.example-ats.test/form",
+      controls: [rawControl({ index: 0, label: "Email", inputType: "email" })],
+    });
+    let where = listing;
+    const review = vi.fn(
+      (move: { url: string; reason: string; fromUrl: string | null }) =>
+        Promise.resolve(
+          /application form/u.test(move.reason)
+            ? { allowed: true, verdict: "The listing hands off to the employer's form." }
+            : { allowed: false, verdict: "That reason does not say what the page is for." },
+        ),
+    );
+    const { config } = configFor(listing, {
+      hands: {
+        observe: () => Promise.resolve(observationOf(where)),
+        navigate: (url) => {
+          where = url.startsWith("https://boards") ? employer : listing;
+          return Promise.resolve({ ok: true, url });
+        },
+        goBack: () => {
+          where = listing;
+          return Promise.resolve({ ok: true, url: listing.url ?? "" });
+        },
+      },
+    });
+    const withReview = { ...config, reviewMove: review };
+    const guardState = createApplyGuardState();
+
+    const noReason = await executeApplyProposal(
+      { tool: "navigate", url: "https://boards.example-ats.test/form" },
+      observationOf(listing).signature,
+      { config: withReview, now, guardState },
+    );
+    expect(noReason.kind).toBe("refused");
+    if (noReason.kind === "refused") expect(noReason.reason).toContain("say why in reason");
+    expect(review).not.toHaveBeenCalled();
+
+    const weak = await executeApplyProposal(
+      { tool: "navigate", url: "https://boards.example-ats.test/form", reason: "Looks interesting" },
+      observationOf(listing).signature,
+      { config: withReview, now, guardState },
+    );
+    expect(weak.kind).toBe("refused");
+    if (weak.kind === "refused") expect(weak.reason).toContain("did not allow going there");
+
+    const good = await executeApplyProposal(
+      {
+        tool: "navigate",
+        url: "https://boards.example-ats.test/form",
+        reason: "The Apply button on the listing links here, to the employer's application form",
+      },
+      observationOf(listing).signature,
+      { config: withReview, now, guardState },
+    );
+    expect(good.kind).toBe("moved");
+    if (good.kind === "moved") {
+      expect(good.note).toContain("allowed after review");
+      expect(good.observation.url).toBe("https://boards.example-ats.test/form");
+    }
+    expect(guardState.approvedOrigins.has("https://boards.example-ats.test")).toBe(true);
+    expect(guardState.notes.join("\n")).toContain("Allowed after review");
+  });
+
+  test("a sign-in wall is reported on the page rather than ending the run", async () => {
     const page = rawPage({
       bodyText: "Please sign in to continue with your application",
       controls: [rawControl({ index: 0, label: "Email", inputType: "email" })],
     });
-    const { config, hands } = configFor(page);
-    const fillText = vi.spyOn(hands, "fillText");
-    const observation = observationOf(page);
+    const { config } = configFor(page);
 
-    const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
-      observation.signature,
-      { config, now, guardState: createApplyGuardState() },
-    );
+    const observation = await config.hands.observe();
 
-    expect(outcome.kind).toBe("paused");
-    if (outcome.kind === "paused") {
-      expect(outcome.pause.blocker?.code).toBe("site_login_required");
-    }
-    expect(fillText).not.toHaveBeenCalled();
+    // The model is told; what to do about it is the model's call, and it can
+    // finish saying the person has to sign in.
+    expect(observation.blocker?.code).toBe("site_login_required");
   });
 
   test("the send button is never pressed when the run may only prepare", async () => {
@@ -501,7 +589,7 @@ describe("the letter this application sends", () => {
     const observation = observationOf(page);
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "type", ref: "c0", text: "" },
       observation.signature,
       {
         config: { ...config, letters: lettersFor(null) },
@@ -532,7 +620,7 @@ describe("the letter this application sends", () => {
     const observation = observationOf(page);
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "upload", ref: "c0", documentId: "document_letter" },
       observation.signature,
       {
         config: {
@@ -575,7 +663,7 @@ describe("the letter this application sends", () => {
     const observation = observationOf(page);
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "upload", ref: "c0", documentId: "document_letter" },
       observation.signature,
       {
         config: { ...config, letters: lettersFor(null) },
@@ -707,7 +795,7 @@ describe("a site that saves as you go", () => {
     const guardState = createApplyGuardState();
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "type", ref: "c0", text: "" },
       observationOf(page).signature,
       {
         config: { ...config, safety: safetyThatBlocksOneSave() },
@@ -732,7 +820,7 @@ describe("a site that saves as you go", () => {
     const guardState = createApplyGuardState();
 
     const outcome = await executeApplyProposal(
-      { tool: "go_to_step", ref: "a0" },
+      { tool: "click", ref: "a0" },
       observationOf(page).signature,
       {
         config: { ...config, safety: safetyThatBlocksOneSave() },
@@ -761,7 +849,7 @@ describe("a site that saves as you go", () => {
     const { config } = configFor(page);
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "type", ref: "c0", text: "" },
       observationOf(page).signature,
       {
         config: {
@@ -860,7 +948,7 @@ describe("questions keep to their own control", () => {
     };
 
     const outcome = await executeApplyProposal(
-      { tool: "answer_control", ref: "c0" },
+      { tool: "select", ref: "c0", option: "United Kingdom +44" },
       observationOf(page).signature,
       { config: withPhone, now, guardState: createApplyGuardState() },
     );
@@ -949,5 +1037,66 @@ describe("a question keeps its name across runs", () => {
     );
 
     expect(new Set(ids).size).toBe(2);
+  });
+});
+
+describe("a button that opens a new tab", () => {
+  test("the run goes where the tab was going, in this tab, and says so", async () => {
+    const listing = rawPage({
+      url: "https://remoteok.test/remote-jobs/staff-engineer",
+      actions: [{ index: 0, label: "Apply", visible: true, disabled: false }],
+    });
+    const employerForm = rawPage({
+      url: "https://jobs.employer.test/apply/123",
+      controls: [rawControl({ index: 0, label: "First Name" })],
+    });
+    let popupHandedOut = false;
+    let onEmployerSite = false;
+    const navigated: string[] = [];
+    const { config } = configFor(listing, {
+      hands: {
+        observe: () =>
+          Promise.resolve(observationOf(onEmployerSite ? employerForm : listing)),
+        navigate: (url) => {
+          navigated.push(url);
+          onEmployerSite = true;
+          return Promise.resolve({ ok: true, url });
+        },
+      },
+    });
+    const withSafety: ApplyAgentConfig = {
+      ...config,
+      safety: {
+        readBlockedAttempt: () => {
+          if (popupHandedOut) return Promise.resolve(null);
+          popupHandedOut = true;
+          return Promise.resolve({
+            kind: "popup_open" as const,
+            method: "GET",
+            url: "https://jobs.employer.test/apply/123",
+            at: "2026-09-14T10:00:01.000Z",
+          });
+        },
+        registerPreparedValue: () => Promise.resolve(),
+        openIntermediateWriteWindow: () => Promise.resolve(),
+        closeIntermediateWriteWindow: () => Promise.resolve(),
+        checkServiceWorker: () => Promise.resolve(null),
+      },
+    };
+
+    const outcome = await executeApplyProposal(
+      { tool: "click", ref: "a0" },
+      observationOf(listing).signature,
+      { config: withSafety, now: () => new Date("2026-09-14T10:00:00.000Z"), guardState: createApplyGuardState() },
+    );
+
+    expect(navigated).toEqual(["https://jobs.employer.test/apply/123"]);
+    expect(outcome.kind).toBe("moved");
+    if (outcome.kind === "moved") {
+      expect(outcome.note).toContain('"Apply"');
+      expect(outcome.note).toContain("new tab");
+      expect(outcome.note).toContain("https://jobs.employer.test/apply/123");
+      expect(outcome.observation.url).toBe("https://jobs.employer.test/apply/123");
+    }
   });
 });

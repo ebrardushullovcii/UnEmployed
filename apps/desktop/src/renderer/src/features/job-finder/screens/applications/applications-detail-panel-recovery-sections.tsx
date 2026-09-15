@@ -42,6 +42,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
   pausedQuestionCount?: number | null;
   selectedRecordJobId: string;
   selectedApplicationRecordId: string;
+  selectedRecordLatestBlockerCode?: string | null;
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
   visibleApplyResult:
     | JobFinderWorkspaceSnapshot["applyJobResults"][number]
@@ -67,6 +68,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
     selectedQueueRecoveryEntries,
     selectedQueueRecoveryJobIds,
     selectedApplicationRecordId,
+    selectedRecordLatestBlockerCode,
     pausedQuestionCount,
     selectedRecordJobId,
     selectedRun,
@@ -96,6 +98,9 @@ export function ApplicationsDetailPanelRecoverySections(props: {
       selectedQueueRecoveryEntries={selectedQueueRecoveryEntries}
       selectedQueueRecoveryJobIds={selectedQueueRecoveryJobIds}
       selectedApplicationRecordId={selectedApplicationRecordId}
+      {...(selectedRecordLatestBlockerCode !== undefined
+        ? { selectedRecordLatestBlockerCode }
+        : {})}
       pausedQuestionCount={pausedQuestionCount ?? null}
       selectedRecordJobId={selectedRecordJobId}
       selectedRun={selectedRun}

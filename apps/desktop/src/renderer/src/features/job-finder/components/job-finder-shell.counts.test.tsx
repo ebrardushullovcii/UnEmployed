@@ -185,12 +185,10 @@ describe("shell destination counts", () => {
     const findJobs = within(sidebar).getByRole("button", {
       name: /^Find jobs/,
     });
-    const companies = within(sidebar).getByRole("button", {
-      name: /^Companies/,
-    });
+    const needsYou = screen.getByRole("button", { name: /^Needs you:/ });
 
     const inventoryBadge = findJobs.querySelector("span:last-child");
-    const attentionBadge = companies.querySelector("span.tabular-nums");
+    const attentionBadge = needsYou.querySelector("span.tabular-nums");
 
     // The shape is the shared `<Count variant="inline">` primitive; the shell
     // adds only its own row placement. Composed the same way the component
@@ -203,8 +201,8 @@ describe("shell destination counts", () => {
 
     // A bare number always means inventory, so the attention count also
     // carries a noun rather than standing alone beside the destination name.
-    expect(attentionBadge?.textContent).toContain("to review");
-    expect(companies.getAttribute("aria-label")).toBe("Companies: 1 to review");
+    expect(attentionBadge?.textContent).toContain("unresolved");
+    expect(needsYou.getAttribute("aria-label")).toMatch(/^Needs you: \d+ unresolved$/);
     // The inventory count stays visual-only; the destination name is the sole
     // announced content.
     expect(inventoryBadge?.getAttribute("aria-hidden")).toBe("true");

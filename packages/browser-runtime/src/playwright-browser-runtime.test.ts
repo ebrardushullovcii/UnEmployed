@@ -1584,11 +1584,9 @@ describe("playwright browser runtime", () => {
         siteLabel: "Example Jobs",
       });
 
-      // The agent navigates the selected page to the starting URL at startup
-      expect(backgroundTargetPage.goto).toHaveBeenCalledWith(
-        "https://example.com/jobs",
-        { waitUntil: "domcontentloaded" },
-      );
+      // The matching page is already on the starting address, so nothing is
+      // navigated: the agent starts by looking at the page it is on.
+      expect(backgroundTargetPage.goto).not.toHaveBeenCalled();
       // The matching page becomes the one working tab for this source.
       expect(blankPage.goto).not.toHaveBeenCalled();
       expect(blankPage.close).toHaveBeenCalledTimes(1);

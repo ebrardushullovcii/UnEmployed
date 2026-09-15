@@ -95,6 +95,7 @@ function wasDiscoveryListingReadBlocked(
 }
 import { getApplicationStagePresentation } from "../applications/applications-status";
 import {
+  collectInProgressApplicationJobIds,
   collectPreparedApplicationJobIds,
   getReviewQueueWorkflowStatus,
 } from "../review-queue/review-queue-status";
@@ -497,6 +498,7 @@ export function DiscoveryDetailPanel({
           null,
           isJobPending(selectedJob.id),
           collectPreparedApplicationJobIds(applicationRecords),
+          collectInProgressApplicationJobIds(applicationRecords),
         )
       : {
           label: presentDiscoveryJobStatusLabel(selectedJob.status),

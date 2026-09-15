@@ -19,6 +19,7 @@ import type {
   JobFinderSettings,
   JobPosting,
   JobSearchPreferences,
+  JobSearchCampaignMode,
   JobSource,
   ParkedBrowserTabReference,
   ApplicationResumeArtifact,
@@ -262,6 +263,8 @@ export interface AgentDiscoveryOptions {
     locations: string[];
     workModes?: string[];
   };
+  /** The person's search focus, expressed as an instruction to the agent. */
+  searchMode?: JobSearchCampaignMode;
   targetJobCount: number;
   maxSteps: number;
   runControl?: {

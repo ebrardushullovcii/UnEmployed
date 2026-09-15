@@ -411,7 +411,7 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
                   )
                 }
                 size="sm"
-                title="Runs Check source on every enabled source in the current filter, one after another. Each check can take several minutes."
+                title="Runs Check source on every enabled source in the current filter, one after another. Each check takes about five minutes, so ten sources is most of an hour."
                 type="button"
                 variant="outline"
               >

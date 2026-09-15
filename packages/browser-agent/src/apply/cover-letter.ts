@@ -1,4 +1,7 @@
-import type { CoverLetterPreference } from "@unemployed/contracts";
+import type {
+  CandidateProfile,
+  CoverLetterPreference,
+} from "@unemployed/contracts";
 
 import { normalizeSignal } from "./control-classification";
 import type { ApplyAnswerSources, ApplyFormControl } from "./types";
@@ -84,6 +87,36 @@ export interface CoverLetterRequest {
   language: string | null;
 }
 
+/** Application-relevant profile facts, without internal storage metadata. */
+export function buildApplicationProfileGrounding(
+  profile: CandidateProfile,
+): string {
+  return `Profile facts:\n${JSON.stringify(
+    {
+      name: profile.fullName,
+      headline: profile.headline,
+      summary: profile.summary,
+      location: profile.currentLocation,
+      yearsExperience: profile.yearsExperience,
+      professionalSummary: profile.professionalSummary,
+      narrative: profile.narrative,
+      proofBank: profile.proofBank,
+      skillGroups: profile.skillGroups,
+      targetRoles: profile.targetRoles,
+      preferredLocations: profile.locations,
+      skills: profile.skills,
+      experiences: profile.experiences,
+      education: profile.education,
+      certifications: profile.certifications,
+      projects: profile.projects,
+      spokenLanguages: profile.spokenLanguages,
+      workEligibility: profile.workEligibility,
+    },
+    null,
+    2,
+  )}`;
+}
+
 /**
  * Guesses the language of the posting from the words in it.
  *
@@ -120,12 +153,14 @@ export function buildCoverLetterRequest(input: {
   const { sources, preference } = input;
   const language =
     preference.language ?? detectPostingLanguage(sources.posting.description);
+  const resumeText =
+    sources.resumeText ?? sources.profile.baseResume.textContent;
 
   const groundedIn = [
-    sources.resumeText ? "the resume sent with this application" : null,
-    "your profile",
-    `the posting for ${sources.posting.title} at ${sources.posting.company}`,
-    preference.sample ? "the sample letter you saved" : null,
+    resumeText ? `Resume sent with this application:\n${resumeText}` : null,
+    buildApplicationProfileGrounding(sources.profile),
+    `Job posting for ${sources.posting.title} at ${sources.posting.company}:\n${sources.posting.description}`,
+    preference.sample ? `Saved sample letter:\n${preference.sample}` : null,
   ].filter((value): value is string => value !== null);
 
   const prompt = [

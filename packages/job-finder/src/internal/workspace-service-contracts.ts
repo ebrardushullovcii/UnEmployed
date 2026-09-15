@@ -42,6 +42,7 @@ import type {
   JobFinderSetWorkHistoryReviewAcknowledgmentInput,
   JobFinderSetResumeClaimConfirmationInput,
   JobSearchPreferences,
+  JobSearchCampaignMode,
   MarkAllCampaignNotificationsReadInput,
   MarkCampaignNotificationReadInput,
   ProfileCopilotContext,
@@ -573,6 +574,7 @@ export interface RenderedResumeArtifact {
  */
 export interface CampaignRunContext {
   campaignId: string;
+  mode: JobSearchCampaignMode;
   searchPreferences: JobSearchPreferences;
   runJobBudget?: number | null;
 }

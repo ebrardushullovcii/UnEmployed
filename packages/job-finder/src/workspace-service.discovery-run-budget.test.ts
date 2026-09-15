@@ -487,6 +487,7 @@ describe("campaign discovery run budgets", () => {
     // keeping them hard-capped.
     const agentOptions = agentCalls[0];
     expect(agentOptions?.targetJobCount).toBe(1_000);
+    expect(agentOptions?.searchMode).toBe("scale");
     expect(agentOptions?.maxSteps).toBe(240);
     expect(agentOptions?.runControl?.timeBudgetMs).toBe(30 * 60_000);
     expect(agentOptions?.runControl?.noProgressStepLimit).toBe(8);
@@ -495,6 +496,43 @@ describe("campaign discovery run budgets", () => {
     const run = discoveryState.recentRuns.at(-1);
     expect(run?.summary.outcome).toBe("completed");
     expect(run?.targetExecutions[0]?.requestedJobBudget).toBe(1_000);
+  }, 60_000);
+
+  test("passes a precision campaign's focus to the browser agent", async () => {
+    const base = createBrowserRuntime();
+    const agentCalls: Array<
+      Parameters<NonNullable<BrowserSessionRuntime["runAgentDiscovery"]>>[1]
+    > = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...base,
+      runAgentDiscovery: (source, options) => {
+        agentCalls.push(options);
+        return base.runAgentDiscovery!(source, options);
+      },
+    };
+    const seed = createEmptyDiscoverySeed();
+    seed.searchPreferences.discovery.targets = [
+      createBrowserTarget("target_precision", "Precision Board"),
+    ];
+    const harness = createWorkspaceServiceHarness({ seed, browserRuntime });
+    const preferences = await harness.repository.getSearchPreferences();
+    const snapshot = await harness.workspaceService.saveCampaign({
+      ...createScaleCampaignInput({
+        name: "Precision Campaign",
+        searchPreferences: preferences,
+        discoveryRunJobBudget: null,
+      }),
+      mode: "precision",
+    });
+    const campaign = snapshot.campaigns.find(
+      (candidate) => candidate.name === "Precision Campaign",
+    );
+    if (!campaign) throw new Error("Expected the precision campaign.");
+
+    await harness.workspaceService.runCampaignNow({ campaignId: campaign.id });
+
+    expect(agentCalls).toHaveLength(1);
+    expect(agentCalls[0]?.searchMode).toBe("precision");
   }, 60_000);
 
   test("records a truthful warning when the bounded agent runtime is unavailable instead of a silent zero", async () => {

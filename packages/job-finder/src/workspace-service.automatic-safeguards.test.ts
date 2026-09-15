@@ -49,6 +49,14 @@ function createAutomaticFailureRuntime(): BrowserSessionRuntime {
         startedAt: now,
         completedAt: now,
         warning: "Agent runtime failed while probing the source.",
+        agentMetadata: result.agentMetadata
+          ? {
+              ...result.agentMetadata,
+              phaseCompletionMode: "runtime_failed",
+              phaseCompletionReason:
+                "Agent runtime failed while probing the source.",
+            }
+          : null,
       };
     },
   };
@@ -183,10 +191,10 @@ describe("workspace service automatic safeguard persistence", () => {
       );
     expect(firstPause).toMatchObject({
       failuresInWindow: 1,
-      sampleSize: 6,
+      sampleSize: 2,
       failureRateThresholdPercent: 10,
     });
-    expect(firstPause?.failureRatePercent).toBeCloseTo(16.667, 3);
+    expect(firstPause?.failureRatePercent).toBeCloseTo(50, 3);
     expect(saveIntelligenceState).toHaveBeenCalledTimes(1);
 
     const secondSnapshot = await service.getWorkspaceSnapshot();

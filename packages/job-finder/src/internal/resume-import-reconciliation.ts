@@ -10,6 +10,7 @@ import {
 
 import {
   areEquivalentRecordCandidates,
+  isClearlyResumeDateRange,
   isObject,
   stringifyCandidateTarget,
   toCandidateListValues,
@@ -1586,6 +1587,22 @@ export function reconcileCandidates(
   const candidatesForGrouping: ResumeImportFieldCandidate[] = [];
 
   for (const candidate of normalizedCandidates) {
+    if (
+      candidate.target.key === "phone" &&
+      isClearlyResumeDateRange(candidate.value)
+    ) {
+      resolved.push(
+        applyCandidateResolution(
+          profile,
+          searchPreferences,
+          candidate,
+          "rejected",
+          "invalid_phone_candidate",
+        ),
+      );
+      continue;
+    }
+
     const identityConflict = identityConflicts.get(candidate.id);
     if (
       identityConflict &&

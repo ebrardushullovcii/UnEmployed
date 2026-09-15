@@ -124,7 +124,9 @@ describe("the letter one application sends", () => {
 
   test("a saved preference overrides the posting's language", () => {
     const request = buildCoverLetterRequest({
-      sources: sources("Wir suchen eine Person und wir arbeiten mit einem Team fur das Produkt"),
+      sources: sources(
+        "Wir suchen eine Person und wir arbeiten mit einem Team fur das Produkt",
+      ),
       preference: {
         tone: "plain_professional",
         length: "standard",
@@ -147,10 +149,14 @@ describe("the letter one application sends", () => {
       },
     });
 
-    expect(request.groundedIn).toContain(
-      "the resume sent with this application",
+    expect(request.groundedIn.join("\n")).toContain(
+      "Resume sent with this application",
     );
-    expect(request.groundedIn).toContain("the sample letter you saved");
+    expect(request.groundedIn.join("\n")).toContain("Saved sample letter");
+    expect(request.groundedIn.join("\n")).toContain(
+      '"headline": "Platform engineer"',
+    );
+    expect(request.groundedIn.join("\n")).toContain('"yearsExperience": 8');
     expect(request.prompt).toContain("About 120 words");
     expect(request.prompt).toContain("Direct and brief");
     expect(request.prompt).toContain("Match the voice, not the content");

@@ -6,6 +6,34 @@ import { createSeed } from "./workspace-service.test-fixtures";
 import { createStageCandidate } from "./workspace-service.resume-analysis.shared";
 
 describe("resume import reconciliation", () => {
+  test("rejects a model date range proposed as a phone number", () => {
+    const seed = createSeed();
+    const candidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_phone",
+      ...createStageCandidate({
+        target: { section: "contact", key: "phone", recordId: null },
+        label: "Phone",
+        value: "2016 - 2020",
+        sourceBlockIds: ["experience_block"],
+        confidence: 0.96,
+        overall: 0.94,
+        recommendation: "auto_apply",
+      }),
+      id: "candidate_model_phone",
+      sourceKind: "model_identity_summary",
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+
+    expect(
+      reconcileCandidates(seed.profile, seed.searchPreferences, [candidate])[0],
+    ).toMatchObject({
+      resolution: "rejected",
+      resolutionReason: "invalid_phone_candidate",
+    });
+  });
+
   test("turns material text-vs-vision disagreement into explicit review choices", () => {
     const seed = createSeed();
     const baseCandidate = {
@@ -56,16 +84,30 @@ describe("resume import reconciliation", () => {
       ],
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [textCandidate, visionCandidate]);
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [textCandidate, visionCandidate],
+    );
     const winner = reconciled.find(
-      (candidate) => candidate.resolutionReason === "text_vs_visual_conflict_requires_review",
+      (candidate) =>
+        candidate.resolutionReason ===
+        "text_vs_visual_conflict_requires_review",
     );
 
     expect(winner?.resolution).toBe("needs_review");
-    expect(winner?.conflictChoices?.map((choice) => choice.sourceLabel)).toEqual(["Document text", "Visual scan"]);
-    expect(winner?.conflictChoices?.find((choice) => choice.sourceLabel === "Document text")?.recommended).toBe(true);
     expect(
-      winner?.conflictChoices?.find((choice) => choice.sourceLabel === "Visual scan")?.visualEvidence[0],
+      winner?.conflictChoices?.map((choice) => choice.sourceLabel),
+    ).toEqual(["Document text", "Visual scan"]);
+    expect(
+      winner?.conflictChoices?.find(
+        (choice) => choice.sourceLabel === "Document text",
+      )?.recommended,
+    ).toBe(true);
+    expect(
+      winner?.conflictChoices?.find(
+        (choice) => choice.sourceLabel === "Visual scan",
+      )?.visualEvidence[0],
     ).toMatchObject({
       branch: "vision",
       pageNumber: 1,
@@ -125,9 +167,15 @@ describe("resume import reconciliation", () => {
       ],
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [visionCandidate, textCandidate]);
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [visionCandidate, textCandidate],
+    );
     const reviewCandidate = reconciled.find(
-      (candidate) => candidate.resolutionReason === "text_vs_visual_conflict_requires_review",
+      (candidate) =>
+        candidate.resolutionReason ===
+        "text_vs_visual_conflict_requires_review",
     );
 
     expect(reviewCandidate).toMatchObject({
@@ -154,7 +202,11 @@ describe("resume import reconciliation", () => {
         recommended: false,
       },
     ]);
-    expect(reconciled.find((candidate) => candidate.id === "candidate_vision_full_name")?.resolution).toBe("rejected");
+    expect(
+      reconciled.find(
+        (candidate) => candidate.id === "candidate_vision_full_name",
+      )?.resolution,
+    ).toBe("rejected");
   });
 
   test("keeps complementary text and vision skill lists auto-applied instead of conflict-gating them", () => {
@@ -207,11 +259,21 @@ describe("resume import reconciliation", () => {
       ],
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [textCandidate, visionCandidate]);
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [textCandidate, visionCandidate],
+    );
 
-    expect(reconciled.filter((candidate) => candidate.resolution === "auto_applied")).toHaveLength(2);
     expect(
-      reconciled.some((candidate) => candidate.resolutionReason === "text_vs_visual_conflict_requires_review"),
+      reconciled.filter((candidate) => candidate.resolution === "auto_applied"),
+    ).toHaveLength(2);
+    expect(
+      reconciled.some(
+        (candidate) =>
+          candidate.resolutionReason ===
+          "text_vs_visual_conflict_requires_review",
+      ),
     ).toBe(false);
   });
 
@@ -239,7 +301,11 @@ describe("resume import reconciliation", () => {
       resolvedAt: null,
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [targetRolesCandidate]);
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [targetRolesCandidate],
+    );
 
     expect(reconciled[0]).toMatchObject({
       id: "candidate_target_roles",
@@ -268,7 +334,11 @@ describe("resume import reconciliation", () => {
       resolvedAt: null,
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [skillRecordCandidate]);
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [skillRecordCandidate],
+    );
 
     expect(reconciled[0]).toMatchObject({
       id: "candidate_skill_record",
@@ -287,7 +357,8 @@ describe("resume import reconciliation", () => {
         lastName: "Candidate",
         fullName: "New Candidate",
         headline: "Import your resume to begin",
-        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        summary:
+          "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
         currentLocation: "Set your preferred location",
         education: [],
       },
@@ -322,7 +393,11 @@ describe("resume import reconciliation", () => {
       resolvedAt: null,
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [educationCandidate]);
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [educationCandidate],
+    );
 
     expect(reconciled[0]).toMatchObject({
       id: "candidate_education_record",
@@ -341,12 +416,14 @@ describe("resume import reconciliation", () => {
         lastName: "Candidate",
         fullName: "New Candidate",
         headline: "Import your resume to begin",
-        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        summary:
+          "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
         currentLocation: "Set your preferred location",
         education: [],
       },
     };
-    const evidenceText = "Bachelor of Science in Computer Science — Oregon State University, 2018";
+    const evidenceText =
+      "Bachelor of Science in Computer Science — Oregon State University, 2018";
     const educationCandidate = ResumeImportFieldCandidateSchema.parse({
       runId: "resume_import_run_json_education",
       ...createStageCandidate({
@@ -378,7 +455,11 @@ describe("resume import reconciliation", () => {
       resolvedAt: null,
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [educationCandidate]);
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [educationCandidate],
+    );
 
     expect(reconciled[0]).toMatchObject({
       id: "candidate_json_education_record",
@@ -406,12 +487,14 @@ describe("resume import reconciliation", () => {
         lastName: "Candidate",
         fullName: "New Candidate",
         headline: "Import your resume to begin",
-        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        summary:
+          "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
         currentLocation: "Set your preferred location",
         education: [],
       },
     };
-    const evidenceText = "Bachelor of Science in Computer Science — Oregon State University, 2018";
+    const evidenceText =
+      "Bachelor of Science in Computer Science — Oregon State University, 2018";
     const target = {
       section: "education" as const,
       key: "record",
@@ -469,9 +552,17 @@ describe("resume import reconciliation", () => {
       [rawCandidate, structuredCandidate],
     );
 
-    expect(reconciled.find((candidate) => candidate.id === rawCandidate.id)?.resolution).toBe("rejected");
-    expect(reconciled.find((candidate) => candidate.id === structuredCandidate.id)?.resolution).toBe("auto_applied");
-    expect(reconciled.some((candidate) => candidate.resolution === "needs_review")).toBe(false);
+    expect(
+      reconciled.find((candidate) => candidate.id === rawCandidate.id)
+        ?.resolution,
+    ).toBe("rejected");
+    expect(
+      reconciled.find((candidate) => candidate.id === structuredCandidate.id)
+        ?.resolution,
+    ).toBe("auto_applied");
+    expect(
+      reconciled.some((candidate) => candidate.resolution === "needs_review"),
+    ).toBe(false);
   });
 
   test("rejects scalar, list, and education suggestions that already match the workspace", () => {
@@ -479,7 +570,10 @@ describe("resume import reconciliation", () => {
     const seed = {
       ...baseSeed,
       profile: { ...baseSeed.profile, targetRoles: ["Principal Designer"] },
-      searchPreferences: { ...baseSeed.searchPreferences, targetRoles: ["Principal Designer"] },
+      searchPreferences: {
+        ...baseSeed.searchPreferences,
+        targetRoles: ["Principal Designer"],
+      },
     };
     const common = {
       runId: "resume_import_run_saved_values",
@@ -504,7 +598,11 @@ describe("resume import reconciliation", () => {
     const rolesCandidate = ResumeImportFieldCandidateSchema.parse({
       ...common,
       ...createStageCandidate({
-        target: { section: "search_preferences", key: "targetRoles", recordId: null },
+        target: {
+          section: "search_preferences",
+          key: "targetRoles",
+          recordId: null,
+        },
         label: "Target roles",
         value: ["Principal Designer"],
         sourceBlockIds: ["block_roles"],
@@ -517,7 +615,11 @@ describe("resume import reconciliation", () => {
     const educationCandidate = ResumeImportFieldCandidateSchema.parse({
       ...common,
       ...createStageCandidate({
-        target: { section: "education", key: "record", recordId: "education_1" },
+        target: {
+          section: "education",
+          key: "record",
+          recordId: "education_1",
+        },
         label: "Royal College of Art",
         value: {
           schoolName: "Royal College of Art",
@@ -534,18 +636,26 @@ describe("resume import reconciliation", () => {
         recommendation: "needs_review",
       }),
       id: "candidate_saved_education",
-      evidenceText: "Royal College of Art MA Design Products London UK 2012 2014",
+      evidenceText:
+        "Royal College of Art MA Design Products London UK 2012 2014",
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [
-      locationCandidate,
-      rolesCandidate,
-      educationCandidate,
-    ]);
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [locationCandidate, rolesCandidate, educationCandidate],
+    );
 
     expect(reconciled).toHaveLength(3);
-    expect(reconciled.every((candidate) => candidate.resolution === "rejected")).toBe(true);
-    expect(reconciled.every((candidate) => candidate.resolutionReason === "already_matches_workspace_value")).toBe(true);
+    expect(
+      reconciled.every((candidate) => candidate.resolution === "rejected"),
+    ).toBe(true);
+    expect(
+      reconciled.every(
+        (candidate) =>
+          candidate.resolutionReason === "already_matches_workspace_value",
+      ),
+    ).toBe(true);
   });
 
   test("removes unsupported degree, field, and location values from education records", () => {
@@ -554,11 +664,16 @@ describe("resume import reconciliation", () => {
       ...baseSeed,
       profile: { ...baseSeed.profile, education: [] },
     };
-    const evidenceText = "Bachelor of Science in Computer Science — Oregon State University, 2018";
+    const evidenceText =
+      "Bachelor of Science in Computer Science — Oregon State University, 2018";
     const educationCandidate = ResumeImportFieldCandidateSchema.parse({
       runId: "resume_import_run_unsupported_education",
       ...createStageCandidate({
-        target: { section: "education", key: "record", recordId: "education_1" },
+        target: {
+          section: "education",
+          key: "record",
+          recordId: "education_1",
+        },
         label: "Oregon State University",
         value: {
           schoolName: "Oregon State University",
@@ -582,7 +697,11 @@ describe("resume import reconciliation", () => {
       resolvedAt: null,
     });
 
-    expect(reconcileCandidates(seed.profile, seed.searchPreferences, [educationCandidate])[0]).toMatchObject({
+    expect(
+      reconcileCandidates(seed.profile, seed.searchPreferences, [
+        educationCandidate,
+      ])[0],
+    ).toMatchObject({
       resolution: "needs_review",
       value: {
         schoolName: "Oregon State University",

@@ -19,6 +19,7 @@ import type {
 } from "@unemployed/contracts";
 import {
   APPLICATION_PREPARATION_BATCH_LIMIT,
+  collectInProgressApplicationJobIds,
   getReviewQueueWorkflowStatus,
   isQueueStageReady,
   isResumeGenerationInProgress,
@@ -239,14 +240,22 @@ export function ReviewQueueScreen(props: {
     () => collectPreparedApplicationJobIds(applicationRecords),
     [applicationRecords],
   );
+  const applicationPreparingJobIds = useMemo(
+    () => collectInProgressApplicationJobIds(applicationRecords),
+    [applicationRecords],
+  );
   const eligibleQueueJobIds = useMemo(
     () =>
       new Set(
         queue
-          .filter((item) => isQueueStageReady(item, preparedJobIds))
+          .filter(
+            (item) =>
+              !applicationPreparingJobIds.has(item.jobId) &&
+              isQueueStageReady(item, preparedJobIds),
+          )
           .map((item) => item.jobId),
       ),
-    [queue, preparedJobIds],
+    [applicationPreparingJobIds, queue, preparedJobIds],
   );
   const selectedWorkflowStatus = getReviewQueueWorkflowStatus(
     selectedItem,
@@ -255,6 +264,7 @@ export function ReviewQueueScreen(props: {
     // Same set the Shortlisted rows read. Leaving it out gave the header its
     // own second verdict for the job already selected in the list.
     preparedJobIds,
+    applicationPreparingJobIds,
   );
   const selectedJobEmployerLocationLine = selectedJob
     ? formatJobEmployerLocationLine({
@@ -464,6 +474,7 @@ export function ReviewQueueScreen(props: {
           onStopTailoredDraftPreparation={onStopTailoredDraftPreparation}
           onToggleQueueSelection={handleToggleQueueSelection}
           preparedJobIds={preparedJobIds}
+          applicationPreparingJobIds={applicationPreparingJobIds}
           queue={queue}
           queueSelection={queueSelection}
           selectedItem={selectedItem}
@@ -572,6 +583,7 @@ export function ReviewQueueScreen(props: {
                 onGenerateResume={onGenerateResume}
                 originalResume={originalResume}
                 preparedJobIds={preparedJobIds}
+                applicationPreparingJobIds={applicationPreparingJobIds}
                 previewState={previewState}
                 queue={queue}
                 selectedAsset={selectedAsset}

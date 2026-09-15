@@ -160,4 +160,71 @@ describe("agent task runtime", () => {
     expect(result.receipt.providerCalls).toBe(1);
     expect(result.receipt.stopReason).toBe("cost_budget");
   });
+
+  test("keeps the assistant tool-call message when the recent tail contains many tool results", async () => {
+    let providerCall = 0;
+    const result = await runAgentTask({
+      taskId: "task_protocol_safe_tail",
+      capability: "bounded_task",
+      systemPrompt: "Inspect, then finish.",
+      state: {},
+      initialDraft: {},
+      model: {
+        chat({ messages }) {
+          providerCall += 1;
+          if (providerCall === 2) {
+            const firstRecent = messages[2];
+            expect(firstRecent?.role).toBe("assistant");
+            expect(firstRecent?.toolCalls).toHaveLength(9);
+          }
+          return Promise.resolve(
+            providerCall === 1
+              ? {
+                  toolCalls: Array.from({ length: 9 }, (_, index) => ({
+                    id: `read_${index}`,
+                    type: "function" as const,
+                    function: { name: "read", arguments: "{}" },
+                  })),
+                }
+              : {
+                  toolCalls: [
+                    {
+                      id: "finish",
+                      type: "function" as const,
+                      function: { name: "finish_task", arguments: "{}" },
+                    },
+                  ],
+                },
+          );
+        },
+      },
+      tools: [
+        {
+          name: "read",
+          description: "Read",
+          inputSchema: z.object({}),
+          parameters: { type: "object", properties: {} },
+          permission: "read",
+          parallelSafe: true,
+          execute() {
+            return { summary: "Read" };
+          },
+        },
+        {
+          name: "finish_task",
+          description: "Finish",
+          inputSchema: z.object({}),
+          parameters: { type: "object", properties: {} },
+          permission: "read",
+          execute() {
+            return { summary: "Finish", finish: true };
+          },
+        },
+      ],
+      validate: () => [],
+      buildContext: () => ({}),
+    });
+
+    expect(result.receipt.stopReason).toBe("completed");
+  });
 });

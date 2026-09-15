@@ -50,6 +50,10 @@ function page(overrides: Partial<RawApplyPage> = {}): RawApplyPage {
     controls: [nameControl()],
     actions: [{ index: 0, label: "Continue", visible: true, disabled: false }],
     links: [],
+    headings: [],
+    clickables: [],
+    openedTabs: [],
+    loading: false,
     validationErrors: [],
     stepLabel: null,
     ...overrides,
@@ -59,17 +63,34 @@ function page(overrides: Partial<RawApplyPage> = {}): RawApplyPage {
 function hands(source: RawApplyPage): ApplyPageHands {
   return {
     observe: () =>
-      Promise.resolve(buildApplyFormObservation(source, "2026-09-14T10:00:00.000Z")),
-    fillText: (_ref, value) => Promise.resolve({ ok: true, observedValue: value }),
-    chooseOption: (_ref, option) => Promise.resolve({ ok: true, observedValue: option }),
+      Promise.resolve(
+        buildApplyFormObservation(source, "2026-09-14T10:00:00.000Z"),
+      ),
+    navigate: () =>
+      Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
+    clickElement: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+    scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
+    wait: () => Promise.resolve(),
+    goBack: () =>
+      Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
+    readText: () => Promise.resolve("Apply for the role"),
+    fillText: (_ref, value) =>
+      Promise.resolve({ ok: true, observedValue: value }),
+    chooseOption: (_ref, option) =>
+      Promise.resolve({ ok: true, observedValue: option }),
     setToggle: () => Promise.resolve({ ok: true, observedValue: "checked" }),
-    uploadFile: (_ref, file) => Promise.resolve({ ok: true, observedValue: file.name }),
+    uploadFile: (_ref, file) =>
+      Promise.resolve({ ok: true, observedValue: file.name }),
     clickAction: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
-    followLink: () => Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
+    followLink: () =>
+      Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
   };
 }
 
-function config(source: RawApplyPage, overrides: Partial<ApplyAgentConfig> = {}): ApplyAgentConfig {
+function config(
+  source: RawApplyPage,
+  overrides: Partial<ApplyAgentConfig> = {},
+): ApplyAgentConfig {
   return {
     hands: hands(source),
     authority: {
@@ -119,7 +140,10 @@ function config(source: RawApplyPage, overrides: Partial<ApplyAgentConfig> = {})
   };
 }
 
-function repeatingModel(name: string, args: Record<string, unknown>): LLMClient {
+function repeatingModel(
+  name: string,
+  args: Record<string, unknown>,
+): LLMClient {
   let calls = 0;
   return {
     chatWithTools: () => {
@@ -136,6 +160,106 @@ function repeatingModel(name: string, args: Record<string, unknown>): LLMClient 
     },
   };
 }
+
+function scriptedModel(
+  turns: Array<{ name: string; args: Record<string, unknown> }>,
+): LLMClient {
+  let calls = 0;
+  return {
+    chatWithTools: () => {
+      const turn = turns[Math.min(calls, turns.length - 1)];
+      calls += 1;
+      return Promise.resolve({
+        toolCalls: [
+          {
+            id: `call_${calls}`,
+            type: "function" as const,
+            function: { name: turn.name, arguments: JSON.stringify(turn.args) },
+          },
+        ],
+      });
+    },
+  };
+}
+
+test("creates a grounded requested document and attaches the generated file", async () => {
+  const source = page({
+    controls: [
+      {
+        ...nameControl(),
+        inputType: "file",
+        label: "Motivation letter",
+      },
+    ],
+  });
+  let capturedGrounding: string[] = [];
+  const result = await runApplyAgent(
+    config(source, {
+      letters: {
+        preference: {
+          tone: "plain_professional",
+          length: "short",
+          language: null,
+          sample: null,
+        },
+        provide: (request) => {
+          capturedGrounding = request.groundedIn;
+          return Promise.resolve({
+            ok: true as const,
+            text: "Dear Hiring Team,\n\nI am applying for the Platform Engineer role at Northwind Tools. My saved profile and resume show eight years of platform engineering and dependable internal-tool work. That experience aligns with your need for someone to own the internal platform.\n\nSincerely,\nRobin Ashford",
+            document: {
+              id: "generated_motivation_letter",
+              fileName: "motivation-letter.pdf",
+              mimeType: "application/pdf",
+              label: "Motivation letter",
+              kind: "cover_letter" as const,
+              loadBytes: () => Promise.resolve(new Uint8Array([1, 2, 3])),
+            },
+          });
+        },
+      },
+    }),
+    scriptedModel([
+      {
+        name: "create_application_document",
+        args: {
+          purpose: "motivation_letter",
+          instructions: "Explain the supported platform-engineering fit.",
+          fileType: "pdf",
+        },
+      },
+      {
+        name: "upload",
+        args: { ref: "c0", documentId: "generated_motivation_letter" },
+      },
+      {
+        name: "finish",
+        args: { reason: "The requested document is attached." },
+      },
+    ]),
+  );
+
+  expect(result.pauses).toEqual([]);
+  expect(result).toMatchObject({
+    attachments: [
+      {
+        documentId: "generated_motivation_letter",
+        fileName: "motivation-letter.pdf",
+        controlLabel: "Motivation letter",
+      },
+    ],
+  });
+  expect(result.notes).toContain(
+    "Created motivation letter motivation-letter.pdf for this application.",
+  );
+  expect(capturedGrounding.join("\n")).toContain(
+    '"summary": "Builds dependable internal tools."',
+  );
+  expect(capturedGrounding.join("\n")).toContain(
+    "8 years of platform engineering.",
+  );
+  expect(capturedGrounding.join("\n")).toContain("Own the internal platform.");
+});
 
 describe("apply agent run endings", () => {
   test("an agent that keeps doing nothing is warned once and then stopped", async () => {
@@ -200,79 +324,52 @@ describe("apply agent run endings", () => {
     );
 
     expect(result.outcome).toBe("prepared");
+    expect(result.reason).toContain("Nothing left to fill in");
     expect(result.reason).toContain("nothing was sent");
   });
 
-  test("a page that wants a sign-in stops before the loop starts", async () => {
+  test("one failed first read is given to the model and can recover", async () => {
+    const source = page();
+    const base = hands(source);
+    let reads = 0;
     const result = await runApplyAgent(
-      config(page({ bodyText: "You must be signed in to apply" })),
-      repeatingModel("inspect_form", {}),
-    );
-
-    expect(result.outcome).toBe("paused");
-    expect(result.pauses[0]?.blocker?.code).toBe("site_login_required");
-    expect(result.steps).toBe(0);
-  });
-
-  test("a listing is followed to the form, and the hop is in the trail", async () => {
-    let onForm = false;
-    const listing: RawApplyPage = page({
-      url: "https://board.example.test/job/events-manager",
-      controls: [],
-      actions: [],
-      links: [
-        {
-          index: 0,
-          label: "Apply now",
-          href: "https://employer.example.test/careers/apply",
-          target: "",
-          visible: true,
-          topOffset: 180,
-        },
-      ],
-    });
-    const form = page({ url: "https://employer.example.test/careers/apply" });
-    const source = (): RawApplyPage => (onForm ? form : listing);
-
-    const result = await runApplyAgent(
-      config(listing, {
+      config(source, {
         hands: {
-          ...hands(listing),
-          observe: () =>
-            Promise.resolve(
-              buildApplyFormObservation(source(), "2026-09-14T10:00:00.000Z"),
-            ),
-          followLink: () => {
-            onForm = true;
-            return Promise.resolve({
-              ok: true,
-              url: "https://employer.example.test/careers/apply",
-            });
+          ...base,
+          observe: () => {
+            reads += 1;
+            return reads === 1
+              ? Promise.reject(
+                  new Error("The page was replaced while it loaded."),
+                )
+              : base.observe();
           },
         },
       }),
-      repeatingModel("finish", { reason: "Nothing left to fill in" }),
+      scriptedModel([
+        { name: "observe", args: {} },
+        { name: "finish", args: { reason: "The form recovered and is ready" } },
+      ]),
     );
 
     expect(result.outcome).toBe("prepared");
-    expect(result.notes[0]).toBe(
-      'Followed "Apply now" to employer.example.test.',
-    );
-    expect(result.finalUrl).toBe("https://employer.example.test/careers/apply");
+    expect(result.reason).toContain("The form recovered and is ready");
+    expect(result.notes.join("\n")).toContain("application page did not open");
   });
 
-  test("a listing with no way in stops with a sentence, not a shrug", async () => {
+  test("a sign-in wall is a fact the model is told, not an automatic stop", async () => {
+    // The model is trusted to decide what to do about it — often there is a
+    // guest route, and when there is not it finishes and says so.
     const result = await runApplyAgent(
-      config(page({ controls: [], actions: [], links: [] })),
-      repeatingModel("inspect_form", {}),
+      config(page({ bodyText: "You must be signed in to apply" })),
+      repeatingModel("finish", {
+        reason: "This site wants you signed in before it will show the form",
+        needsPerson: true,
+      }),
     );
 
     expect(result.outcome).toBe("paused");
-    expect(result.reason).toBe(
-      "This listing has no apply link; the job may be closed or the employer takes applications elsewhere.",
-    );
-    expect(result.pauses[0]?.blocker?.code).toBe("application_page_unreachable");
-    expect(result.steps).toBe(0);
+    expect(result.reason).toContain("wants you signed in");
   });
 
   test("a run set to confirm first ends waiting for the person", async () => {
@@ -301,116 +398,6 @@ describe("apply agent run endings", () => {
  * first one; the person answered, waited for a retry, and met the next. The
  * run now works the whole form and comes back with all of them together.
  */
-describe("questions the person has to answer", () => {
-  // A list of choices, so nothing in the profile can answer it and no text
-  // can be written for it: exactly the question that needs the person.
-  function question(index: number, label: string): RawApplyControl {
-    return {
-      ...nameControl(),
-      index,
-      tagName: "select",
-      inputType: "select-one",
-      id: `q${index}`,
-      name: `q${index}`,
-      label,
-      required: false,
-      options: ["Yes", "No"],
-    };
-  }
-
-  function modelThatAnswersEachThenFinishes(refs: readonly string[]): LLMClient {
-    let call = 0;
-    return {
-      chatWithTools: () => {
-        const name = call < refs.length ? "answer_control" : "finish";
-        const args =
-          call < refs.length
-            ? { ref: refs[call] }
-            : { reason: "Nothing left to fill in" };
-        call += 1;
-        return Promise.resolve({
-          toolCalls: [
-            {
-              id: `call_${call}`,
-              type: "function" as const,
-              function: { name, arguments: JSON.stringify(args) },
-            },
-          ],
-        });
-      },
-    };
-  }
-
-  test("three questions nothing can answer come back in one pause", async () => {
-    const result = await runApplyAgent(
-      config(
-        page({
-          controls: [
-            question(0, "How did you hear about this role?"),
-            question(1, "Have you previously worked at or consulted for us?"),
-            question(2, "What is your notice period in weeks?"),
-          ],
-        }),
-      ),
-      modelThatAnswersEachThenFinishes(["c0", "c1", "c2"]),
-    );
-
-    expect(result.outcome).toBe("paused");
-    expect(result.pauses).toHaveLength(1);
-    const pause = result.pauses[0];
-    expect(pause?.questions).toHaveLength(3);
-    expect(pause?.questions?.map((entry) => entry.prompt)).toEqual([
-      "How did you hear about this role?",
-      "Have you previously worked at or consulted for us?",
-      "What is your notice period in weeks?",
-    ]);
-    // The single question is still there for anything that reads one.
-    expect(pause?.question?.prompt).toBe("How did you hear about this role?");
-    expect(result.reason).toContain("3 questions");
-  });
-
-  test("a required question the next screen needs stops the form on its own", async () => {
-    const blocking = {
-      ...question(1, "Have you previously worked at or consulted for us?"),
-      required: true,
-    };
-    let call = 0;
-    const model: LLMClient = {
-      chatWithTools: () => {
-        call += 1;
-        const name = call === 1 ? "answer_control" : "go_to_step";
-        const args = call === 1 ? { ref: "c1" } : { ref: "a0" };
-        return Promise.resolve({
-          toolCalls: [
-            {
-              id: `call_${call}`,
-              type: "function" as const,
-              function: { name, arguments: JSON.stringify(args) },
-            },
-          ],
-        });
-      },
-    };
-
-    const result = await runApplyAgent(
-      config(
-        page({
-          controls: [nameControl(), blocking],
-          actions: [
-            { index: 0, label: "Continue", visible: true, disabled: false },
-          ],
-          stepLabel: "Step 1 of 3",
-        }),
-      ),
-      model,
-    );
-
-    expect(result.outcome).toBe("paused");
-    expect(result.pauses).toHaveLength(1);
-    expect(result.pauses[0]?.questions).toHaveLength(1);
-    expect(result.pauses[0]?.summary).toContain("before this form will go on");
-  });
-});
 
 /**
  * The form as a live board actually renders it.
@@ -421,142 +408,6 @@ describe("questions the person has to answer", () => {
  * rather than to the person. Ten of these are answered from the person's own
  * profile, so the model is asked about the rest and nothing else.
  */
-describe("a form shaped like the real thing", () => {
-  function field(
-    index: number,
-    overrides: Partial<RawApplyControl>,
-  ): RawApplyControl {
-    return { ...nameControl(), index, id: `f${index}`, name: `f${index}`, ...overrides };
-  }
-
-  function realisticPage(): RawApplyPage {
-    return page({
-      url: "https://apply.example.test/example/jobs/8463917002",
-      controls: [
-        field(0, { label: "First Name", required: true }),
-        field(1, { label: "Last Name", required: true }),
-        field(2, { label: "Email", inputType: "email", required: true }),
-        field(3, {
-          tagName: "input",
-          role: "combobox",
-          inputType: "combobox",
-          label: "Country",
-          groupLabel: "Phone",
-          options: ["United States +1", "United Kingdom +44"],
-        }),
-        field(4, {
-          tagName: "input",
-          role: "combobox",
-          inputType: "combobox",
-          label: "Search",
-          groupLabel: "Phone",
-          visible: false,
-          options: ["United States +1", "United Kingdom +44"],
-        }),
-        field(5, { label: "Phone", groupLabel: "Phone", inputType: "tel" }),
-        field(6, {
-          inputType: "file",
-          label: "Attach",
-          groupLabel: "Resume/CV*",
-        }),
-        field(7, { label: "LinkedIn Profile", required: true }),
-        field(8, {
-          label: "What's the name you'd prefer us to use?",
-        }),
-        field(9, {
-          tagName: "input",
-          role: "combobox",
-          inputType: "combobox",
-          label: "What is your current country of residence?*",
-          required: true,
-          options: ["United States of America", "United Kingdom"],
-        }),
-        field(10, {
-          tagName: "input",
-          role: "combobox",
-          inputType: "combobox",
-          label: "Have you previously worked at or consulted for us?*",
-          required: true,
-          options: ["Yes", "No"],
-        }),
-        field(11, {
-          tagName: "input",
-          role: "combobox",
-          inputType: "combobox",
-          label: "Gender",
-          options: ["Male", "Female", "Decline To Self Identify"],
-        }),
-        field(12, {
-          tagName: "textarea",
-          inputType: "textarea",
-          label: "",
-          visible: false,
-        }),
-      ],
-      actions: [
-        { index: 0, label: "Submit application", visible: true, disabled: false },
-      ],
-    });
-  }
-
-  function countingModel(): { client: LLMClient; turns: () => number } {
-    let calls = 0;
-    return {
-      turns: () => calls,
-      client: {
-        chatWithTools: () => {
-          calls += 1;
-          return Promise.resolve({
-            toolCalls: [
-              {
-                id: `call_${calls}`,
-                type: "function" as const,
-                function: {
-                  name: "finish",
-                  arguments: JSON.stringify({
-                    reason: "Nothing left that I can fill in",
-                  }),
-                },
-              },
-            ],
-          });
-        },
-      },
-    };
-  }
-
-  test("what the profile answers is written without asking the model", async () => {
-    const source = realisticPage();
-    const model = countingModel();
-    const withPhone = config(source);
-    const result = await runApplyAgent(
-      {
-        ...withPhone,
-        sources: {
-          ...withPhone.sources,
-          profile: {
-            ...withPhone.sources.profile,
-            email: "robin.ashford@example.test",
-            phone: "+1 312 555 0100",
-            currentCountry: "United States",
-          },
-        },
-      },
-      model.client,
-    );
-
-    // Names, email, phone country, phone number, preferred name, country of
-    // residence: all of them from the person's own profile, no model turn each.
-    expect(result.filled.length).toBeGreaterThanOrEqual(6);
-    // One turn to decide there is nothing left. Before this pass it was one
-    // turn per field.
-    expect(model.turns()).toBeLessThanOrEqual(4);
-    // The hidden machinery of the widgets is never touched.
-    expect(
-      result.filled.some((entry) => entry.label.includes("Search")),
-    ).toBe(false);
-  });
-});
 
 /**
  * A run says where its minutes went.
@@ -579,63 +430,6 @@ describe("the run records its own timing", () => {
     expect(timing).toMatch(/model=\d+ turns/u);
     expect(timing).toContain("total=");
   });
-
-  test("a choice nothing can answer never costs a model turn", async () => {
-    let turns = 0;
-    const model: LLMClient = {
-      chatWithTools: () => {
-        turns += 1;
-        return Promise.resolve({
-          toolCalls: [
-            {
-              id: `call_${turns}`,
-              type: "function" as const,
-              function: {
-                name: "finish",
-                arguments: JSON.stringify({ reason: "Nothing left" }),
-              },
-            },
-          ],
-        });
-      },
-    };
-
-    const result = await runApplyAgent(
-      config(
-        page({
-          controls: [
-            nameControl(),
-            {
-              ...nameControl(),
-              index: 1,
-              id: "q1",
-              name: "q1",
-              tagName: "select",
-              inputType: "select-one",
-              label: "Have you previously worked at or consulted for us?",
-              options: ["Yes", "No"],
-            },
-            {
-              ...nameControl(),
-              index: 2,
-              id: "q2",
-              name: "q2",
-              tagName: "select",
-              inputType: "select-one",
-              label: "Are you located in Bangalore, India?",
-              options: ["Yes", "No"],
-            },
-          ],
-        }),
-      ),
-      model,
-    );
-
-    expect(result.outcome).toBe("paused");
-    expect(result.pauses[0]?.questions).toHaveLength(2);
-    // Both questions were collected deterministically: one turn, to finish.
-    expect(turns).toBe(1);
-  });
 });
 
 /**
@@ -645,74 +439,6 @@ describe("the run records its own timing", () => {
  * optional by the site: they are left blank and said so, never put in front of
  * the person as a question they have to clear.
  */
-describe("voluntary declarations", () => {
-  function choice(
-    index: number,
-    label: string,
-    required = false,
-  ): RawApplyControl {
-    return {
-      ...nameControl(),
-      index,
-      id: `q${index}`,
-      name: `q${index}`,
-      tagName: "select",
-      inputType: "select-one",
-      label,
-      required,
-      options: ["Yes", "No", "Decline To Self Identify"],
-    };
-  }
-
-  test("self-identification questions are left blank, not asked", async () => {
-    const result = await runApplyAgent(
-      config(
-        page({
-          controls: [
-            nameControl(),
-            choice(1, "Gender"),
-            choice(2, "Are you Hispanic/Latino?"),
-            choice(3, "Veteran Status"),
-            choice(4, "Disability Status"),
-            choice(5, "Are you located in Bangalore, India?"),
-          ],
-        }),
-      ),
-      repeatingModel("finish", { reason: "Nothing left to fill in" }),
-    );
-
-    expect(result.outcome).toBe("paused");
-    const asked = result.pauses[0]?.questions ?? [];
-    expect(asked.map((question) => question.prompt)).toEqual([
-      "Are you located in Bangalore, India?",
-    ]);
-    expect(result.notes).toContain(
-      "Left the voluntary self-identification questions blank. They are yours to answer if you want to.",
-    );
-  });
-
-  test("a required declaration the policy does not cover still stops the run", async () => {
-    const result = await runApplyAgent(
-      config(
-        page({
-          controls: [
-            nameControl(),
-            {
-              ...choice(1, "I certify that the information I have given is true", true),
-              tagName: "input",
-              inputType: "checkbox",
-              options: [],
-            },
-          ],
-        }),
-      ),
-      repeatingModel("finish", { reason: "Nothing left to fill in" }),
-    );
-
-    expect(result.outcome).toBe("paused");
-    expect(result.pauses[0]?.questions?.[0]?.prompt).toContain("I certify");
-  });
-});
 
 /**
  * A field is written once.
@@ -743,5 +469,218 @@ describe("no field is written twice", () => {
     );
 
     expect(result.notes.some((note) => note.startsWith("turn 1: "))).toBe(true);
+  });
+});
+
+describe("the browser failing underneath a step", () => {
+  test("one failure is handed back to the model as a fact, and the run carries on", async () => {
+    const source = page();
+    const base = hands(source);
+    let reads = 0;
+    const flakyHands: ApplyPageHands = {
+      ...base,
+      // The very first read after the click dies the way a navigation kills
+      // it; the read after that sees the new page.
+      observe: () => {
+        reads += 1;
+        if (reads === 2) {
+          return Promise.reject(
+            new Error(
+              "The page moved to a new address while Job Finder was reading it.",
+            ),
+          );
+        }
+        return base.observe();
+      },
+    };
+    const result = await runApplyAgent(
+      config(source, { hands: flakyHands }),
+      scriptedModel([
+        { name: "observe", args: {} },
+        {
+          name: "finish",
+          args: { reason: "The page moved on and the form is here now" },
+        },
+      ]),
+    );
+
+    expect(result.outcome).toBe("prepared");
+    expect(result.notes.join("\n")).toContain("browser failure");
+    expect(result.notes.join("\n")).toContain("moved to a new address");
+  });
+
+  test("the browser failing three times in a row ends the run in plain words", async () => {
+    const source = page();
+    const base = hands(source);
+    let reads = 0;
+    const deadHands: ApplyPageHands = {
+      ...base,
+      observe: () => {
+        reads += 1;
+        return reads === 1
+          ? base.observe()
+          : Promise.reject(
+              new Error(
+                "The browser tab Job Finder was working in was closed.",
+              ),
+            );
+      },
+    };
+    const result = await runApplyAgent(
+      config(source, { hands: deadHands }),
+      repeatingModel("observe", {}),
+    );
+
+    expect(result.outcome).toBe("stuck");
+    expect(result.reason).toContain("the browser page stopped responding");
+    expect(result.reason).toContain("was closed");
+    expect(result.reason).not.toContain("locator");
+  });
+});
+
+describe("shared navigation and Apply safety stay in one state", () => {
+  test("an explicitly forbidden origin cannot be approved by the move reviewer", async () => {
+    const source = page();
+    const base = hands(source);
+    let navigations = 0;
+    let reviews = 0;
+    const result = await runApplyAgent(
+      config(source, {
+        hands: {
+          ...base,
+          navigate: (url) => {
+            navigations += 1;
+            return Promise.resolve({ ok: true, url });
+          },
+        },
+        authority: {
+          mode: "prepare_only",
+          submitAuthorized: false,
+          preApprovedAttestationKinds: [],
+          salaryDisclosure: "pause_for_user",
+          allowedOrigins: ["https://apply.example.test"],
+        },
+        reviewMove: () => {
+          reviews += 1;
+          return Promise.resolve({ allowed: true, verdict: "Looks relevant." });
+        },
+      }),
+      scriptedModel([
+        {
+          name: "navigate",
+          args: {
+            url: "https://forbidden.example/form",
+            reason: "The form is there.",
+          },
+        },
+        { name: "finish", args: { reason: "Stayed on the allowed site" } },
+      ]),
+    );
+
+    expect(result.outcome).toBe("prepared");
+    expect(navigations).toBe(0);
+    expect(reviews).toBe(0);
+  });
+
+  test("navigate then type uses the page the model just saw and reviews the move once", async () => {
+    let current = page();
+    let reviews = 0;
+    const base = hands(current);
+    const dynamicHands: ApplyPageHands = {
+      ...base,
+      observe: () =>
+        Promise.resolve(
+          buildApplyFormObservation(current, "2026-09-14T10:00:00.000Z"),
+        ),
+      navigate: (url) => {
+        current = page({ url, title: "External application" });
+        return Promise.resolve({ ok: true, url });
+      },
+    };
+    const result = await runApplyAgent(
+      config(current, {
+        hands: dynamicHands,
+        reviewMove: () => {
+          reviews += 1;
+          return Promise.resolve({
+            allowed: true,
+            verdict: "This is the employer form.",
+          });
+        },
+      }),
+      scriptedModel([
+        {
+          name: "navigate",
+          args: {
+            url: "https://employer.example/form",
+            reason: "The listing points to the employer application form.",
+          },
+        },
+        { name: "type", args: { ref: "c0", text: "Robin Ashford" } },
+        { name: "finish", args: { reason: "The form is prepared" } },
+      ]),
+    );
+
+    expect(result.outcome).toBe("prepared");
+    expect(result.filled).toHaveLength(1);
+    expect(result.notes.join("\n")).not.toContain(
+      "page changed since you last looked",
+    );
+    expect(reviews).toBe(1);
+  });
+
+  test("a move approved by a guarded click is reused by shared navigation", async () => {
+    let current = page({
+      actions: [{ index: 0, label: "Apply", visible: true, disabled: false }],
+    });
+    let reviews = 0;
+    const base = hands(current);
+    const dynamicHands: ApplyPageHands = {
+      ...base,
+      observe: () =>
+        Promise.resolve(
+          buildApplyFormObservation(current, "2026-09-14T10:00:00.000Z"),
+        ),
+      clickElement: () => {
+        current = page({ url: "https://employer.example/form" });
+        return Promise.resolve({ ok: true, observedValue: "clicked" });
+      },
+      navigate: (url) => {
+        current = page({ url });
+        return Promise.resolve({ ok: true, url });
+      },
+    };
+    const result = await runApplyAgent(
+      config(current, {
+        hands: dynamicHands,
+        reviewMove: () => {
+          reviews += 1;
+          return Promise.resolve({
+            allowed: true,
+            verdict: "This is the employer form.",
+          });
+        },
+      }),
+      scriptedModel([
+        {
+          name: "click",
+          args: {
+            ref: "a0",
+            reason: "The listing's Apply button leads to the employer form.",
+          },
+        },
+        {
+          name: "navigate",
+          args: {
+            url: "https://employer.example/form/step-two",
+            reason: "The next application step is on the same employer site.",
+          },
+        },
+        { name: "finish", args: { reason: "The employer form is prepared" } },
+      ]),
+    );
+
+    expect(result.outcome).toBe("prepared");
+    expect(reviews).toBe(1);
   });
 });

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import type { BrowserContext, Frame, Page, Request, Route } from "playwright";
 import {
   ApplyExecutionResultSchema,
+  type ApplyExecutionModelUse,
   type ApplyExecutionResult,
   type ApplicationAttemptBlocker,
   type ApplicationAttemptCheckpoint,
@@ -1323,14 +1324,30 @@ export async function registerPrepareOnlyPreparedValue(
 export async function getLatestBlockedPrepareOnlyAttempt(
   page: Page,
 ): Promise<PrepareOnlyBlockedAttempt | null> {
+  return (await getBlockedPrepareOnlyAttempts(page)).at(-1) ?? null;
+}
+
+/**
+ * Everything the guard has blocked on this page, oldest first.
+ *
+ * The network ledger and each frame's in-page ledger are kept separately, so
+ * they are merged by time here: "the latest" has to mean the latest.
+ */
+export async function getBlockedPrepareOnlyAttempts(
+  page: Page,
+): Promise<PrepareOnlyBlockedAttempt[]> {
   const ledger: PrepareOnlyBlockedAttempt[] = [
     ...(prepareOnlyNetworkGuardStates.get(page)?.blockedAttempts ?? []),
   ];
   for (const frame of page.frames()) {
-    const snapshot = await frame.evaluate(readPrepareOnlyMutationGuardInPage);
-    ledger.push(...snapshot.blockedAttempts);
+    try {
+      const snapshot = await frame.evaluate(readPrepareOnlyMutationGuardInPage);
+      ledger.push(...snapshot.blockedAttempts);
+    } catch {
+      // A frame that has navigated away has no ledger to read any more.
+    }
   }
-  return ledger.at(-1) ?? null;
+  return ledger.sort((left, right) => left.at.localeCompare(right.at));
 }
 
 /**
@@ -2017,6 +2034,7 @@ export function buildPreparationResult(input: {
   nextActionLabel: string;
   manualDecisionLabel?: string;
   externalWrites?: readonly ApplicationAttemptExternalWriteEvidence[];
+  modelUse?: readonly ApplyExecutionModelUse[];
 }): ApplyExecutionResult {
   const finalCheckpoint: ApplicationAttemptCheckpoint = {
     id: `checkpoint_${input.executionInput.job.id}_${toStableIdSegment(input.checkpointLabel)}_${input.checkpoints.length + 1}`,
@@ -2058,6 +2076,7 @@ export function buildPreparationResult(input: {
     visualCheckpoints: [],
     nextActionLabel: input.nextActionLabel,
     checkpoints: [...input.checkpoints, finalCheckpoint],
+    modelUse: input.modelUse ? [...input.modelUse] : [],
     externalWrites: input.externalWrites
       ? [...input.externalWrites]
       : undefined,

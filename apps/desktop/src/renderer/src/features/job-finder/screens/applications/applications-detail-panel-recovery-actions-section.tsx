@@ -179,6 +179,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   pausedQuestionCount?: number | null;
   selectedRecordJobId: string;
   selectedApplicationRecordId: string;
+  selectedRecordLatestBlockerCode?: string | null;
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
   visibleApplyResult:
     | JobFinderWorkspaceSnapshot["applyJobResults"][number]
@@ -206,6 +207,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     pausedQuestionCount,
     selectedRecordJobId,
     selectedApplicationRecordId,
+    selectedRecordLatestBlockerCode,
     selectedRun,
     visibleApplyResult,
   } = props;
@@ -218,6 +220,9 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
       visibleApplyResult?.privacyReceipt,
     ),
     isApplyPending,
+    ...(selectedRecordLatestBlockerCode !== undefined
+      ? { recordLatestBlockerCode: selectedRecordLatestBlockerCode }
+      : {}),
     pausedQuestionCount: pausedQuestionCount ?? null,
     visibleApplyResult,
   });
@@ -433,7 +438,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
               data-testid="applications-recovery-progress-spinner"
             />
             <span>
-              {`Filling this application in ${JOB_FINDER_BROWSER_NAME} now. This can take up to a minute, and it stops before the employer's send control.`}
+              {`Filling this application in ${JOB_FINDER_BROWSER_NAME} now. This can take a few minutes on a long form, and it stops before the employer's send control.`}
             </span>
           </p>
         ) : null}

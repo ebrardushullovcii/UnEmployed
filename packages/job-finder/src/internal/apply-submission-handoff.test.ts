@@ -88,6 +88,8 @@ function result(overrides: Partial<ApplyAgentResult> = {}): ApplyAgentResult {
     attachments: [],
     pauses: [],
     notes: [],
+    timeline: [],
+    modelTurns: 0,
     readyToSend: { actionRef: "a3", actionLabel: "Submit application" },
     ...overrides,
   };

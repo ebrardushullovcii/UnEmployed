@@ -342,6 +342,7 @@ export function ApplicationsDetailPanel({
       pausedQuestionCount={pendingQuestionCount}
       selectedRecordJobId={selectedRecord.jobId}
       selectedApplicationRecordId={selectedRecord.id}
+      selectedRecordLatestBlockerCode={selectedRecord.latestBlocker?.code ?? null}
       selectedRun={selectedRun}
       visibleApplyResult={visibleApplyResult}
     />

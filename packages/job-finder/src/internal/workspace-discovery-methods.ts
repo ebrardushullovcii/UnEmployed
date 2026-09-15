@@ -934,6 +934,7 @@ async function collectTargetJobs(input: {
     ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>
   >;
   searchPreferences: JobSearchPreferences;
+  searchMode: "precision" | "scale";
   targetJobCount: number;
   maxSteps: number;
   activeRun: DiscoveryRunRecord;
@@ -1104,6 +1105,7 @@ async function collectTargetJobs(input: {
         locations: input.searchPreferences.locations,
         workModes: input.searchPreferences.workModes,
       },
+      searchMode: input.searchMode,
       targetJobCount: input.targetJobCount,
       maxSteps: input.maxSteps,
       runControl: {
@@ -2395,6 +2397,7 @@ export function createWorkspaceDiscoveryMethods(
             sourceInstructionArtifacts,
             profile,
             searchPreferences: enrichedPreferences,
+            searchMode: options.campaign?.mode ?? "precision",
             targetJobCount: discoveryBudget.targetJobCount,
             maxSteps: discoveryBudget.maxSteps,
             activeRun,

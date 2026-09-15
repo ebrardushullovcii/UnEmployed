@@ -27,6 +27,8 @@ ADRs capture durable decisions and rejected alternatives. Use them to avoid reop
 | [0019](0019-muse-spark-default-routing.md)                           | accepted   | Muse Spark default routing, DeepSeek V4.1 for aggressive |
 | [0020](0020-streamed-model-requests-with-idle-and-total-budgets.md)  | accepted   | Streamed model requests, idle and total budgets, retries |
 | [0021](0021-apply-agent-runtime.md)                                  | accepted   | Apply agent loop replaces the fixed prepare-only script  |
+| [0022](0022-two-apply-modes-one-click.md)                            | accepted   | Two apply modes, one or two clicks; preparation reaches the form |
+| [0023](0023-agent-owned-runs.md)                                     | accepted   | The model owns search, source-check, and apply runs; code is safety only |
 
 ## Policy
 

@@ -856,9 +856,9 @@ describe("apply restart recovery", () => {
     // Reopening again is a no-op: every sweep write is idempotent.
     const secondSnapshot =
       await createService(repository).getWorkspaceSnapshot();
-    expect(secondSnapshot.applyRuns.find((r) => r.id === persistedRun.id)).toEqual(
-      persistedRun,
-    );
+    expect(
+      secondSnapshot.applyRuns.find((r) => r.id === persistedRun.id),
+    ).toEqual(persistedRun);
     expect(
       secondSnapshot.applyJobResults.find(
         (r) => r.id === "apply_result_orphan_filling",
@@ -877,6 +877,110 @@ describe("apply restart recovery", () => {
         (r) => r.id === "application_job_generating",
       ),
     );
+  });
+
+  test("stops a result still claiming live work under a run the person cancelled, and leaves its queued rows alone", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 2, 20, 12));
+    const seed = createSeed();
+    const startedAt = "2026-03-20T10:00:30.000Z";
+    const cancelledAt = "2026-03-20T10:05:00.000Z";
+    seed.applyRuns = [
+      ApplyRunSchema.parse({
+        id: "apply_run_user_cancelled",
+        mode: "queue_auto",
+        state: "cancelled",
+        jobIds: ["job_ready", "job_generating"],
+        currentJobId: "job_ready",
+        visualCheckpointsEnabled: false,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: cancelledAt,
+        completedAt: cancelledAt,
+        summary: "Automatic apply run cancelled.",
+        detail:
+          "The queued run was cancelled before final submit. Any completed preparation artifacts remain available for review.",
+        totalJobs: 2,
+        pendingJobs: 2,
+      }),
+    ];
+    seed.applyJobResults = [
+      // The worker never got to write its own stop, so this row kept saying
+      // "filling" for hours beside "run cancelled".
+      ApplyJobResultSchema.parse({
+        id: "apply_result_cancelled_but_filling",
+        runId: "apply_run_user_cancelled",
+        jobId: "job_ready",
+        applicationRecordId: "application_job_ready",
+        queuePosition: 0,
+        state: "filling",
+        summary: "Filling prepared answers safely.",
+        detail: "The browser application flow was underway.",
+        startedAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: startedAt,
+        completedAt: null,
+        applicationPreparationStartedAt: startedAt,
+        applicationPreparationStartedLocalDate: "2026-03-20",
+      }),
+      ApplyJobResultSchema.parse({
+        id: "apply_result_cancelled_planned",
+        runId: "apply_run_user_cancelled",
+        jobId: "job_generating",
+        applicationRecordId: "application_job_generating",
+        queuePosition: 1,
+        state: "planned",
+        summary: "Queued.",
+        detail: "Waiting for its turn.",
+        startedAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:00:00.000Z",
+        completedAt: null,
+      }),
+    ];
+    seed.applicationRecords = [
+      ApplicationRecordSchema.parse({
+        id: "application_job_ready",
+        jobId: "job_ready",
+        title: "Senior Product Designer",
+        company: "Signal Systems",
+        status: "approved",
+        lastActionLabel: "Filling prepared answers safely.",
+        nextActionLabel: null,
+        lastUpdatedAt: startedAt,
+        lastAttemptState: "in_progress",
+      }),
+      ApplicationRecordSchema.parse({
+        id: "application_job_generating",
+        jobId: "job_generating",
+        title: "Staff Engineer",
+        company: "Signal Systems",
+        status: "approved",
+        lastActionLabel: "Queued.",
+        nextActionLabel: null,
+        lastUpdatedAt: "2026-03-20T10:00:00.000Z",
+        lastAttemptState: null,
+      }),
+    ];
+    const repository = createInMemoryJobFinderRepository(seed);
+
+    const reopenedService = createService(repository);
+    await reopenedService.getWorkspaceSnapshot();
+
+    const results = await repository.listApplyJobResults();
+    expect(
+      results.find(
+        (result) => result.id === "apply_result_cancelled_but_filling",
+      ),
+    ).toMatchObject({
+      state: "failed",
+      summary: "Application preparation was cancelled.",
+    });
+    expect(
+      results.find((result) => result.id === "apply_result_cancelled_planned")
+        ?.state,
+    ).toBe("planned");
+    const run = (await repository.listApplyRuns()).find(
+      (candidate) => candidate.id === "apply_run_user_cancelled",
+    );
+    expect(run?.state).toBe("cancelled");
   });
 
   test("terminalizes an interrupted submitting result without claiming submission and recomputes run counters", async () => {

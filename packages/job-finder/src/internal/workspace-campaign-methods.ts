@@ -915,6 +915,7 @@ async function executeCampaignRun(input: {
     await input.runCampaignDiscovery(
       {
         campaignId: input.campaign.id,
+        mode: input.campaign.mode,
         searchPreferences: input.campaign.searchPreferences,
         runJobBudget: input.campaign.limits.discoveryRunJobBudget ?? null,
       },

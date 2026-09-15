@@ -63,6 +63,7 @@ interface ReviewQueueListPanelProps {
    * to prepare and stop being offered for batch selection.
    */
   preparedJobIds?: ReadonlySet<string>;
+  applicationPreparingJobIds?: ReadonlySet<string>;
   queue: readonly ReviewQueueItem[];
   queueSelection: readonly string[];
   selectedItem: ReviewQueueItem | null;
@@ -87,6 +88,7 @@ export function ReviewQueueListPanel({
   onStopTailoredDraftPreparation = () => undefined,
   onToggleQueueSelection,
   preparedJobIds,
+  applicationPreparingJobIds,
   queue,
   queueSelection,
   selectedItem,
@@ -114,10 +116,17 @@ export function ReviewQueueListPanel({
             assetsByJobId.get(item.jobId),
             false,
             preparedJobIds,
+            applicationPreparingJobIds,
           ).label,
         ]),
       ),
-    [assetsByJobId, deferredQuery, preparedJobIds, queue],
+    [
+      applicationPreparingJobIds,
+      assetsByJobId,
+      deferredQuery,
+      preparedJobIds,
+      queue,
+    ],
   );
   const [queuePage, setQueuePage] = useState(1);
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
@@ -168,17 +177,26 @@ export function ReviewQueueListPanel({
     () => new Set(queueSelection),
     [queueSelection],
   );
+  const unavailableApplicationJobIds = useMemo(
+    () =>
+      new Set([
+        ...(preparedJobIds ?? []),
+        ...(applicationPreparingJobIds ?? []),
+      ]),
+    [applicationPreparingJobIds, preparedJobIds],
+  );
   const selectedReadyQueueIds = useMemo(
     () =>
       new Set(
         queue
           .filter(
             (item) =>
-              isQueueStageReady(item) && queueSelectionSet.has(item.jobId),
+              isQueueStageReady(item, unavailableApplicationJobIds) &&
+              queueSelectionSet.has(item.jobId),
           )
           .map((item) => item.jobId),
       ),
-    [preparedJobIds, queue, queueSelectionSet],
+    [queue, queueSelectionSet, unavailableApplicationJobIds],
   );
   const queueSelectionLimitReached =
     selectedReadyQueueIds.size >= APPLICATION_PREPARATION_BATCH_LIMIT;
@@ -186,30 +204,40 @@ export function ReviewQueueListPanel({
     () => [
       ...new Set(
         visibleQueue
-          .filter((item) => isQueueStageReady(item, preparedJobIds))
+          .filter((item) =>
+            isQueueStageReady(item, unavailableApplicationJobIds),
+          )
           .map((item) => item.jobId),
       ),
     ],
-    [preparedJobIds, visibleQueue],
+    [unavailableApplicationJobIds, visibleQueue],
   );
   // One population, read once: both numbers on this card, and the button
   // beside them, come off the same queue plus the same prepared-job set the
   // application records give. They used to be computed from two different
   // pools, so the card could print "0 eligible · 12 ready to prepare".
   const draftEligibleCount = useMemo(
-    () => countTailoredDraftPreparationEligible(queue, preparedJobIds),
-    [preparedJobIds, queue],
+    () =>
+      countTailoredDraftPreparationEligible(
+        queue,
+        unavailableApplicationJobIds,
+      ),
+    [queue, unavailableApplicationJobIds],
   );
   const safeguardBlockerSentence = safeguardBlocker?.trim()
     ? stripInternalCodeParenthetical(safeguardBlocker)
     : null;
   const draftPreparationBlocker = useMemo(
-    () => describeTailoredDraftPreparationBlocker(queue, preparedJobIds),
-    [preparedJobIds, queue],
+    () =>
+      describeTailoredDraftPreparationBlocker(
+        queue,
+        unavailableApplicationJobIds,
+      ),
+    [queue, unavailableApplicationJobIds],
   );
   const readyToStageCount = useMemo(
-    () => countQueueStageReady(queue, preparedJobIds),
-    [preparedJobIds, queue],
+    () => countQueueStageReady(queue, unavailableApplicationJobIds),
+    [queue, unavailableApplicationJobIds],
   );
   const isDraftPreparationRunning = draftPreparation.status === "running";
   const overDraftPreparationLimit =
@@ -505,9 +533,14 @@ export function ReviewQueueListPanel({
               assetsByJobId.get(item.jobId),
               isPending,
               preparedJobIds,
+              applicationPreparingJobIds,
             );
-            const queueReady = isQueueStageReady(item, preparedJobIds);
+            const queueReady =
+              isQueueStageReady(item, unavailableApplicationJobIds);
             const alreadyPrepared = Boolean(preparedJobIds?.has(item.jobId));
+            const applicationIsPreparing = Boolean(
+              applicationPreparingJobIds?.has(item.jobId),
+            );
             const selectedForQueue = queueSelectionSet.has(item.jobId);
             const queueSelectionDisabled =
               !selectedForQueue && (!queueReady || queueSelectionLimitReached);
@@ -539,7 +572,9 @@ export function ReviewQueueListPanel({
                 selectionDisabledReason={
                   batchActionsOpen && queueSelectionDisabled
                     ? !queueReady
-                      ? alreadyPrepared
+                      ? applicationIsPreparing
+                        ? "This application is being prepared now."
+                        : alreadyPrepared
                         ? "An application is already prepared for this job. Open it from Applications to continue."
                         : QUEUE_STAGE_RESUME_REQUIREMENT
                       : `Each employer-application batch can include up to ${APPLICATION_PREPARATION_BATCH_LIMIT} jobs. Deselect a job before choosing another.`

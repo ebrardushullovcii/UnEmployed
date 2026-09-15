@@ -111,6 +111,10 @@ function rawPage(bodyText: string): RawApplyPage {
     ],
     actions: [],
     links: [],
+    headings: [],
+    clickables: [],
+    openedTabs: [],
+    loading: false,
     validationErrors: [],
     stepLabel: null,
   };
@@ -120,6 +124,12 @@ function rawPage(bodyText: string): RawApplyPage {
 function session(bodyText = "Apply for the role"): ApplyPageSession {
   return {
     readPage: () => Promise.resolve(rawPage(bodyText)),
+    navigate: () => Promise.resolve({ ok: true, url: PAGE_URL }),
+    clickElement: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+    scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
+    wait: () => Promise.resolve(),
+    goBack: () => Promise.resolve({ ok: true, url: PAGE_URL }),
+    readText: () => Promise.resolve(bodyText),
     fillText: (_ref, value) => Promise.resolve({ ok: true, observedValue: value }),
     chooseOption: (_ref, option) =>
       Promise.resolve({ ok: true, observedValue: option }),
@@ -263,6 +273,28 @@ function executionInput(): Omit<
   };
 }
 
+/** A model that looks, then says only the person can go further. */
+function modelThatNeedsThePerson(reason: string): LLMClient {
+  let calls = 0;
+  return {
+    chatWithTools: () => {
+      calls += 1;
+      return Promise.resolve({
+        toolCalls: [
+          {
+            id: `call_${calls}`,
+            type: "function" as const,
+            function: {
+              name: "finish",
+              arguments: JSON.stringify({ reason, needsPerson: true }),
+            },
+          },
+        ],
+      });
+    },
+  };
+}
+
 function modelThatFinishes(): LLMClient {
   let calls = 0;
   return {
@@ -313,19 +345,23 @@ describe("agent application preparation seam", () => {
     expect(result.replay.lastUrl).toBe(PAGE_URL);
   });
 
-  test("a sign-in wall becomes the blocker the person already understands", async () => {
+  test("a sign-in wall the model reports becomes the record's blocker", async () => {
+    // The harness is told the page wants a sign-in; deciding what that means
+    // is the model's, and what it says is what the person reads.
     const result = await runAgentApplicationPreparation({
       session: session("You must be signed in to apply"),
       executionInput: executionInput(),
-      llmClient: modelThatFinishes(),
+      llmClient: modelThatNeedsThePerson(
+        "This site wants you signed in before it will show the form",
+      ),
       startedAt: "2026-09-14T10:00:00.000Z",
       siteLabel: "the careers site",
       now: () => new Date("2026-09-14T10:05:00.000Z"),
     });
 
     expect(result.blocker?.code).toBe("site_login_required");
-    expect(result.nextActionLabel).toBe("Sign in on the site");
     expect(result.summary).toBe("This application needs you");
+    expect(result.detail).toContain("wants you signed in");
   });
 });
 
@@ -454,6 +490,8 @@ describe("the review card shown before you press send", () => {
           },
         ],
         notes: [],
+        timeline: [],
+        modelTurns: 0,
         readyToSend: null,
       },
     });
@@ -492,6 +530,8 @@ describe("the review card shown before you press send", () => {
         attachments: [],
         pauses: [],
         notes: [],
+        timeline: [],
+        modelTurns: 0,
         readyToSend: null,
       },
     });
@@ -540,6 +580,10 @@ describe("each mode, end to end through the seam", () => {
             { index: 0, label: "Submit application", visible: true, disabled: false },
           ],
           links: [],
+          headings: [],
+          clickables: [],
+          openedTabs: [],
+          loading: false,
           validationErrors: [],
           stepLabel: null,
         }),
@@ -553,6 +597,12 @@ describe("each mode, end to end through the seam", () => {
       uploadFile: (_ref, file) =>
         Promise.resolve({ ok: true, observedValue: file.name }),
       clickAction: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+      navigate: () => Promise.resolve({ ok: true, url: PAGE_URL }),
+      clickElement: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+      scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
+      wait: () => Promise.resolve(),
+      goBack: () => Promise.resolve({ ok: true, url: PAGE_URL }),
+      readText: () => Promise.resolve("Apply for the role"),
       followLink: () => Promise.resolve({ ok: true, url: PAGE_URL }),
       installPrepareOnlyGuard: () => Promise.resolve(),
       readBlockedAttempt: () => Promise.resolve(null),
@@ -573,13 +623,13 @@ describe("each mode, end to end through the seam", () => {
         // Answer the one field, say the form is complete, then finish.
         const name =
           calls === 1
-            ? "answer_control"
+            ? "type"
             : calls === 2
               ? "submit_application"
               : "finish";
         const args =
-          name === "answer_control"
-            ? { ref: "c0" }
+          name === "type"
+            ? { ref: "c0", text: "robin.ashford@example.test" }
             : name === "submit_application"
               ? { ref: "a0" }
               : { reason: "Nothing left to fill in" };
@@ -695,8 +745,8 @@ describe("questions and failures reaching the record", () => {
         },
         {
           index: 1,
-          tagName: "textarea",
-          inputType: "textarea",
+          tagName: "select",
+          inputType: "select-one",
           role: "",
           id: "q1",
           name: "q1",
@@ -704,7 +754,7 @@ describe("questions and failures reaching the record", () => {
           groupLabel: "",
           placeholder: "",
           autocomplete: "",
-          required: false,
+          required: true,
           invalid: false,
           validationMessage: "",
           disabled: false,
@@ -713,7 +763,7 @@ describe("questions and failures reaching the record", () => {
           value: "",
           checked: false,
           multiple: false,
-          options: [],
+          options: ["", "Up to 50k", "50k to 70k"],
           selectedOptionLabel: "",
         },
       ],
@@ -725,7 +775,7 @@ describe("questions and failures reaching the record", () => {
     return {
       chatWithTools: () => {
         calls += 1;
-        const name = calls <= 2 ? "answer_control" : "finish";
+        const name = calls <= 2 ? "suggest_answer" : "finish";
         const args =
           calls === 1
             ? { ref: "c0" }
@@ -768,11 +818,14 @@ describe("questions and failures reaching the record", () => {
     ]);
     // The choices travel with the question, and the blank one does not.
     expect(result.questions[0]?.answerOptions).toEqual(["Yes", "No"]);
-    expect(result.questions[1]?.answerOptions).toEqual([]);
+    expect(result.questions[1]?.answerOptions).toEqual([
+      "Up to 50k",
+      "50k to 70k",
+    ]);
     // ADR 0022: unanswered questions are handed over, never a blocking task.
     expect(result.blocker).toBeNull();
     expect(result.summary).toBe("Filled in what it could; 2 questions left for you");
-    expect(result.nextActionLabel).toBe("Open the browser and finish it");
+    expect(result.nextActionLabel).toBe("Open the Job Finder browser and finish it");
   });
 
   test("a run that throws is recorded as stopped, in words the person can read", async () => {

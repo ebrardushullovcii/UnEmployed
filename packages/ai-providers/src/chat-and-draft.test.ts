@@ -304,13 +304,18 @@ describe("openai-compatible chat and draft behavior", () => {
         educationEntries: deterministicFallback.educationEntries,
         certificationEntries: deterministicFallback.certificationEntries,
         languages: deterministicFallback.languages,
+        // The model answered and every rewrite was held back, so the wording
+        // is the person's own. That is still a draft the model shaped, and the
+        // note says so instead of pointing at a "built-in generator".
         notes: [
-          ...deterministicFallback.notes,
-          "AI proposed 2 rewrites, but none could be verified against your saved evidence.",
+          "Created with AI, keeping your own wording: it proposed 2 rewrites, none matched your saved evidence closely enough to use, so the sentences come from your profile and the structure and emphasis from the model.",
+          ...deterministicFallback.notes.filter(
+            (note) => note !== "Used the built-in deterministic resume tailorer.",
+          ),
         ],
         generationProvenance: {
-          method: "deterministic",
-          reason: "provider_output_unverified",
+          method: "ai",
+          reason: null,
         },
         compatibilityScore: 91,
       });

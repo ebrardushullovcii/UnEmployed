@@ -1,0 +1,546 @@
+import {
+  CandidateProfileSchema,
+  type RawApplyPage,
+} from "@unemployed/contracts";
+import { describe, expect, test, vi } from "vitest";
+
+import type { JobExtractor, LLMClient } from "../agent/contracts";
+import { buildApplyFormObservation } from "../apply/page-hands";
+import type { ApplyPageHands } from "../apply/types";
+import type { AgentConfig } from "../types";
+import type { Page } from "playwright";
+import { runJobSearchAgent } from "./job-search-agent";
+import { createJobSearchPrompts } from "./job-search-prompts";
+
+function rawPage(overrides: Partial<RawApplyPage> = {}): RawApplyPage {
+  return {
+    url: "https://jobs.example.test/search?q=engineer",
+    title: "Jobs",
+    bodyText: "Platform Engineer at Northwind. Data Engineer at Contoso.",
+    controls: [],
+    actions: [{ index: 0, label: "Next page", visible: true, disabled: false }],
+    links: [],
+    headings: [],
+    clickables: [],
+    openedTabs: [],
+    loading: false,
+    validationErrors: [],
+    stepLabel: null,
+    ...overrides,
+  };
+}
+
+function hands(pages: { current: RawApplyPage }): ApplyPageHands {
+  return {
+    observe: () =>
+      Promise.resolve(
+        buildApplyFormObservation(pages.current, "2026-09-14T10:00:00.000Z"),
+      ),
+    navigate: (url) => {
+      pages.current = rawPage({ url });
+      return Promise.resolve({ ok: true, url });
+    },
+    clickElement: () => {
+      pages.current = rawPage({
+        url: "https://jobs.example.test/search?q=engineer&page=2",
+      });
+      return Promise.resolve({ ok: true, observedValue: "clicked" });
+    },
+    scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
+    wait: () => Promise.resolve(),
+    goBack: () => Promise.resolve({ ok: true, url: pages.current.url ?? "" }),
+    readText: () => Promise.resolve(pages.current.bodyText),
+    fillText: (_ref, value) =>
+      Promise.resolve({ ok: true, observedValue: value }),
+    chooseOption: (_ref, option) =>
+      Promise.resolve({ ok: true, observedValue: option }),
+    setToggle: () => Promise.resolve({ ok: true, observedValue: "checked" }),
+    uploadFile: (_ref, file) =>
+      Promise.resolve({ ok: true, observedValue: file.name }),
+    clickAction: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+    followLink: () =>
+      Promise.resolve({ ok: true, url: pages.current.url ?? "" }),
+  };
+}
+
+function config(overrides: Partial<AgentConfig> = {}): AgentConfig {
+  return {
+    source: "target_site",
+    maxSteps: 60,
+    targetJobCount: 10,
+    userProfile: CandidateProfileSchema.parse({
+      id: "candidate_test",
+      firstName: "Robin",
+      lastName: "Ashford",
+      fullName: "Robin Ashford",
+      headline: "Platform engineer",
+      summary: "Builds dependable internal tools.",
+      currentLocation: "Manchester",
+      yearsExperience: 8,
+      baseResume: {
+        id: "resume_test",
+        fileName: "resume.txt",
+        uploadedAt: "2026-09-01T09:00:00.000Z",
+        textContent: "8 years of platform engineering.",
+        textUpdatedAt: "2026-09-01T09:00:00.000Z",
+        extractionStatus: "ready",
+      },
+    }),
+    searchPreferences: {
+      targetRoles: ["Platform Engineer"],
+      locations: ["Manchester"],
+    },
+    startingUrls: ["https://jobs.example.test/search?q=engineer"],
+    navigationPolicy: {
+      allowedHostnames: ["jobs.example.test"],
+      allowSubdomains: true,
+    },
+    promptContext: { siteLabel: "the example board" },
+    ...overrides,
+  };
+}
+
+function scripted(
+  turns: Array<{ name: string; args?: Record<string, unknown> }>,
+): LLMClient {
+  let calls = 0;
+  return {
+    chatWithTools: () => {
+      const turn = turns[Math.min(calls, turns.length - 1)];
+      calls += 1;
+      return Promise.resolve({
+        toolCalls: [
+          {
+            id: `call_${calls}`,
+            type: "function" as const,
+            function: {
+              name: turn.name,
+              arguments: JSON.stringify(turn.args ?? {}),
+            },
+          },
+        ],
+      });
+    },
+  };
+}
+
+function posting(title: string, company: string, id: string) {
+  return {
+    sourceJobId: id,
+    canonicalUrl: `https://jobs.example.test/jobs/${id}`,
+    title,
+    company,
+    location: "Manchester",
+    workMode: ["hybrid" as const],
+    applyPath: "unknown" as const,
+    postedAt: "2026-09-10T09:00:00.000Z",
+    salaryText: null,
+    summary: `${title} at ${company}.`,
+    description: `${title} at ${company}. Build things.`,
+    easyApplyEligible: false,
+    keySkills: ["TypeScript"],
+  };
+}
+
+const extractor: JobExtractor = {
+  extractJobsFromPage: vi.fn(() =>
+    Promise.resolve([
+      posting("Platform Engineer", "Northwind", "j1"),
+      posting("Data Engineer", "Contoso", "j2"),
+    ]),
+  ),
+};
+
+describe("job search agent", () => {
+  test("turns precision and scale modes into distinct search instructions", () => {
+    const precision = createJobSearchPrompts(
+      config({
+        promptContext: {
+          siteLabel: "the example board",
+          searchMode: "precision",
+        },
+      }),
+    );
+    const scale = createJobSearchPrompts(
+      config({
+        promptContext: { siteLabel: "the example board", searchMode: "scale" },
+      }),
+    );
+
+    expect(precision.system).toContain("save only strong fits");
+    expect(precision.system).toContain("over filling the list");
+    expect(scale.system).toContain("find a broad pool of plausible jobs");
+    expect(scale.system).toContain("borderline possibilities");
+  });
+
+  test("saves what it reads, tells the model what was already saved, and finishes in its own words", async () => {
+    const pages = { current: rawPage() };
+    const conversation: string[] = [];
+    const llm = scripted([
+      { name: "extract_jobs", args: { pageType: "search_results" } },
+      { name: "click", args: { ref: "a0" } },
+      { name: "extract_jobs", args: { pageType: "search_results" } },
+      {
+        name: "finish",
+        args: {
+          reason: "The board has two postings that fit and no more pages",
+        },
+      },
+    ]);
+    const spyingLlm: LLMClient = {
+      chatWithTools: (messages, tools, options) => {
+        conversation.length = 0;
+        for (const message of messages)
+          conversation.push(`${message.role}: ${message.content}`);
+        return llm.chatWithTools(messages, tools, options);
+      },
+    };
+
+    const result = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config(),
+      llmClient: spyingLlm,
+      jobExtractor: extractor,
+    });
+
+    expect(result.jobs.map((job) => job.title)).toEqual([
+      "Platform Engineer",
+      "Data Engineer",
+    ]);
+    expect(result.jobs[0]?.discoveryMethod).toBe("browser_agent");
+    expect(result.incomplete).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(conversation.join("\n")).toContain("Saved 2 new postings");
+    expect(conversation.join("\n")).toContain(
+      "2 on this page were already saved",
+    );
+  });
+
+  test("reads a task-relevant same-site GET endpoint through the live browser session", async () => {
+    const pages = { current: rawPage() };
+    const get = vi.fn(() =>
+      Promise.resolve({
+        text: () => Promise.resolve('{"jobs":[{"id":"j1"}]}'),
+        status: () => 200,
+        statusText: () => "OK",
+        headers: () => ({ "content-type": "application/json" }),
+        ok: () => true,
+      }),
+    );
+    const page = {
+      url: () => pages.current.url ?? "",
+      context: () => ({ request: { get } }),
+    } as unknown as Page;
+
+    await runJobSearchAgent({
+      hands: hands(pages),
+      page,
+      config: config(),
+      llmClient: scripted([
+        {
+          name: "read_page_api",
+          args: {
+            url: "/api/jobs?query=engineer",
+            reason:
+              "The results page loads its visible job cards from this endpoint.",
+          },
+        },
+        {
+          name: "finish",
+          args: { reason: "The site API returned the job data needed." },
+        },
+      ]),
+      jobExtractor: extractor,
+    });
+
+    expect(get).toHaveBeenCalledWith(
+      "https://jobs.example.test/api/jobs?query=engineer",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          accept: expect.stringContaining("application/json"),
+        }),
+      }),
+    );
+  });
+
+  test("reviews a task-relevant API-only origin before reading it directly", async () => {
+    const pages = { current: rawPage() };
+    const get = vi.fn(() =>
+      Promise.resolve({
+        text: () => Promise.resolve('{"jobs":[{"id":"j1"}]}'),
+        status: () => 200,
+        statusText: () => "OK",
+        headers: () => ({ "content-type": "application/json" }),
+        ok: () => true,
+      }),
+    );
+    const page = {
+      url: () => pages.current.url ?? "",
+      context: () => ({ request: { get } }),
+    } as unknown as Page;
+    let agentTurn = 0;
+    const reviews: string[] = [];
+    const llmClient: LLMClient = {
+      chatWithTools(messages, tools) {
+        if (tools.some((tool) => tool.function.name === "decide")) {
+          reviews.push(messages.map((message) => message.content).join("\n"));
+          return Promise.resolve({
+            toolCalls: [{
+              id: "review_direct",
+              type: "function" as const,
+              function: {
+                name: "decide",
+                arguments: JSON.stringify({ allowed: true, verdict: "The endpoint is the employer's job data service." }),
+              },
+            }],
+          });
+        }
+        agentTurn += 1;
+        return scripted(
+          agentTurn === 1
+            ? [{ name: "read_page_api", args: { url: "https://api.employer.test/jobs", reason: "The page names this endpoint as its visible-card data source." } }]
+            : [{ name: "finish", args: { reason: "The reviewed API returned the job data." } }],
+        ).chatWithTools(messages, tools);
+      },
+    };
+
+    await runJobSearchAgent({
+      hands: hands(pages),
+      page,
+      config: config(),
+      llmClient,
+      jobExtractor: extractor,
+    });
+
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]).toContain("https://api.employer.test/jobs");
+    expect(get).toHaveBeenCalledOnce();
+  });
+
+  test("reviews every off-scope API redirect and refuses before following it", async () => {
+    const pages = { current: rawPage() };
+    const get = vi.fn(() =>
+      Promise.resolve({
+        text: () => Promise.resolve(""),
+        status: () => 302,
+        statusText: () => "Found",
+        headers: () => ({ location: "https://tracker.invalid/jobs" }),
+        ok: () => false,
+      }),
+    );
+    const page = {
+      url: () => pages.current.url ?? "",
+      context: () => ({ request: { get } }),
+    } as unknown as Page;
+    let agentTurn = 0;
+    const llmClient: LLMClient = {
+      chatWithTools(messages, tools) {
+        if (tools.some((tool) => tool.function.name === "decide")) {
+          return Promise.resolve({
+            toolCalls: [{
+              id: "review_redirect",
+              type: "function" as const,
+              function: {
+                name: "decide",
+                arguments: JSON.stringify({ allowed: false, verdict: "This tracker is unrelated to reading the posting." }),
+              },
+            }],
+          });
+        }
+        agentTurn += 1;
+        return scripted(
+          agentTurn === 1
+            ? [{ name: "read_page_api", args: { url: "/api/jobs", reason: "The results page says visible cards come from this endpoint." } }]
+            : [{ name: "finish", args: { reason: "The unrelated redirect was refused." } }],
+        ).chatWithTools(messages, tools);
+      },
+    };
+
+    await runJobSearchAgent({
+      hands: hands(pages),
+      page,
+      config: config(),
+      llmClient,
+      jobExtractor: extractor,
+    });
+
+    expect(get).toHaveBeenCalledOnce();
+    expect(get).toHaveBeenCalledWith(
+      "https://jobs.example.test/api/jobs",
+      expect.objectContaining({ maxRedirects: 0 }),
+    );
+  });
+
+  test("a sign-in wall the model reports becomes a typed blocker with the page it happened on", async () => {
+    const pages = { current: rawPage() };
+    const result = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config(),
+      llmClient: scripted([
+        {
+          name: "finish",
+          args: {
+            reason:
+              "The results load, but every posting opens a sign-in page before the details",
+            needsPerson: true,
+            blockedBy: "sign_in",
+          },
+        },
+      ]),
+      jobExtractor: extractor,
+    });
+
+    expect(result.incomplete).toBe(true);
+    expect(result.accessBlockerReason).toBe("auth_required");
+    expect(result.parkedPageUrl).toBe(
+      "https://jobs.example.test/search?q=engineer",
+    );
+    expect(result.error).toBe(
+      "The results load, but every posting opens a sign-in page before the details.",
+    );
+  });
+
+  test("a stuck finish carries the model's report", async () => {
+    const pages = { current: rawPage() };
+    const result = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config(),
+      llmClient: scripted([
+        {
+          name: "finish",
+          args: {
+            reason: "Next page keeps returning the same ten postings",
+            stuck: true,
+          },
+        },
+      ]),
+      jobExtractor: extractor,
+    });
+
+    expect(result.incomplete).toBe(true);
+    expect(result.error).toContain(
+      "because it got stuck: Next page keeps returning the same ten postings.",
+    );
+  });
+
+  test("a source check returns the model's structured findings", async () => {
+    const pages = { current: rawPage() };
+    const result = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config({
+        promptContext: {
+          siteLabel: "the example board",
+          taskPacket: {
+            phase: "search_filter_probe",
+            phaseGoal: "Prove which controls change results",
+            knownFacts: [],
+            avoidStrategyFingerprints: [],
+            successCriteria: [],
+            stopConditions: [],
+          },
+        },
+      }),
+      llmClient: scripted([
+        {
+          name: "extract_jobs",
+          args: { pageType: "search_results", maxJobs: 2 },
+        },
+        {
+          name: "finish",
+          args: {
+            reason: "The search box at the top narrows results by title",
+            summary: "Search box narrows by title.",
+            reliableControls: ["Top search box"],
+            warnings: ["Location filter is decorative"],
+          },
+        },
+      ]),
+      jobExtractor: extractor,
+    });
+
+    expect(result.phaseCompletionMode).toBe("structured_finish");
+    expect(result.phaseCompletionReason).toContain("search box");
+    expect(result.debugFindings?.reliableControls).toEqual(["Top search box"]);
+    expect(result.phaseEvidence?.warnings).toEqual([
+      "Location filter is decorative",
+    ]);
+    expect(result.phaseEvidence?.routeSignals).toContain(
+      "https://jobs.example.test/search",
+    );
+  });
+
+  test("a resumed run starts with the jobs it already had and skips them on re-read", async () => {
+    const pages = { current: rawPage() };
+    const first = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config(),
+      llmClient: scripted([
+        { name: "extract_jobs", args: { pageType: "search_results" } },
+        { name: "finish", args: { reason: "Done" } },
+      ]),
+      jobExtractor: extractor,
+    });
+    const checkpoints: unknown[] = [];
+    const resumed = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config({
+        resumeCheckpoint: {
+          revision: 3,
+          savedAt: "2026-09-14T10:00:00.000Z",
+          currentUrl: "https://jobs.example.test/search?q=engineer",
+          lastStableUrl: "https://jobs.example.test/search?q=engineer",
+          stepCount: 4,
+          collectedJobs: first.jobs,
+          visitedUrls: [],
+          phaseEvidence: {
+            visibleControls: [],
+            successfulInteractions: [],
+            routeSignals: [],
+            attemptedControls: [],
+            warnings: [],
+            visualFindings: [],
+          },
+        },
+        onCheckpoint: (checkpoint) => {
+          checkpoints.push(checkpoint);
+        },
+      }),
+      llmClient: scripted([
+        { name: "extract_jobs", args: { pageType: "search_results" } },
+        { name: "finish", args: { reason: "Done" } },
+      ]),
+      jobExtractor: extractor,
+    });
+
+    expect(resumed.jobs).toHaveLength(2);
+    // Nothing new was saved, so no checkpoint was written on the re-read.
+    expect(checkpoints).toHaveLength(0);
+  });
+});
+
+describe("what the person sees while it runs", () => {
+  test("turn notes are rewritten without tool names or handles", async () => {
+    const { describeStepForPerson } = await import("./job-search-agent");
+    expect(describeStepForPerson("observe → Page: https://x.test")).toBe(
+      "Looking at the page.",
+    );
+    expect(describeStepForPerson('click → Pressed "Next page".')).toBe(
+      'Pressing "Next page".',
+    );
+    expect(describeStepForPerson("type → Typed into c1. The page now:")).toBe(
+      "Typing into a field.",
+    );
+    expect(describeStepForPerson("wait → Waited 2000ms.")).toBe(
+      "Waiting for the page to settle.",
+    );
+    expect(describeStepForPerson("scan_cards → Saved 12 new postings:")).toBe(
+      "Saved 12 new postings.",
+    );
+    expect(describeStepForPerson("extract_jobs → Saved no new postings.")).toBe(
+      "Read the page; nothing new here.",
+    );
+    expect(
+      describeStepForPerson("navigate → Opened https://jobs.example.test/p2."),
+    ).toBe("Opening https://jobs.example.test/p2.");
+  });
+});

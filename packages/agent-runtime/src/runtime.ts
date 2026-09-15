@@ -103,7 +103,36 @@ export interface AgentTaskRunResult<TDraft> {
   readonly receipt: AgentTaskExecutionReceipt;
 }
 
+/** Keep a bounded recent tail without ever starting on an orphaned tool result.
+ * Chat-completions providers reject a `tool` message unless the matching
+ * assistant `tool_calls` message is still present immediately before its
+ * result group. */
+function takeProtocolSafeRecentMessages(
+  messages: readonly AgentTaskMessage[],
+  limit: number,
+): AgentTaskMessage[] {
+  let start = Math.max(0, messages.length - limit);
+  if (messages[start]?.role === "tool") {
+    for (let index = start - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate?.role === "assistant" && candidate.toolCalls?.length) {
+        start = index;
+        break;
+      }
+      if (candidate?.role !== "tool") break;
+    }
+  }
+  return messages.slice(start);
+}
+
+/** A provider adapter that already owns retries can use this to avoid nesting
+ * another three-attempt retry loop while preserving the original message. */
+export class AgentTaskNonRetryableProviderError extends Error {
+  override readonly name = "AgentTaskNonRetryableProviderError";
+}
+
 export function classifyAgentTaskFailure(error: unknown): AgentTaskFailureKind {
+  if (error instanceof AgentTaskNonRetryableProviderError) return "permanent";
   if (error instanceof DOMException && error.name === "AbortError") {
     return "cancelled";
   }
@@ -247,7 +276,7 @@ export async function runAgentTask<TState, TDraft>(
         role: "user",
         content: JSON.stringify(taskPayload),
       },
-      ...recentMessages.slice(-8),
+      ...takeProtocolSafeRecentMessages(recentMessages, 8),
     ];
 
     emitProgress("thinking", "Working on the next useful change");

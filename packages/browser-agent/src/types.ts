@@ -7,6 +7,7 @@ import type {
   BrowserVisualSnapshotRequest,
   BrowserAgentRunCheckpoint,
   JobPosting,
+  JobSearchCampaignMode,
   CandidateProfile,
   AgentDiscoveryProgress,
   JobSource,
@@ -43,6 +44,8 @@ export interface AgentNavigationPolicy {
 
 export interface AgentPromptContext {
   siteLabel: string;
+  /** Whether this run should favor only strong fits or find a broad pool. */
+  searchMode?: JobSearchCampaignMode;
   siteInstructions?: string[];
   toolUsageNotes?: string[];
   experimental?: boolean;

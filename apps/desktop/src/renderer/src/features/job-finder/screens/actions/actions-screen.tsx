@@ -32,6 +32,7 @@ import {
   TECHNICAL_DETAILS_LABEL,
 } from "../../lib/describe-failure";
 import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
+import { buildResumeWorkspaceRoute } from "../../lib/resume-workspace-route";
 import { listApplicationsAwaitingUser } from "../../lib/needs-you-count";
 import {
   getApplicationNextStepLabel,
@@ -206,18 +207,20 @@ const TRAILING_SAFETY_CLAUSE =
 export function toActionableInstructions(
   instructions: readonly string[],
 ): readonly string[] {
-  return instructions
-    // A site's own decoration travels into these lines through the labels they
-    // quote; a colour pin in the middle of a step is noise, not an instruction.
-    .map((instruction) => stripScrapedGlyphs(instruction).trim())
-    .filter(
-      (instruction) =>
-        instruction.length > 0 && !SAFETY_ONLY_INSTRUCTION.test(instruction),
-    )
-    .map((instruction) =>
-      instruction.replace(TRAILING_SAFETY_CLAUSE, "").trim(),
-    )
-    .filter((instruction) => instruction.length > 0);
+  return (
+    instructions
+      // A site's own decoration travels into these lines through the labels they
+      // quote; a colour pin in the middle of a step is noise, not an instruction.
+      .map((instruction) => stripScrapedGlyphs(instruction).trim())
+      .filter(
+        (instruction) =>
+          instruction.length > 0 && !SAFETY_ONLY_INSTRUCTION.test(instruction),
+      )
+      .map((instruction) =>
+        instruction.replace(TRAILING_SAFETY_CLAUSE, "").trim(),
+      )
+      .filter((instruction) => instruction.length > 0)
+  );
 }
 
 /** Below this many open actions the list is scannable without a search field. */
@@ -258,14 +261,8 @@ function ActionCard(props: {
   questions: readonly ApplicationAttemptQuestion[];
   request: UserActionRequest;
 }) {
-  const {
-    isPending,
-    jobLabel,
-    onCommand,
-    onOpenScope,
-    questions,
-    request,
-  } = props;
+  const { isPending, jobLabel, onCommand, onOpenScope, questions, request } =
+    props;
   const isVerifying = request.state === "verifying";
   // One shape for the whole card: a question step is a question and an answer
   // box, not a browser hand-off with an answer editor bolted underneath it.
@@ -866,7 +863,7 @@ export function ActionsScreen(props: {
         // action it offers; the page header owns the credential boundary
         // only, so the promise is stated once per card instead of three
         // times on the same screen.
-        description={`Finish each step in ${JOB_FINDER_BROWSER_NAME}, right here in the app, then come back and confirm. Passwords and security codes stay with you.`}
+        description={`Finish each step where Job Finder sends you. Browser steps stay in ${JOB_FINDER_BROWSER_NAME}; resume and profile reviews open directly in the app. Passwords and security codes stay with you.`}
         title="Needs you"
       />
 
@@ -885,7 +882,10 @@ export function ActionsScreen(props: {
         />
       ) : null}
 
-      <PlanSafeguardPauseCards pauses={props.safeguardPauses ?? []} onNavigate={props.onNavigate} />
+      <PlanSafeguardPauseCards
+        pauses={props.safeguardPauses ?? []}
+        onNavigate={props.onNavigate}
+      />
       {applicationsAwaitingUser.length > 0 ? (
         <section
           aria-labelledby="applications-awaiting-you-heading"
@@ -900,42 +900,55 @@ export function ActionsScreen(props: {
             </h2>
             <Badge variant="section">{applicationsAwaitingUser.length}</Badge>
           </div>
-          {applicationsAwaitingUser.map((record) => (
-            <article
-              className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5"
-              key={record.id}
-            >
-              <div className="grid gap-1">
-                <h3 className="font-semibold text-(--text-headline)">
-                  {stripScrapedGlyphs(record.title)}
-                </h3>
-                <p className="text-sm text-foreground-soft">
-                  {stripScrapedGlyphs(record.company)}
-                </p>
-                <p className="text-sm leading-6 text-foreground-soft">
-                  {stripScrapedGlyphs(getApplicationNextStepLabel(record))}
-                </p>
-              </div>
-              <div>
-                <Button
-                  onClick={() =>
-                    props.onNavigate(
-                      buildJobFinderContextRoute("/job-finder/applications", {
-                        applicationRecordId: record.id,
-                        jobId: record.jobId,
-                        targetId: null,
-                      }),
-                    )
-                  }
-                  size="compact"
-                  type="button"
-                  variant="secondary"
-                >
-                  <ArrowUpRight aria-hidden="true" /> Open this application
-                </Button>
-              </div>
-            </article>
-          ))}
+          {applicationsAwaitingUser.map((record) => {
+            const opensResumeStudio = getApplicationNextStepLabel(record)
+              .toLowerCase()
+              .includes("resume studio");
+            return (
+              <article
+                className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5"
+                key={record.id}
+              >
+                <div className="grid gap-1">
+                  <h3 className="font-semibold text-(--text-headline)">
+                    {stripScrapedGlyphs(record.title)}
+                  </h3>
+                  <p className="text-sm text-foreground-soft">
+                    {stripScrapedGlyphs(record.company)}
+                  </p>
+                  <p className="text-sm leading-6 text-foreground-soft">
+                    {stripScrapedGlyphs(getApplicationNextStepLabel(record))}
+                  </p>
+                </div>
+                <div>
+                  <Button
+                    onClick={() =>
+                      props.onNavigate(
+                        opensResumeStudio
+                          ? buildResumeWorkspaceRoute(record.jobId)
+                          : buildJobFinderContextRoute(
+                              "/job-finder/applications",
+                              {
+                                applicationRecordId: record.id,
+                                jobId: record.jobId,
+                                targetId: null,
+                              },
+                            ),
+                      )
+                    }
+                    size="compact"
+                    type="button"
+                    variant="secondary"
+                  >
+                    <ArrowUpRight aria-hidden="true" />{" "}
+                    {opensResumeStudio
+                      ? "Open resume"
+                      : "Open this application"}
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
         </section>
       ) : null}
       {activeDecisions.length > 0 ? (
@@ -1168,7 +1181,8 @@ export function QuestionAnswerForm(props: {
   const saveId = `${requestId}-save-answer`;
   const readAnswer = (questionId: string) => answers[questionId] ?? "";
   const missingRequired = questions.some(
-    (question) => question.isRequired !== false && !readAnswer(question.id).trim(),
+    (question) =>
+      question.isRequired !== false && !readAnswer(question.id).trim(),
   );
   const isSingle = questions.length === 1;
 

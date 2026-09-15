@@ -157,7 +157,7 @@ describe("buildJobFinderGlobalSearchEntries", () => {
     );
   });
 
-  it("excludes absence-placeholder company shells from search", () => {
+  it("keeps the retired company catalog out of global search", () => {
     const workspace = {
       campaigns: [],
       discoveryJobs: [],
@@ -192,7 +192,7 @@ describe("buildJobFinderGlobalSearchEntries", () => {
       .filter((entry) => entry.kind === "company")
       .map((entry) => entry.id);
 
-    expect(companyIds).toEqual(["company-real"]);
+    expect(companyIds).toEqual([]);
   });
 
   it("keeps every saved record searchable and labels the ones outside the active plan", () => {
@@ -206,7 +206,7 @@ describe("buildJobFinderGlobalSearchEntries", () => {
     const idsOf = (kind: string) =>
       entries.filter((entry) => entry.kind === kind).map((entry) => entry.id);
 
-    expect(idsOf("campaign")).toEqual(["campaign-active", "campaign-other"]);
+    expect(idsOf("campaign")).toEqual([]);
     expect(idsOf("job")).toEqual(["job-active", "job-other", "job-unassigned"]);
     expect(idsOf("application")).toEqual([
       "application-active",
@@ -239,7 +239,7 @@ describe("buildJobFinderGlobalSearchEntries", () => {
     const idsOf = (kind: string) =>
       entries.filter((entry) => entry.kind === kind).map((entry) => entry.id);
 
-    expect(idsOf("campaign")).toEqual(["campaign-active", "campaign-other"]);
+    expect(idsOf("campaign")).toEqual([]);
     expect(idsOf("job")).toEqual(["job-active", "job-other", "job-unassigned"]);
     expect(idsOf("application")).toEqual([
       "application-active",

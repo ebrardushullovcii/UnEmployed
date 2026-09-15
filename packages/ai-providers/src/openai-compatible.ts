@@ -75,6 +75,8 @@ import { createBrowserVisualAnalysisProviderFromEnvironment } from "./browser-vi
 import {
   runProfileCopilotAgentTask,
   runResumeEditAgentTask,
+  runResumeGenerationAgentTask,
+  runResumeImportStageAgentTask,
 } from "./agent-capabilities";
 import {
   buildModelRequestHeaders,
@@ -791,7 +793,11 @@ export function countDistinguishingListingTerms(job: {
   summary?: string | null;
   keySkills?: readonly string[];
 }): number {
-  const text = [job.description ?? "", job.summary ?? "", ...(job.keySkills ?? [])]
+  const text = [
+    job.description ?? "",
+    job.summary ?? "",
+    ...(job.keySkills ?? []),
+  ]
     .join(" ")
     .toLowerCase();
   const terms = new Set(
@@ -983,7 +989,10 @@ export function createJobFinderAiClientFromEnvironment(
       const fallbackPromise = fallbackClient.extractResumeImportStage(input);
 
       try {
-        const primary = await primaryClient.extractResumeImportStage(input);
+        const primary = await runResumeImportStageAgentTask({
+          client: primaryClient,
+          request: input,
+        });
         const primaryProviderMs =
           primary.timing?.primaryProviderMs ??
           Math.max(0, Math.round(performance.now() - primaryStartedAtMs));
@@ -1133,7 +1142,23 @@ export function createJobFinderAiClientFromEnvironment(
       const providerLabel =
         modelClient === aggressiveClient ? "Aggressive AI" : "Primary AI";
       try {
-        return await modelClient.createResumeDraft(input);
+        const generated = await runResumeGenerationAgentTask({
+          client: modelClient,
+          request: input,
+          substantivePrompt: buildResumeRewriteProposalPrompt(
+            input.strategy?.tailoringStrength ??
+              input.searchPreferences.tailoringMode,
+            input.strategy,
+          ),
+        });
+        const model = modelClient.getStatus().model;
+        return {
+          ...generated,
+          notes: uniqueStrings([
+            ...generated.notes,
+            `Generated with ${providerLabel}${model ? ` (${model})` : ""}.`,
+          ]),
+        };
       } catch (error) {
         logFallbackError("createResumeDraft", error);
         // Empty model output still goes through completeTailoredResumeDraft,

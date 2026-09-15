@@ -44,6 +44,12 @@ export function buildMissingResumeCopilotArtifacts(input: {
   applicationRecord: ReturnType<typeof ApplicationRecordSchema.parse>;
   job: SavedJob;
   detectedAt: string;
+  prerequisite?: {
+    kind: "work_history_review";
+    summary: string;
+    detail: string;
+    nextActionLabel: string;
+  };
 }): {
   run: ApplyRun;
   result: ApplyJobResult;
@@ -60,11 +66,24 @@ export function buildMissingResumeCopilotArtifacts(input: {
   const checkpointId = createUniqueId("apply_checkpoint");
   const consentRequestId = createUniqueId("apply_consent_request");
   const canonicalApplyUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
+  const needsWorkHistoryReview =
+    input.prerequisite?.kind === "work_history_review";
+  const blockerSummary =
+    input.prerequisite?.summary ??
+    "An approved tailored resume is required before apply copilot can start.";
+  const blockerDetail =
+    input.prerequisite?.detail ??
+    "This job does not currently have an approved, non-stale tailored resume export on disk, so the run stopped before any live application action.";
+  const nextActionLabel =
+    input.prerequisite?.nextActionLabel ??
+    "Export and approve a tailored resume before retrying apply copilot.";
 
   const run = ApplyRunSchema.parse({
     id: runId,
     mode: "copilot",
-    state: "paused_for_consent",
+    state: needsWorkHistoryReview
+      ? "paused_for_user_review"
+      : "paused_for_consent",
     jobIds: [input.job.id],
     currentJobId: input.job.id,
     submitApprovalId: null,
@@ -72,8 +91,9 @@ export function buildMissingResumeCopilotArtifacts(input: {
     updatedAt: input.detectedAt,
     completedAt: null,
     summary: `Apply copilot paused for '${input.job.title}' before any live application execution.`,
-    detail:
-      "The approved tailored resume is missing or stale, so the copilot run recorded a review-ready blocker instead of starting any live application flow.",
+    detail: needsWorkHistoryReview
+      ? "The tailored resume needs one decision from you, so the copilot recorded that step instead of opening the job site."
+      : "The approved tailored resume is missing or stale, so the copilot run recorded a review-ready blocker instead of starting any live application flow.",
     totalJobs: 1,
     pendingJobs: 0,
     submittedJobs: 0,
@@ -90,16 +110,16 @@ export function buildMissingResumeCopilotArtifacts(input: {
     queuePosition: 0,
     state: "blocked",
     summary: "Apply copilot blocked before launch.",
-    detail:
-      "This job does not currently have an approved, non-stale tailored resume export on disk, so the run stopped before any live application action.",
+    detail: blockerDetail,
     startedAt: input.detectedAt,
     updatedAt: input.detectedAt,
     completedAt: input.detectedAt,
     applicationPreparationStartedAt: null,
     applicationPreparationStartedLocalDate: null,
-    blockerReason: "resume_missing",
-    blockerSummary:
-      "An approved tailored resume is required before apply copilot can start.",
+    blockerReason: needsWorkHistoryReview
+      ? "required_human_input"
+      : "resume_missing",
+    blockerSummary,
     latestQuestionCount: 1,
     latestAnswerCount: 0,
     pendingConsentRequestCount: 1,
@@ -113,8 +133,10 @@ export function buildMissingResumeCopilotArtifacts(input: {
     jobId: input.job.id,
     applicationRecordId: input.applicationRecord.id,
     resultId,
-    prompt: "Approved tailored resume available for this job",
-    kind: "resume",
+    prompt: needsWorkHistoryReview
+      ? "Confirm the work history intentionally left out of this tailored resume"
+      : "Approved tailored resume available for this job",
+    kind: needsWorkHistoryReview ? "experience" : "resume",
     isRequired: true,
     detectedAt: input.detectedAt,
     answerOptions: [],
@@ -132,11 +154,12 @@ export function buildMissingResumeCopilotArtifacts(input: {
     title: input.job.title,
     company: input.job.company,
     status: input.job.status,
-    lastActionLabel: result.summary,
-    nextActionLabel:
-      "Export and approve a tailored resume before retrying apply copilot.",
+    lastActionLabel: needsWorkHistoryReview
+      ? "Application preparation is waiting for your resume review."
+      : result.summary,
+    nextActionLabel,
     lastUpdatedAt: input.detectedAt,
-    lastAttemptState: null,
+    lastAttemptState: needsWorkHistoryReview ? "paused" : null,
     questionSummary: {
       total: 1,
       required: 1,
@@ -144,7 +167,7 @@ export function buildMissingResumeCopilotArtifacts(input: {
       unansweredRequired: 1,
     },
     latestBlocker: {
-      code: "missing_resume",
+      code: needsWorkHistoryReview ? "requires_manual_review" : "missing_resume",
       summary: result.blockerSummary,
     },
     consentSummary: {
@@ -159,9 +182,11 @@ export function buildMissingResumeCopilotArtifacts(input: {
     },
     events: [
       {
-        id: `event_${runId}_missing_resume_blocker`,
+        id: `event_${runId}_${needsWorkHistoryReview ? "work_history_review" : "missing_resume"}_blocker`,
         at: input.detectedAt,
-        title: "Apply copilot blocked before launch",
+        title: needsWorkHistoryReview
+          ? "Resume review needed before preparation"
+          : "Apply copilot blocked before launch",
         detail: result.detail,
         emphasis: "critical",
       },
@@ -176,12 +201,15 @@ export function buildMissingResumeCopilotArtifacts(input: {
     resultId,
     questionId,
     kind: "field_snapshot",
-    label: "Missing approved tailored resume blocker",
+    label: needsWorkHistoryReview
+      ? "Work history review needed"
+      : "Missing approved tailored resume blocker",
     createdAt: input.detectedAt,
     storagePath: null,
     url: canonicalApplyUrl,
-    textSnippet:
-      "Apply copilot stayed local and non-submitting because no approved tailored resume export was available.",
+    textSnippet: needsWorkHistoryReview
+      ? "Apply copilot stayed local and non-submitting while the tailored resume waits for work history confirmation."
+      : "Apply copilot stayed local and non-submitting because no approved tailored resume export was available.",
   });
 
   const checkpoint = ApplicationReplayCheckpointSchema.parse({
@@ -192,8 +220,9 @@ export function buildMissingResumeCopilotArtifacts(input: {
     resultId,
     createdAt: input.detectedAt,
     label: "Blocked before live apply launch",
-    detail:
-      "The run recorded the missing-resume blocker and stayed in local non-submitting copilot mode.",
+    detail: needsWorkHistoryReview
+      ? "The run recorded the resume review step and stayed in local non-submitting copilot mode."
+      : "The run recorded the missing-resume blocker and stayed in local non-submitting copilot mode.",
     url: canonicalApplyUrl,
     jobState: "blocked",
     artifactRefIds: [artifactId],
@@ -207,9 +236,12 @@ export function buildMissingResumeCopilotArtifacts(input: {
     resultId,
     kind: "resume_use",
     linkedConsentKind: "resume_use",
-    label: "Approve and export a tailored resume before starting apply copilot",
-    detail:
-      "This non-submitting Milestone 1 run only records the prerequisite blocker. Export and approve a fresh tailored PDF before later apply-copilot slices can continue.",
+    label: needsWorkHistoryReview
+      ? "Confirm the tailored resume's hidden work history"
+      : "Approve and export a tailored resume before starting apply copilot",
+    detail: needsWorkHistoryReview
+      ? "Open this job in Resume Studio, confirm that the omitted role or roles are intentionally hidden, then try application preparation again."
+      : "This non-submitting Milestone 1 run only records the prerequisite blocker. Export and approve a fresh tailored PDF before later apply-copilot slices can continue.",
     status: "pending",
     requestedAt: input.detectedAt,
     decidedAt: null,
@@ -492,7 +524,19 @@ export function buildApplicationPrivacyReceipt(input: {
         ? (["generated_documents"] as const)
         : []),
     ],
-    modelUse: [],
+    modelUse: (executionResult.modelUse ?? []).map((entry) => ({
+      purpose: entry.purpose,
+      transport: "external_model" as const,
+      providerLabel: entry.providerLabel,
+      modelLabel: entry.modelLabel,
+      dataCategories: [
+        "profile_data",
+        "resume_content",
+        "job_listing_data",
+        "application_answers",
+      ] as const,
+      occurredAt: entry.occurredAt,
+    })),
     externalWrites,
     accountCreationAuthorized: false,
     finalSubmitAuthorized: false,

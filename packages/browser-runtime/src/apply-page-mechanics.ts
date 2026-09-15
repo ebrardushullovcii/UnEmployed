@@ -1,5 +1,8 @@
 import type {
   ApplyBlockedAttempt,
+  RawApplyClickable,
+  RawApplyHeading,
+  RawApplyOpenedTab,
   ApplyNavigationResult,
   ApplyPageSession,
   ApplyRawPageHands,
@@ -11,12 +14,13 @@ import type {
   RawApplyLink,
   RawApplyPage,
 } from "@unemployed/contracts";
+import { describeBrowserError, isPageReplacedError } from "@unemployed/contracts";
 import type { Locator, Page } from "playwright";
 
 import {
   closePrepareOnlyIntermediateMutationWindow,
   ensurePrepareOnlyMutationGuard,
-  getLatestBlockedPrepareOnlyAttempt,
+  getBlockedPrepareOnlyAttempts,
   openPrepareOnlyIntermediateMutationWindow,
   registerPrepareOnlyPreparedValue,
   type ApplicationRunServiceWorkerSentinel,
@@ -40,7 +44,46 @@ export const APPLY_ACTION_SELECTOR =
 
 export const APPLY_LINK_SELECTOR = "a[href]";
 
+/**
+ * Everything else a person could press.
+ *
+ * Sites are built out of divs with click handlers, cards, and tiles as often
+ * as they are out of buttons. A harness that can only press a `<button>`
+ * cannot use the web.
+ */
+export const APPLY_CLICKABLE_SELECTOR =
+  "[onclick], [role='link'], [role='menuitem'], [role='tab'], [role='option'], [data-testid], [class*='card'], [class*='tile'], summary, label[for]";
+
+/**
+ * Lets a page that is mid-navigation finish before it is read.
+ *
+ * Bounded: a page that never settles is read as it is. Short, because this
+ * runs before every read and a run is made of many reads.
+ */
+async function settlePage(page: Page, timeout = 4_000): Promise<void> {
+  await page.waitForLoadState("domcontentloaded", { timeout }).catch(() => undefined);
+}
+
 export async function readRawApplyPage(page: Page): Promise<RawApplyPage> {
+  await settlePage(page);
+  try {
+    return await readRawApplyPageOnce(page);
+  } catch (error) {
+    if (!isPageReplacedError(error)) {
+      throw new Error(describeBrowserError(error, "The page could not be read."));
+    }
+  }
+  // The page moved on while it was being read. Wait for where it went and
+  // read that: a second failure is genuinely the page's, and is said plainly.
+  await settlePage(page, 8_000);
+  try {
+    return await readRawApplyPageOnce(page);
+  } catch (error) {
+    throw new Error(describeBrowserError(error, "The page could not be read."));
+  }
+}
+
+async function readRawApplyPageOnce(page: Page): Promise<RawApplyPage> {
   const [controls, actions, links, bodyText, validationErrors, stepLabel] =
     await Promise.all([
       page
@@ -290,16 +333,98 @@ export async function readRawApplyPage(page: Page): Promise<RawApplyPage> {
     enrichedControls,
   );
 
+  const [headings, clickables, openedTabs, loading] = await Promise.all([
+    page
+      .locator("h1, h2, h3, [role='heading']")
+      .evaluateAll((elements): RawApplyHeading[] =>
+        elements.slice(0, 60).flatMap((element) => {
+          const html = element as HTMLElement;
+          const text = html.innerText.trim().slice(0, 300);
+          if (!text) return [];
+          const explicit = element.getAttribute("aria-level");
+          const fromTag = /^H([1-6])$/u.exec(element.tagName)?.[1];
+          return [
+            {
+              level: Number.parseInt(explicit ?? fromTag ?? "2", 10) || 2,
+              text,
+            },
+          ];
+        }),
+      )
+      .catch(() => [] as RawApplyHeading[]),
+    page
+      .locator(APPLY_CLICKABLE_SELECTOR)
+      .evaluateAll((elements): RawApplyClickable[] =>
+        elements.slice(0, 300).flatMap((element, index) => {
+          const html = element as HTMLElement;
+          const style = window.getComputedStyle(html);
+          const rect = html.getBoundingClientRect();
+          const label = (
+            element.getAttribute("aria-label")?.trim() ||
+            html.innerText.trim() ||
+            element.getAttribute("title")?.trim() ||
+            ""
+          ).slice(0, 300);
+          if (!label) return [];
+          return [
+            {
+              index,
+              label,
+              role: element.getAttribute("role")?.toLowerCase() ?? "",
+              tagName: element.tagName.toLowerCase(),
+              visible:
+                style.display !== "none" &&
+                style.visibility !== "hidden" &&
+                style.opacity !== "0" &&
+                html.getClientRects().length > 0,
+              topOffset: Math.round(rect.top + window.scrollY),
+            },
+          ];
+        }),
+      )
+      .catch(() => [] as RawApplyClickable[]),
+    readOpenedTabs(page),
+    page
+      .evaluate(() => document.readyState !== "complete")
+      .catch(() => false),
+  ]);
+
   return {
     url: page.url(),
     title: await page.title().catch(() => null),
     bodyText,
+    headings,
     controls: controlsWithChoices,
     actions,
     links,
+    clickables,
+    openedTabs,
     validationErrors,
     stepLabel,
+    loading,
   };
+}
+
+/**
+ * Tabs the page opened for itself.
+ *
+ * A site that opens its application in a new tab has not blocked anything; it
+ * has just moved the work. Reporting the tab lets the model go there.
+ */
+async function readOpenedTabs(page: Page): Promise<RawApplyOpenedTab[]> {
+  try {
+    const pages = page.context().pages();
+    const others = pages.filter((candidate) => candidate !== page);
+    return await Promise.all(
+      others.slice(0, 8).map(async (candidate, index) => ({
+        index,
+        url: candidate.url(),
+        title: await candidate.title().catch(() => ""),
+      })),
+    );
+  } catch {
+    return [];
+  }
 }
 
 /** How many closed lists one page read is willing to open. */
@@ -583,8 +708,40 @@ function linkLocator(page: Page, ref: string): Locator | null {
   return page.locator(APPLY_LINK_SELECTOR).nth(index);
 }
 
+function clickableLocator(page: Page, ref: string): Locator | null {
+  const index = Number.parseInt(ref.replace(/^e/u, ""), 10);
+  if (!ref.startsWith("e") || Number.isNaN(index)) {
+    return null;
+  }
+  return page.locator(APPLY_CLICKABLE_SELECTOR).nth(index);
+}
+
 function describeWriteFailure(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+  return describeBrowserError(error, fallback);
+}
+
+/**
+ * Presses one thing and lets whatever it started finish.
+ *
+ * A click that begins a navigation is the click working. Waiting a moment for
+ * the new page means the read that follows sees where the click went rather
+ * than the document it destroyed on the way.
+ */
+async function clickAndSettle(page: Page, locator: Locator): Promise<void> {
+  await locator.scrollIntoViewIfNeeded({ timeout: 2_000 }).catch(() => undefined);
+  try {
+    await locator.click({ timeout: 10_000 });
+  } catch (error) {
+    // Something is drawn over it, or it sits under a sticky header. A person
+    // would still get the click in; so does a click aimed straight at it.
+    if (!/intercepts pointer events|outside of the viewport|not visible/iu.test(
+      error instanceof Error ? error.message : "",
+    )) {
+      throw error;
+    }
+    await locator.click({ timeout: 5_000, force: true });
+  }
+  await page.waitForLoadState("domcontentloaded", { timeout: 3_000 }).catch(() => undefined);
 }
 
 /** The live-page implementation of the apply mechanics. */
@@ -692,7 +849,7 @@ export function createPlaywrightApplyPageMechanics(
         return { ok: false, error: `No button named ${ref} on this page.` };
       }
       try {
-        await locator.click({ timeout: 10_000 });
+        await clickAndSettle(page, locator);
         return { ok: true, observedValue: "clicked" };
       } catch (error) {
         return {
@@ -752,6 +909,125 @@ export function createPlaywrightApplyPageMechanics(
         };
       }
     },
+    navigate: async (url): Promise<ApplyNavigationResult> => {
+      let target: URL;
+      try {
+        target = new URL(url, page.url());
+      } catch {
+        return { ok: false, error: `${url} is not an address.` };
+      }
+      if (target.protocol !== "https:" && target.protocol !== "http:") {
+        return { ok: false, error: "That address is not a web page." };
+      }
+      try {
+        await page.goto(target.toString(), {
+          waitUntil: "domcontentloaded",
+          timeout: 20_000,
+        });
+        return { ok: true, url: page.url() };
+      } catch (error) {
+        return {
+          ok: false,
+          error: describeWriteFailure(error, "That page would not open."),
+        };
+      }
+    },
+    clickElement: async (ref): Promise<ApplyWriteResult> => {
+      const locator =
+        actionLocator(page, ref) ??
+        linkLocator(page, ref) ??
+        clickableLocator(page, ref) ??
+        controlLocator(page, ref);
+      if (!locator) {
+        return { ok: false, error: `There is nothing called ${ref} here.` };
+      }
+      try {
+        await clickAndSettle(page, locator);
+        return { ok: true, observedValue: "clicked" };
+      } catch (error) {
+        return {
+          ok: false,
+          error: describeWriteFailure(error, "That would not respond."),
+        };
+      }
+    },
+    scroll: async (direction): Promise<ApplyWriteResult> => {
+      try {
+        await page.evaluate((where) => {
+          const step = window.innerHeight * 0.85;
+          if (where === "top") window.scrollTo({ top: 0 });
+          else if (where === "bottom")
+            window.scrollTo({ top: document.body.scrollHeight });
+          else window.scrollBy({ top: where === "down" ? step : -step });
+        }, direction);
+        return { ok: true, observedValue: direction };
+      } catch (error) {
+        return {
+          ok: false,
+          error: describeWriteFailure(error, "The page would not scroll."),
+        };
+      }
+    },
+    wait: async (milliseconds) => {
+      await page.waitForTimeout(Math.max(0, Math.min(10_000, milliseconds)));
+    },
+    goBack: async (): Promise<ApplyNavigationResult> => {
+      try {
+        await page.goBack({ waitUntil: "domcontentloaded", timeout: 15_000 });
+        return { ok: true, url: page.url() };
+      } catch (error) {
+        return {
+          ok: false,
+          error: describeWriteFailure(error, "There is nothing to go back to."),
+        };
+      }
+    },
+    adoptOpenedTab: async (index): Promise<ApplyNavigationResult> => {
+      const others = page.context().pages().filter((candidate) => candidate !== page);
+      const opened = others[index];
+      if (!opened) {
+        return { ok: false, error: "That tab is no longer open." };
+      }
+      await opened
+        .waitForLoadState("domcontentloaded", { timeout: 5_000 })
+        .catch(() => undefined);
+      const url = opened.url();
+      if (!/^https?:/iu.test(url)) {
+        await opened.close().catch(() => undefined);
+        return { ok: false, error: "That tab never loaded a web page." };
+      }
+      await opened.close().catch(() => undefined);
+      try {
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20_000 });
+        return { ok: true, url: page.url() };
+      } catch (error) {
+        return {
+          ok: false,
+          error: describeWriteFailure(error, "That page would not open here."),
+        };
+      }
+    },
+    readText: async (ref) => {
+      if (!ref) {
+        return page
+          .locator("body")
+          .innerText({ timeout: 5_000 })
+          .then((text) => text.slice(0, 40_000))
+          .catch(() => "");
+      }
+      const locator =
+        controlLocator(page, ref) ??
+        actionLocator(page, ref) ??
+        linkLocator(page, ref) ??
+        clickableLocator(page, ref);
+      if (!locator) {
+        return "";
+      }
+      return locator
+        .innerText({ timeout: 5_000 })
+        .then((text) => text.slice(0, 40_000))
+        .catch(() => "");
+    },
   };
 }
 
@@ -769,6 +1045,18 @@ export function createPlaywrightApplyPageSession(input: {
   const { page } = input;
   const mechanics = createPlaywrightApplyPageMechanics(page);
   let intermediateWriteCount = 0;
+  // Attempts already handed to the workflow layer. Each read hands out one
+  // it has not seen, and the one that matters most first: the page trying to
+  // open a tab or send the form is never hidden behind its own analytics.
+  const handedOut = new Set<string>();
+  const attemptWeight = (attempt: ApplyBlockedAttempt): number =>
+    attempt.kind.includes("submit")
+      ? 3
+      : attempt.kind === "download"
+        ? 2
+        : attempt.kind === "popup_open" || attempt.kind === "window_open"
+          ? 1
+          : 0;
 
   return {
     ...mechanics,
@@ -779,8 +1067,20 @@ export function createPlaywrightApplyPageSession(input: {
         guardInput.allowedOrigins,
       );
     },
-    readBlockedAttempt: async (): Promise<ApplyBlockedAttempt | null> =>
-      (await getLatestBlockedPrepareOnlyAttempt(page)) ?? null,
+    readBlockedAttempt: async (): Promise<ApplyBlockedAttempt | null> => {
+      const unseen = (await getBlockedPrepareOnlyAttempts(page)).filter(
+        (attempt) =>
+          !handedOut.has(`${attempt.kind}|${attempt.method}|${attempt.url ?? ""}|${attempt.at}`),
+      );
+      if (unseen.length === 0) {
+        return null;
+      }
+      const chosen = unseen.reduce((best, attempt) =>
+        attemptWeight(attempt) > attemptWeight(best) ? attempt : best,
+      );
+      handedOut.add(`${chosen.kind}|${chosen.method}|${chosen.url ?? ""}|${chosen.at}`);
+      return chosen;
+    },
     registerPreparedValue: (value) =>
       registerPrepareOnlyPreparedValue(page, value),
     openIntermediateWriteWindow: async () => {

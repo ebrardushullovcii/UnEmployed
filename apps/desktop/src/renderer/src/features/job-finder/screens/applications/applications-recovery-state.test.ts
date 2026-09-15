@@ -328,6 +328,23 @@ describe("resolveApplicationRecoveryPresentation", () => {
     expect(presentation.primaryActionLabel).toBe("Answer in Needs you");
   });
 
+  it("offers a same-record retry after the current resume-review blocker clears", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      isApplyPending: false,
+      recordLatestBlockerCode: null,
+      visibleApplyResult: buildResult({
+        state: "blocked",
+        blockerReason: "required_human_input",
+        blockerSummary:
+          "The resume for 'Senior Product Designer' leaves out a role that Job Finder wants you to confirm first.",
+      }),
+    });
+
+    expect(presentation.state).toBe("retry");
+    expect(presentation.primaryActionLabel).toBe("Try again");
+  });
+
   it("keeps saying it is working for as long as the run record is running", () => {
     const presentation = resolveApplicationRecoveryPresentation({
       canOpenSafeguards: true,

@@ -1733,9 +1733,10 @@ ${ownSentence}`,
       profile,
     });
 
+    // The bad generated summary is replaced by the person's own profile
+    // summary, never dropped: an export with no summary at all is worse.
     expect(getSection(sanitized, "section_summary")).toMatchObject({
-      text: null,
-      included: false,
+      text: profile.summary,
     });
     expect(getExperienceEntry(sanitized)).toMatchObject({
       profileRecordId: "experience_1",

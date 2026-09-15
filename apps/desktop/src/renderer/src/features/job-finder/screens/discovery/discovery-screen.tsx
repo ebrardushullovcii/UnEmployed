@@ -702,6 +702,13 @@ export function DiscoveryScreen(props: {
         )?.id ?? null)
       : null;
   const hiddenJobCount = resultVisibility.hiddenAlsoFoundCount;
+  // A focused view with nothing in it and results behind the reveal is a
+  // list lying about a search that found jobs. Show them.
+  const focusedViewIsEmpty =
+    !showAlsoFound && hiddenJobCount > 0 && resultVisibility.jobs.length === 0;
+  useEffect(() => {
+    if (focusedViewIsEmpty) setShowAlsoFound(true);
+  }, [focusedViewIsEmpty]);
 
   const showEmptyDiscoveryState = jobs.length === 0;
   // Newest-run truth for the results panel's empty states, so a failed or

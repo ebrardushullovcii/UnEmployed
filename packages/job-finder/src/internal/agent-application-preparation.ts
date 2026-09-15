@@ -1,5 +1,6 @@
 import {
   createApplyPageHands,
+  createMoveReviewer,
   runApplyAgent,
   type ApplyAgentResult,
   type ApplyAuthority,
@@ -36,7 +37,9 @@ import type {
   ApplyPageSession,
   ApplicationAttemptBlocker,
   ApplicationAttemptCheckpoint,
+  ApplicationAttemptExternalWriteEvidence,
   ApplicationAttemptQuestion,
+  ApplyExecutionModelUse,
   ApplyExecutionResult,
   ApplicationReviewCard,
   CandidateProfile,
@@ -67,6 +70,9 @@ export interface AgentApplicationPreparationInput {
   startedAt: string;
   /** What the person would call this site. */
   siteLabel: string;
+  /** Who the model is, for the privacy receipt: "OpenCode Go", "muse-spark-1.3". */
+  providerLabel?: string | null;
+  modelLabel?: string | null;
   /**
    * Writes and renders the letter this application sends. Omitted when the
    * caller has no way to produce one, in which case a form that asks for a
@@ -208,14 +214,63 @@ function toCheckpoints(
   jobId: string,
   startedAt: string,
 ): ApplicationAttemptCheckpoint[] {
-  return result.notes.slice(0, 40).map((note, index) => ({
+  // Each line is stamped with the moment it was written, not with the run's
+  // start: a trail where every step happened "at 19:41" is no trail.
+  const lines =
+    result.timeline.length > 0
+      ? result.timeline
+      : result.notes.map((text) => ({ at: startedAt, text }));
+  return lines.slice(0, 40).map((line, index) => ({
     id: `checkpoint_${jobId}_agent_${index + 1}`,
-    at: startedAt,
+    at: line.at,
     label: "Working through the form",
-    detail: note,
+    detail: line.text,
     state: "in_progress" as const,
     visualEvidence: [],
   }));
+}
+
+/** What the run wrote on the site, for the receipt: each field, each file. */
+function toExternalWrites(
+  result: ApplyAgentResult,
+): ApplicationAttemptExternalWriteEvidence[] {
+  return [
+    ...result.filled.map((entry) => ({
+      category:
+        entry.questionKind === "personal_info"
+          ? ("profile_field" as const)
+          : ("application_answer" as const),
+      fieldLabel: entry.label,
+      occurredAt: entry.at,
+      verified: false,
+    })),
+    ...result.attachments.map((entry) => ({
+      category: "resume_attachment" as const,
+      fieldLabel: entry.controlLabel,
+      occurredAt: entry.at,
+      verified: false,
+    })),
+  ];
+}
+
+/** The model this run talked to, for the receipt. Empty only when it never did. */
+function toModelUse(
+  result: ApplyAgentResult,
+  input: Pick<AgentApplicationPreparationInput, "providerLabel" | "modelLabel">,
+  startedAt: string,
+): ApplyExecutionModelUse[] {
+  if (result.modelTurns === 0) {
+    return [];
+  }
+  return [
+    {
+      purpose: "application_answering",
+      providerLabel: input.providerLabel?.trim() || "Job Finder's assistant",
+      modelLabel: input.modelLabel?.trim() || null,
+      occurredAt: startedAt,
+      turns: result.modelTurns,
+    },
+  ];
 }
 
 function nextActionFor(result: ApplyAgentResult): string {
@@ -224,7 +279,7 @@ function nextActionFor(result: ApplyAgentResult): string {
     return blocked.blocker.nextActionLabel;
   }
   if (result.pauses.some((pause) => pause.question !== null)) {
-    return "Open the browser and finish it";
+    return "Open the Job Finder browser and finish it";
   }
   return result.outcome === "awaiting_your_review"
     ? "Review it and send it"
@@ -238,7 +293,9 @@ function questionsLeftPhrase(result: ApplyAgentResult): string {
       total + (pause.questions?.length ?? (pause.question ? 1 : 0)),
     0,
   );
-  return count === 1 ? "1 question left for you" : `${count} questions left for you`;
+  return count === 1
+    ? "1 question left for you"
+    : `${count} questions left for you`;
 }
 
 function summaryFor(result: ApplyAgentResult): string {
@@ -268,18 +325,28 @@ function summaryFor(result: ApplyAgentResult): string {
 async function runApplyAgentSafely(
   input: AgentApplicationPreparationInput,
   config: Parameters<typeof runApplyAgent>[0],
-): Promise<{ ok: true; result: ApplyAgentResult } | { ok: false; detail: string }> {
+): Promise<
+  { ok: true; result: ApplyAgentResult } | { ok: false; detail: string }
+> {
   try {
     return { ok: true, result: await runApplyAgent(config, input.llmClient) };
   } catch (error) {
     const reason =
       error instanceof Error && error.message.trim()
-        ? error.message.trim()
-        : "something went wrong while it was working through the form";
+        ? error.message.trim().replace(/\.?$/u, ".")
+        : "Something went wrong while it was working through the form.";
     return {
       ok: false,
-      detail: `Job Finder stopped working on ${input.siteLabel} because ${reason}. Nothing was sent, and anything it filled in is still on the page.`,
+      detail: `Job Finder hit a problem on ${input.siteLabel} it could not work around. ${reason} Nothing was sent, and anything it filled in is still on the page.`,
     };
+  }
+}
+
+function hostnameOf(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
   }
 }
 
@@ -302,43 +369,50 @@ export async function runAgentApplicationPreparation(
 
   const outcome = await runApplyAgentSafely(input, {
     hands: createApplyPageHands(input.session, now),
-      safety: input.session,
-      intermediateWritesAuthorized:
-        executionInput.intermediateMutationsAuthorized === true,
-      authority: toApplyAuthority(executionInput),
-      sources: {
-        profile: executionInput.profile,
-        resumeText: executionInput.profile.baseResume.textContent,
-        posting: {
-          title: executionInput.job.title,
-          company: executionInput.job.company,
-          location: executionInput.job.location,
-          description: executionInput.job.description,
-        },
-        reusableAnswers: executionInput.profile.answerBank.customAnswers,
-        documents: toApplyDocuments(executionInput),
+    safety: input.session,
+    intermediateWritesAuthorized:
+      executionInput.intermediateMutationsAuthorized === true,
+    authority: toApplyAuthority(executionInput),
+    sources: {
+      profile: executionInput.profile,
+      resumeText: executionInput.profile.baseResume.textContent,
+      posting: {
+        title: executionInput.job.title,
+        company: executionInput.job.company,
+        location: executionInput.job.location,
+        description: executionInput.job.description,
       },
-      application: {
-        jobId: executionInput.job.id,
-        applicationId: executionInput.idempotencyKey ?? executionInput.job.id,
-        startingUrl: targetUrl,
-      },
-      siteLabel: input.siteLabel,
-      ...(input.letters
-        ? {
-            letters: createApplicationLetterProvider({
-              ...input.letters,
-              application: {
-                jobId: executionInput.job.id,
-                applicationId:
-                  executionInput.idempotencyKey ?? executionInput.job.id,
-              },
-              ...(input.signal ? { signal: input.signal } : {}),
-            }),
-          }
-        : {}),
-      now,
+      reusableAnswers: executionInput.profile.answerBank.customAnswers,
+      documents: toApplyDocuments(executionInput),
+    },
+    application: {
+      jobId: executionInput.job.id,
+      applicationId: executionInput.idempotencyKey ?? executionInput.job.id,
+      startingUrl: targetUrl,
+    },
+    siteLabel: input.siteLabel,
+    reviewMove: createMoveReviewer({
+      llmClient: input.llmClient,
+      goal: `Apply for ${executionInput.job.title} at ${executionInput.job.company}, starting from the listing at ${targetUrl}. Fill in the employer's application form; nothing is sent.`,
+      homeLabel: input.siteLabel,
+      homeHosts: [hostnameOf(targetUrl) ?? input.siteLabel],
       ...(input.signal ? { signal: input.signal } : {}),
+    }),
+    ...(input.letters
+      ? {
+          letters: createApplicationLetterProvider({
+            ...input.letters,
+            application: {
+              jobId: executionInput.job.id,
+              applicationId:
+                executionInput.idempotencyKey ?? executionInput.job.id,
+            },
+            ...(input.signal ? { signal: input.signal } : {}),
+          }),
+        }
+      : {}),
+    now,
+    ...(input.signal ? { signal: input.signal } : {}),
   });
 
   if (!outcome.ok) {
@@ -374,7 +448,9 @@ export async function runAgentApplicationPreparation(
   // One line the developer can read beside the person's own notes. The same
   // numbers are in the run's trail; this is so a slow run can be diagnosed
   // from the console without opening the record.
-  const timingNote = result.notes.find((note) => note.startsWith("[apply] timing"));
+  const timingNote = result.notes.find((note) =>
+    note.startsWith("[apply] timing"),
+  );
   if (timingNote) {
     console.info(timingNote);
   }
@@ -410,6 +486,8 @@ export async function runAgentApplicationPreparation(
     lastUrl: result.finalUrl,
     now: now().toISOString(),
     nextActionLabel: nextActionFor(result),
+    externalWrites: toExternalWrites(result),
+    modelUse: toModelUse(result, input, startedAt),
   });
 }
 
@@ -441,6 +519,7 @@ export function resolveApplySiteLabel(input: {
  * something the person can configure, and the caller says so in those words.
  */
 export function toApplyLlmClient(aiClient: {
+  getStatus?: () => { label: string; model: string | null };
   chatWithTools?: (
     messages: Parameters<LLMClient["chatWithTools"]>[0],
     tools: Parameters<LLMClient["chatWithTools"]>[1],
@@ -505,12 +584,15 @@ export function createApplyFormPreparer(input: {
       });
     }
 
+    const status = input.aiClient.getStatus?.() ?? null;
     return runAgentApplicationPreparation({
       session,
       executionInput: input.executionInput,
       llmClient,
       startedAt,
       siteLabel: input.siteLabel,
+      providerLabel: status?.label ?? null,
+      modelLabel: status?.model ?? null,
       ...(input.letters ? { letters: input.letters } : {}),
       ...(input.envelope ? { envelope: input.envelope } : {}),
       ...(input.onPrepared ? { onPrepared: input.onPrepared } : {}),
@@ -546,9 +628,7 @@ export function buildApplyLetterDependencies(input: {
   job: SavedJob;
   profile: CandidateProfile;
   settings: JobFinderSettings;
-}):
-  | Omit<ApplicationLetterDependencies, "application" | "signal">
-  | undefined {
+}): Omit<ApplicationLetterDependencies, "application" | "signal"> | undefined {
   const chatWithTools = input.aiClient.chatWithTools;
   if (!chatWithTools) {
     return undefined;
@@ -560,15 +640,36 @@ export function buildApplyLetterDependencies(input: {
     preference: CoverLetterPreferenceSchema.parse(
       input.settings.coverLetter ?? {},
     ),
-    writeLetter: async ({ prompt, signal }) => {
+    writeLetter: async ({
+      prompt,
+      purpose,
+      groundedIn,
+      language,
+      preference,
+      priorText,
+      signal,
+    }) => {
       const reply = await chatWithTools(
         [
           {
             role: "system",
             content:
-              "You write cover letters for one person. Every claim must be supported by what you are given. Return only the letter.",
+              "You write application documents for one person. Every claim must be supported by the supplied profile, selected resume, and job posting. Follow the saved tone, length, and language preference. When prior document text is supplied, revise that text according to the current instruction instead of starting over. Return only the finished document text.",
           },
-          { role: "user", content: prompt },
+          {
+            role: "user",
+            content: [
+              `Document purpose: ${purpose.replace(/_/gu, " ")}`,
+              `Current instruction: ${prompt}`,
+              `Saved tone: ${preference.tone}`,
+              `Saved length: ${preference.length}`,
+              `Language: ${language ?? preference.language ?? "Follow the job posting"}`,
+              "",
+              "Grounded application context:",
+              ...groundedIn.map((entry) => `- ${entry}`),
+              ...(priorText ? ["", "Prior version to revise:", priorText] : []),
+            ].join("\n"),
+          },
         ],
         [],
         signal ? { signal } : {},
@@ -595,9 +696,7 @@ export function buildApplyLetterDependencies(input: {
               // The exact bytes that were written are the bytes that go out.
               loadBytes: async () => {
                 const bytes = await readFile(rendered.storagePath);
-                const actual = createHash("sha256")
-                  .update(bytes)
-                  .digest("hex");
+                const actual = createHash("sha256").update(bytes).digest("hex");
                 if (actual !== rendered.sha256) {
                   throw new Error(
                     "The letter changed after it was written, so it was not attached.",

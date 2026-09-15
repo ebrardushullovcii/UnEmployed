@@ -732,6 +732,7 @@ export function createJobFinderWorkspaceService(
     assertCampaignCanRun(campaign);
     await executor({
       campaignId: campaign.id,
+      mode: campaign.mode,
       searchPreferences: campaign.searchPreferences,
       runJobBudget: campaign.limits.discoveryRunJobBudget ?? null,
     });

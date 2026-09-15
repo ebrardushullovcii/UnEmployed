@@ -1,4 +1,8 @@
-import { runAgentTask, type AgentTaskModel } from "@unemployed/agent-runtime";
+import {
+  AgentTaskNonRetryableProviderError,
+  runAgentTask,
+  type AgentTaskModel,
+} from "@unemployed/agent-runtime";
 import {
   ProfileCopilotPatchGroupSchema,
   ProfileCopilotPatchOperationSchema,
@@ -9,24 +13,40 @@ import {
   ProfileSearchPreferencesPatchFieldsSchema,
   ProfileCopilotReplySchema,
   ResumeDraftPatchSchema,
+  ResumeImportFieldCandidateDraftSchema,
   type AgentTaskValidationIssue,
   type ProfileCopilotPatchGroup,
   type ProfileCopilotPatchOperation,
   type ProfileCopilotReply,
   type ResumeDraftPatch,
+  type ResumeImportFieldCandidateDraft,
+  type ToolCall,
 } from "@unemployed/contracts";
 import { z } from "zod";
 
 import {
   ResumeAssistantReplySchema,
+  TailoredResumeDraftSchema,
   type AgentCapableJobFinderAiClient,
   type ResumeAssistantReply,
+  type CreateResumeDraftInput,
   type ReviseCandidateProfileInput,
   type ReviseResumeDraftInput,
+  type TailoredResumeDraft,
+  type ExtractResumeImportStageTransportInput,
 } from "./shared";
-import { describeAggressiveResumeEditPolicy } from "./resume-generation-grounding";
+import { completeTailoredResumeDraft } from "./openai-compatible-shared";
+import {
+  buildGroundedResumeRewriteModelPayload,
+  describeAggressiveResumeEditPolicy,
+} from "./resume-generation-grounding";
 import { compactOpenAiCompatibleUserPayload } from "./openai-compatible-request-compaction";
 import { modelConversationKeys } from "./model-request-identity";
+import {
+  ResumeImportStageExtractionResultSchema,
+  sanitizeStageCandidates,
+  type ResumeImportStageExtractionResult,
+} from "./resume-import";
 
 const EmptyInputSchema = z.object({});
 const ContentInputSchema = z.object({ content: z.string().trim().min(1) });
@@ -41,6 +61,32 @@ const ResumeBulletTextInputSchema = z.object({
   bulletId: z.string().trim().min(1),
   newText: z.string().trim().min(1),
 });
+const ResumeGenerationProposalInputSchema = z.object({
+  proposal: z.record(z.string(), z.unknown()),
+});
+const ResumeImportCandidateSetInputSchema = z.object({
+  candidates: z.array(ResumeImportFieldCandidateDraftSchema),
+  notes: z.array(z.string().trim().min(1)).default([]),
+});
+
+const resumeImportTargetSectionsByStage = {
+  identity_summary: ["identity", "contact", "location", "search_preferences"],
+  experience: ["experience"],
+  background: [
+    "education",
+    "certification",
+    "link",
+    "project",
+    "language",
+    "skill",
+  ],
+  shared_memory: [
+    "narrative",
+    "proof_point",
+    "answer_bank",
+    "application_identity",
+  ],
+} as const;
 
 /**
  * What each patch operation must carry to be appliable. The patch schema
@@ -117,36 +163,57 @@ function jsonSafe(value: unknown): unknown {
 function createModelAdapter(
   client: AgentCapableJobFinderAiClient,
   conversationKey?: string,
+  options?: {
+    contentToToolCalls?: (content: string) => ToolCall[] | null;
+    preventRuntimeRetries?: boolean;
+  },
 ): AgentTaskModel {
   const status = client.getStatus();
   return {
     model: status.model,
     reasoningEffort: null,
     async chat(input) {
-      return client.chatWithTools(
-        input.messages.map((message) => {
-          if (message.role === "tool") {
-            return {
-              role: "tool" as const,
-              toolCallId: message.toolCallId ?? "missing_tool_call_id",
-              content: message.content,
-            };
-          }
-          if (message.role === "assistant") {
-            return {
-              role: "assistant" as const,
-              content: message.content,
-              ...(message.toolCalls ? { toolCalls: message.toolCalls } : {}),
-            };
-          }
-          return { role: message.role, content: message.content };
-        }),
-        [...input.tools],
-        {
-          ...(input.signal ? { signal: input.signal } : {}),
-          ...(conversationKey ? { conversationKey } : {}),
-        },
-      );
+      try {
+        const response = await client.chatWithTools(
+          input.messages.map((message) => {
+            if (message.role === "tool") {
+              return {
+                role: "tool" as const,
+                toolCallId: message.toolCallId ?? "missing_tool_call_id",
+                content: message.content,
+              };
+            }
+            if (message.role === "assistant") {
+              return {
+                role: "assistant" as const,
+                content: message.content,
+                ...(message.toolCalls ? { toolCalls: message.toolCalls } : {}),
+              };
+            }
+            return { role: message.role, content: message.content };
+          }),
+          [...input.tools],
+          {
+            ...(input.signal ? { signal: input.signal } : {}),
+            ...(conversationKey ? { conversationKey } : {}),
+          },
+        );
+        if (
+          (!response.toolCalls || response.toolCalls.length === 0) &&
+          response.content &&
+          options?.contentToToolCalls
+        ) {
+          const toolCalls = options.contentToToolCalls(response.content);
+          if (toolCalls) return { ...response, toolCalls };
+        }
+        return response;
+      } catch (error) {
+        if (!options?.preventRuntimeRetries) throw error;
+        throw new AgentTaskNonRetryableProviderError(
+          error instanceof Error ? error.message : "Provider request failed",
+          { cause: error },
+        );
+      }
     },
   };
 }
@@ -157,6 +224,588 @@ function zodIssues(error: z.ZodError): AgentTaskValidationIssue[] {
     message: issue.message,
     path: issue.path,
   }));
+}
+
+/**
+ * Gives resume generation a bounded working loop instead of treating the
+ * model as a one-shot JSON endpoint. The model owns the useful writing work;
+ * the existing completion layer still owns identity, chronology, and the
+ * final typed draft contract.
+ */
+export async function runResumeGenerationAgentTask(input: {
+  client: AgentCapableJobFinderAiClient;
+  request: CreateResumeDraftInput;
+  substantivePrompt: string;
+}): Promise<TailoredResumeDraft> {
+  let selectedTemplateId =
+    input.request.selectedTemplateId ?? input.request.settings.resumeTemplateId;
+  let hasComposedProposal = false;
+  let hasRenderedPreview = false;
+  const groundedResumePayload = buildGroundedResumeRewriteModelPayload(
+    input.request,
+  );
+  const result = await runAgentTask({
+    taskId: `resume_generation_${Date.now()}`,
+    capability: "resume_generation",
+    systemPrompt: [
+      input.substantivePrompt,
+      "Work through the task tools instead of returning a final JSON object.",
+      "Read the complete context and template options, compose a material proposal, render and inspect the resulting full-text preview, revise the proposal when the inspection exposes a weak result, then finish.",
+      "The runtime preserves identity, chronology, selected strategy, and the final typed resume shape. Your job is to do the actual job-targeted writing within the mode-specific instructions above.",
+    ].join(" "),
+    state: input.request,
+    initialDraft: {} as Record<string, unknown>,
+    model: createModelAdapter(
+      input.client,
+      modelConversationKeys.resumeForJob(input.request.job),
+      {
+        preventRuntimeRetries: true,
+        contentToToolCalls(content) {
+          try {
+            const proposal = JSON.parse(content) as unknown;
+            if (
+              !proposal ||
+              typeof proposal !== "object" ||
+              Array.isArray(proposal)
+            )
+              return null;
+            return [
+              {
+                id: `resume_proposal_${Date.now()}`,
+                type: "function",
+                function: {
+                  name: "compose_resume_proposal",
+                  arguments: JSON.stringify({ proposal }),
+                },
+              },
+              {
+                id: `resume_finish_${Date.now()}`,
+                type: "function",
+                function: { name: "finish_task", arguments: "{}" },
+              },
+            ];
+          } catch {
+            return null;
+          }
+        },
+      },
+    ),
+    tools: [
+      {
+        name: "read_resume_generation_context",
+        description:
+          "Read the complete target job, candidate profile, selected base resume text, saved preferences, strategy, and settings.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        parallelSafe: true,
+        execute(_toolInput, context) {
+          return {
+            summary: "Resume generation context read",
+            value: {
+              ...context.state,
+              ...groundedResumePayload,
+            },
+            progressMade: false,
+          };
+        },
+      },
+      {
+        name: "read_resume_templates",
+        description:
+          "Read the available resume templates and the template already selected by saved strategy, existing draft, or settings. Template selection stays governed by that saved policy.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        parallelSafe: true,
+        execute(_toolInput, context) {
+          return {
+            summary: "Resume template options read",
+            value: {
+              selectedTemplateId,
+              selectionLocked: context.state.templateSelectionLocked === true,
+              availableTemplates: context.state.availableTemplates ?? [],
+            },
+            progressMade: false,
+          };
+        },
+      },
+      {
+        name: "select_resume_template",
+        description:
+          "Choose the best eligible template for this job and content when the person has not locked a template through an existing draft or saved strategy. An explicit choice is never overridden.",
+        inputSchema: z.object({ templateId: z.string().trim().min(1) }),
+        parameters: jsonObject({ templateId: { type: "string" } }, [
+          "templateId",
+        ]),
+        permission: "draft_write",
+        execute(toolInput, context) {
+          const templateId = z
+            .object({ templateId: z.string().trim().min(1) })
+            .parse(toolInput).templateId;
+          if (context.state.templateSelectionLocked) {
+            return {
+              summary: "Explicit template choice preserved",
+              value: { selectedTemplateId },
+              progressMade: false,
+            };
+          }
+          const template = context.state.availableTemplates?.find(
+            (candidate) => candidate.id === templateId,
+          );
+          if (!template || template.applyEligible === false) {
+            throw new Error(
+              `Template '${templateId}' is unavailable or not eligible for application use.`,
+            );
+          }
+          const changed = selectedTemplateId !== templateId;
+          selectedTemplateId = templateId;
+          if (changed) hasRenderedPreview = false;
+          return {
+            summary: `Resume template selected: ${template.label}`,
+            value: { selectedTemplateId },
+            progressMade: changed,
+          };
+        },
+      },
+      {
+        name: "compose_resume_proposal",
+        description:
+          "Write or revise the sparse job-targeted resume proposal. Use the exact proposal shape described in the task instructions. Calling this again replaces the working proposal so you can improve it after inspection.",
+        inputSchema: ResumeGenerationProposalInputSchema,
+        parameters: jsonObject(
+          {
+            proposal: {
+              type: "object",
+              additionalProperties: true,
+              description:
+                "Sparse summary, experienceEntries, projectEntries, and optional coreSkills proposal from the task instructions.",
+            },
+          },
+          ["proposal"],
+        ),
+        permission: "draft_write",
+        execute(toolInput, context) {
+          const parsed = ResumeGenerationProposalInputSchema.parse(toolInput);
+          hasComposedProposal = true;
+          hasRenderedPreview = false;
+          return {
+            draft: parsed.proposal,
+            summary: "Resume proposal composed",
+            progressMade:
+              JSON.stringify(context.draft) !== JSON.stringify(parsed.proposal),
+          };
+        },
+      },
+      {
+        name: "render_resume_preview",
+        description:
+          "Render the current proposal into the complete typed, full-text resume preview using the selected base resume and saved generation strategy. Inspect all sections and revise before finishing when needed.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        execute(_toolInput, context) {
+          const preview = completeTailoredResumeDraft(
+            context.draft,
+            context.state,
+          );
+          return Promise.resolve(
+            context.state.renderPreview
+              ? context.state.renderPreview({
+                  draft: preview,
+                  templateId: selectedTemplateId,
+                })
+              : null,
+          ).then((rendered) => {
+            hasRenderedPreview = true;
+            return {
+              summary: rendered
+                ? "Formatted resume preview rendered"
+                : "Resume content preview rendered",
+              value: {
+                selectedTemplateId,
+                formattedArtifact: rendered,
+                label: preview.label,
+                fullText: preview.fullText,
+                summary: preview.summary,
+                experienceEntries: preview.experienceEntries,
+                projectEntries: preview.projectEntries,
+                educationEntries: preview.educationEntries,
+                certificationEntries: preview.certificationEntries,
+                coreSkills: preview.coreSkills,
+                targetedKeywords: preview.targetedKeywords,
+                coverageMetadata: preview.coverageMetadata,
+                generationQuality: preview.generationQuality,
+                notes: preview.notes,
+              },
+              progressMade: false,
+            };
+          });
+        },
+      },
+      {
+        name: "inspect_completed_resume",
+        description:
+          "Inspect the complete typed resume that the current writing proposal produces, including notes, coverage metadata, provenance, and every rendered content section. Use this feedback to revise weak or incomplete writing before finishing.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        execute(_toolInput, context) {
+          return {
+            summary: "Completed resume inspected",
+            value: completeTailoredResumeDraft(context.draft, context.state),
+            progressMade: false,
+          };
+        },
+      },
+      {
+        name: "finish_task",
+        description:
+          "Finish after composing and inspecting a useful resume proposal.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        execute() {
+          return { summary: "Resume generation finished", finish: true };
+        },
+      },
+    ],
+    validate: () => [
+      ...(!hasComposedProposal
+        ? [
+            {
+              code: "resume_proposal_required",
+              message: "Compose a resume proposal before finishing.",
+              path: ["proposal"],
+            },
+          ]
+        : []),
+      ...(!hasRenderedPreview
+        ? [
+            {
+              code: "resume_preview_required",
+              message:
+                "Render and inspect the current resume preview before finishing.",
+              path: ["preview"],
+            },
+          ]
+        : []),
+    ],
+    buildContext: ({ state, draft }) =>
+      compactOpenAiCompatibleUserPayload({
+        operation: "createResumeDraft",
+        modelContextWindowTokens: 196_000,
+        systemPrompt: input.substantivePrompt,
+        userPayload: jsonSafe({
+          ...groundedResumePayload,
+          fullTargetJob: state.job,
+          candidateProfile: state.profile,
+          selectedBaseResumeText: state.resumeText,
+          searchPreferences: state.searchPreferences,
+          generationStrategy: state.strategy ?? null,
+          settings: state.settings,
+          workingProposal: draft,
+        }),
+      }),
+    timeBudgetMs: 600_000,
+    providerCallBudget: 16,
+    noProgressLimit: 6,
+    emergencyCeiling: 24,
+  });
+
+  return TailoredResumeDraftSchema.parse({
+    ...completeTailoredResumeDraft(result.draft, input.request),
+    recommendedTemplateId: selectedTemplateId,
+  });
+}
+
+export async function runResumeImportStageAgentTask(input: {
+  client: AgentCapableJobFinderAiClient;
+  request: ExtractResumeImportStageTransportInput;
+}): Promise<ResumeImportStageExtractionResult> {
+  type Draft = {
+    candidates: ResumeImportFieldCandidateDraft[];
+    notes: string[];
+  };
+  const initialDraft: Draft = { candidates: [], notes: [] };
+  const result = await runAgentTask({
+    taskId: `resume_import_${input.request.stage}_${Date.now()}`,
+    capability: "resume_import",
+    systemPrompt: [
+      `You are importing the ${input.request.stage} portion of a resume into typed profile candidates.`,
+      "Use the tools to inspect the parsed document blocks and any layout or vision evidence. Populate candidates only from evidence in the document, with exact source block ids, confidence, alternatives, and review notes when ambiguity remains.",
+      "Resolve ambiguity by inspecting more document evidence before finishing. Do not overwrite the saved profile directly; the reconciliation layer will keep genuinely uncertain candidates available for user review.",
+    ].join(" "),
+    state: input.request,
+    initialDraft,
+    model: createModelAdapter(
+      input.client,
+      modelConversationKeys.resumeImport(
+        input.request.documentBundle.fullText ??
+          input.request.documentBundle.blocks
+            .map((block) => block.text)
+            .join("\n"),
+      ),
+      {
+        preventRuntimeRetries: true,
+        contentToToolCalls(content) {
+          try {
+            const parsed = JSON.parse(content) as Record<string, unknown>;
+            const candidateSet = {
+              candidates: Array.isArray(parsed.candidates)
+                ? parsed.candidates
+                : [],
+              notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+            };
+            return [
+              {
+                id: `resume_import_candidates_${Date.now()}`,
+                type: "function",
+                function: {
+                  name: "record_import_candidates",
+                  arguments: JSON.stringify(candidateSet),
+                },
+              },
+              {
+                id: `resume_import_finish_${Date.now()}`,
+                type: "function",
+                function: { name: "finish_task", arguments: "{}" },
+              },
+            ];
+          } catch {
+            return null;
+          }
+        },
+      },
+    ),
+    tools: [
+      {
+        name: "read_resume_document",
+        description:
+          "Read the complete parsed resume bundle, including normalized text, structured blocks, pages, parser warnings, and visual evidence references.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        parallelSafe: true,
+        execute(_toolInput, context) {
+          return {
+            summary: "Resume document evidence read",
+            value: context.state.documentBundle,
+            progressMade: false,
+          };
+        },
+      },
+      {
+        name: "inspect_document_layout",
+        description:
+          "Inspect page dimensions, ordered blocks, bounding boxes, parser lineage, OCR and quality warnings, and the document route used to decide whether separate vision evidence is required.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        parallelSafe: true,
+        execute(_toolInput, context) {
+          const bundle = context.state.documentBundle;
+          return {
+            summary: "Resume layout evidence inspected",
+            value: {
+              pages: bundle.pages,
+              blocks: bundle.blocks.map((block) => ({
+                id: block.id,
+                pageNumber: block.pageNumber,
+                readingOrder: block.readingOrder,
+                kind: block.kind,
+                sectionHint: block.sectionHint,
+                bbox: block.bbox,
+                sourceParserKinds: block.sourceParserKinds,
+                sourceConfidence: block.sourceConfidence,
+                parserLineage: block.parserLineage,
+                readingOrderConfidence: block.readingOrderConfidence,
+              })),
+              parserManifest: bundle.parserManifest,
+              route: bundle.route,
+              quality: bundle.quality,
+              warnings: [...bundle.warnings, ...(bundle.qualityWarnings ?? [])],
+            },
+            progressMade: false,
+          };
+        },
+      },
+      {
+        name: "read_existing_profile",
+        description:
+          "Read the existing profile and search preferences so imported values can be marked as new, conflicting, or ambiguous without silently replacing saved data.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        parallelSafe: true,
+        execute(_toolInput, context) {
+          return {
+            summary: "Existing profile context read",
+            value: {
+              profile: context.state.existingProfile,
+              searchPreferences: context.state.existingSearchPreferences,
+            },
+            progressMade: false,
+          };
+        },
+      },
+      {
+        name: "record_import_candidates",
+        description:
+          "Write or revise the typed candidates extracted for this stage. Every candidate must cite real source block ids from the document.",
+        inputSchema: ResumeImportCandidateSetInputSchema,
+        parameters: jsonObject(
+          {
+            candidates: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  target: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      section: {
+                        type: "string",
+                        enum: [
+                          ...resumeImportTargetSectionsByStage[
+                            input.request.stage
+                          ],
+                        ],
+                      },
+                      key: { type: "string" },
+                      recordId: { type: ["string", "null"] },
+                    },
+                    required: ["section", "key"],
+                  },
+                  label: { type: "string" },
+                  value: {},
+                  normalizedValue: {},
+                  valuePreview: { type: ["string", "null"] },
+                  evidenceText: { type: ["string", "null"] },
+                  sourceBlockIds: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                  confidence: { type: "number", minimum: 0, maximum: 1 },
+                  notes: { type: "array", items: { type: "string" } },
+                  alternatives: { type: "array", items: {} },
+                  visualEvidence: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        branch: {
+                          type: "string",
+                          enum: ["text", "vision", "adjudication"],
+                        },
+                        sourceFileKind: { type: "string" },
+                        pageNumber: { type: ["integer", "null"], minimum: 1 },
+                        regionHint: { type: ["string", "null"] },
+                        confidence: {
+                          type: ["number", "null"],
+                          minimum: 0,
+                          maximum: 1,
+                        },
+                        uncertaintyNotes: {
+                          type: "array",
+                          items: { type: "string" },
+                        },
+                      },
+                    },
+                  },
+                },
+                required: [
+                  "target",
+                  "label",
+                  "value",
+                  "sourceBlockIds",
+                  "confidence",
+                ],
+              },
+            },
+            notes: { type: "array", items: { type: "string" } },
+          },
+          ["candidates"],
+        ),
+        permission: "draft_write",
+        execute(toolInput, context) {
+          const parsed = ResumeImportCandidateSetInputSchema.parse(toolInput);
+          return {
+            draft: parsed,
+            summary: `${parsed.candidates.length} import candidate(s) recorded`,
+            progressMade:
+              JSON.stringify(context.draft) !== JSON.stringify(parsed),
+          };
+        },
+      },
+      {
+        name: "inspect_import_candidates",
+        description:
+          "Inspect the current candidate set after stage and source-block validation. Revise candidates that lost evidence or target the wrong section.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        execute(_toolInput, context) {
+          const candidateResult = ResumeImportStageExtractionResultSchema.parse(
+            {
+              stage: context.state.stage,
+              analysisProviderKind: "openai_compatible",
+              analysisProviderLabel: input.client.getStatus().label,
+              candidates: context.draft.candidates,
+              notes: context.draft.notes,
+            },
+          );
+          return {
+            summary: "Import candidates inspected",
+            value: sanitizeStageCandidates(context.state, candidateResult),
+            progressMade: false,
+          };
+        },
+      },
+      {
+        name: "finish_task",
+        description:
+          "Finish after document inspection and candidate validation are complete.",
+        inputSchema: EmptyInputSchema,
+        parameters: jsonObject({}),
+        permission: "read",
+        execute() {
+          return { summary: "Resume import stage finished", finish: true };
+        },
+      },
+    ],
+    validate: () => [],
+    buildContext: ({ state, draft }) =>
+      compactOpenAiCompatibleUserPayload({
+        operation: "extractResumeImportStage",
+        modelContextWindowTokens: 196_000,
+        systemPrompt: `Resume import ${state.stage} tool task`,
+        userPayload: jsonSafe({
+          stage: state.stage,
+          existingProfile: state.existingProfile,
+          existingSearchPreferences: state.existingSearchPreferences,
+          documentBundle: state.documentBundle,
+          currentCandidates: draft,
+        }),
+      }),
+    timeBudgetMs: 600_000,
+    providerCallBudget: 16,
+    noProgressLimit: 6,
+    emergencyCeiling: 24,
+  });
+
+  return sanitizeStageCandidates(
+    input.request,
+    ResumeImportStageExtractionResultSchema.parse({
+      stage: input.request.stage,
+      analysisProviderKind: "openai_compatible",
+      analysisProviderLabel: input.client.getStatus().label,
+      candidates: result.draft.candidates,
+      notes: result.draft.notes,
+    }),
+  );
 }
 
 export async function runProfileCopilotAgentTask(input: {

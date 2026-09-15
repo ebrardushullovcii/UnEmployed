@@ -617,6 +617,11 @@ declare global {
           ) => Promise<{ ok: true }>;
           loadResumeWorkspaceDemo: () => Promise<JobFinderWorkspaceSnapshot>;
           loadApplyQueueDemo: () => Promise<JobFinderWorkspaceSnapshot>;
+          loadWorkHistoryReviewDemo: () => Promise<JobFinderWorkspaceSnapshot>;
+          loadAgentOwnedBrowserDemo: (input: {
+            sourceUrl: string;
+            applicationUrl: string;
+          }) => Promise<JobFinderWorkspaceSnapshot>;
           /**
            * Arms exactly the next save on one protected surface to fail, then
            * clears itself. Test API only; absent in a production build.

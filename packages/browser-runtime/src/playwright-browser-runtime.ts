@@ -30,7 +30,8 @@ import {
 import type { ApplyRawPageHands } from "@unemployed/contracts";
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import {
-  runAgentDiscovery,
+  createApplyPageHands,
+  runJobSearchAgent,
   type AgentConfig,
   type AgentExtractorPageType,
   type LLMClient,
@@ -1708,6 +1709,30 @@ export function createBrowserAgentRuntime(
         onReadyPage((page) =>
           createPlaywrightApplyPageMechanics(page).followLink(ref),
         ),
+      navigate: (url) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).navigate(url),
+        ),
+      clickElement: (ref) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).clickElement(ref),
+        ),
+      scroll: (direction) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).scroll(direction),
+        ),
+      wait: (milliseconds) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).wait(milliseconds),
+        ),
+      goBack: () =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).goBack(),
+        ),
+      readText: (ref) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).readText(ref),
+        ),
     };
   }
 
@@ -2256,6 +2281,9 @@ export function createBrowserAgentRuntime(
           },
           promptContext: {
             siteLabel: agentOptions.siteLabel,
+            ...(agentOptions.searchMode
+              ? { searchMode: agentOptions.searchMode }
+              : {}),
             ...(agentOptions.siteInstructions
               ? { siteInstructions: agentOptions.siteInstructions }
               : {}),
@@ -2347,11 +2375,12 @@ export function createBrowserAgentRuntime(
             : {}),
         };
 
-        const result = await runAgentDiscovery(
+        const result = await runJobSearchAgent({
+          hands: createApplyPageHands(createPlaywrightApplyPageMechanics(page)),
           page,
-          agentConfig,
-          createAgentChatWithToolsBridge(chatWithTools),
-          {
+          config: agentConfig,
+          llmClient: createAgentChatWithToolsBridge(chatWithTools),
+          jobExtractor: {
             extractJobsFromPage: async (input: {
               pageText: string;
               pageUrl: string;
@@ -2403,9 +2432,9 @@ export function createBrowserAgentRuntime(
               }));
             },
           },
-          agentOptions.onProgress,
-          agentOptions.signal,
-        );
+          ...(agentOptions.onProgress ? { onProgress: agentOptions.onProgress } : {}),
+          ...(agentOptions.signal ? { signal: agentOptions.signal } : {}),
+        });
 
         return DiscoveryRunResultSchema.parse({
           source,

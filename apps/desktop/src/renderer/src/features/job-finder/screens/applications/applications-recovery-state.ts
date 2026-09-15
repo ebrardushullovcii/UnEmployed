@@ -403,6 +403,8 @@ export function resolveApplicationRecoveryPresentation(input: {
   pausedQuestionCount?: number | null;
   /** Injected so elapsed time is testable. */
   now?: number;
+  /** Current record blocker after resume-state reconciliation. */
+  recordLatestBlockerCode?: string | null;
   visibleApplyResult: ApplyResult;
 }): ApplicationRecoveryPresentation {
   const {
@@ -412,6 +414,7 @@ export function resolveApplicationRecoveryPresentation(input: {
     pausedQuestion = null,
     pausedQuestionCount = null,
     now = Date.now(),
+    recordLatestBlockerCode,
     visibleApplyResult,
   } = input;
   const reasonSentence = getApplicationStopReasonSentence(visibleApplyResult);
@@ -534,6 +537,23 @@ export function resolveApplicationRecoveryPresentation(input: {
   // The form asked something nothing on file answers. The answer control is
   // the Needs you step, so that is the one button: "Try again" would rerun
   // into the same unanswered question.
+  const resolvedResumeReview =
+    recordLatestBlockerCode === null &&
+    visibleApplyResult?.blockerReason === "required_human_input" &&
+    /resume review|tailored resume|work history|resume[^.]*leaves out|hidden role/i.test(
+      readReasonCorpus(visibleApplyResult),
+    );
+  if (resolvedResumeReview) {
+    return {
+      state: "retry",
+      statusLine: "Your resume is ready",
+      reasonSentence:
+        "The resume review is complete. Try this same application again when you are ready.",
+      primaryAction: "try_again",
+      primaryActionLabel: TRY_AGAIN_ACTION,
+    };
+  }
+
   if (applyResultPausedOnQuestion(visibleApplyResult)) {
     const question =
       pausedQuestion?.trim() || getPausedQuestionText(visibleApplyResult);

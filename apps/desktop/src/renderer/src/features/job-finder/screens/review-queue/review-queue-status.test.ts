@@ -5,6 +5,7 @@ import type {
 } from "@unemployed/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
+  collectInProgressApplicationJobIds,
   collectPreparedApplicationJobIds,
   countQueueStageReady,
   describeQueueStagePreparationBlocker,
@@ -697,6 +698,29 @@ describe("already prepared applications", () => {
     ]);
 
     expect([...prepared]).toEqual(["ready"]);
+  });
+
+  it("shows an active application run instead of the older prepared label", () => {
+    const queue = [readyItem("running")];
+    const records = [
+      {
+        jobId: "running",
+        status: "ready_for_review" as const,
+        lastAttemptState: "in_progress" as const,
+      },
+    ];
+    const prepared = collectPreparedApplicationJobIds(records);
+    const inProgress = collectInProgressApplicationJobIds(records);
+
+    expect(
+      getReviewQueueWorkflowStatus(
+        queue[0]!,
+        null,
+        false,
+        prepared,
+        inProgress,
+      ),
+    ).toEqual({ label: "Preparing application", tone: "active" });
   });
 });
 

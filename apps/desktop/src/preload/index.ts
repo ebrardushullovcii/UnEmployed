@@ -1364,6 +1364,18 @@ const desktopApi = {
               ipcRenderer.invoke(
                 "job-finder:test-load-apply-queue-demo",
               ) as Promise<JobFinderWorkspaceSnapshot>,
+            loadWorkHistoryReviewDemo: () =>
+              ipcRenderer.invoke(
+                "job-finder:test-load-work-history-review-demo",
+              ) as Promise<JobFinderWorkspaceSnapshot>,
+            loadAgentOwnedBrowserDemo: (input: {
+              sourceUrl: string;
+              applicationUrl: string;
+            }) =>
+              ipcRenderer.invoke(
+                "job-finder:test-load-agent-owned-browser-demo",
+                input,
+              ) as Promise<JobFinderWorkspaceSnapshot>,
             failNextSave: (surface: JobFinderTestSaveSurface) =>
               ipcRenderer.invoke(
                 "job-finder:test-fail-next-save",
