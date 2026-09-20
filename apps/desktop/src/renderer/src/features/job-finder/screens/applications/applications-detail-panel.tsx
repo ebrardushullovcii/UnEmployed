@@ -12,12 +12,17 @@ import type {
   JobFinderApplyRunActionInput,
   JobFinderApplyRunDetailsQuery,
   JobFinderExactApplicationTarget,
+  UserActionCommandInput,
+  UserActionRequest,
 } from "@unemployed/contracts";
+import type { ApplicationAnswerStep } from "./applications-answer-step";
 import { Mic } from "lucide-react";
 import { Button } from "@renderer/components/ui";
 import { StatusBadge } from "../../components/status-badge";
 import { ApplicationsDetailPanelActivitySections } from "./applications-detail-panel-activity-sections";
 import { getApplicationApplyPresentation } from "./applications-apply-state";
+import { resolveApplyStatePresentation } from "./apply-state";
+import type { ApplyMode } from "../../lib/apply-mode-contracts-stub";
 import { ApplicationsApplicationDocuments } from "./applications-application-documents";
 import { ApplicationsDetailPanelEmptyState } from "./applications-detail-panel-empty-state";
 import { ApplicationsDetailFactStrip } from "./applications-detail-fact-strip";
@@ -133,8 +138,16 @@ interface ApplicationsDetailPanelProps {
   onSelectApplyRun: (runId: string) => void;
   onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
+  /** The mode chosen in Settings; decides what a finished fill means. */
+  applyMode?: ApplyMode;
   onOpenSafeguards?: () => void;
   onOpenNeedsYou?: () => void;
+  /** Open requests, so the question step can be answered on this panel. */
+  userActionRequests?: readonly UserActionRequest[];
+  onPerformUserAction?: (
+    command: UserActionCommandInput,
+  ) => void | Promise<void>;
+  isUserActionPending?: (requestId: string) => boolean;
   onAllowSiteSaves?: (host: string | null) => void;
   /**
    * Pass-through only. The declared return type has to match the leaf's, or
@@ -180,8 +193,12 @@ export function ApplicationsDetailPanel({
   onSelectApplyRun,
   onStartApplyCopilot,
   onStartAutoApplyQueue,
+  applyMode = "fill_only",
   onOpenSafeguards,
   onOpenNeedsYou,
+  userActionRequests,
+  onPerformUserAction,
+  isUserActionPending,
   onAllowSiteSaves,
   onFinishInBrowser,
   onConfirmFinishedInBrowser,
@@ -196,12 +213,36 @@ export function ApplicationsDetailPanel({
   onPrepareApplicationAgain,
 }: ApplicationsDetailPanelProps) {
   const visibleApplyResult = effectiveSelectedApplyResult;
-  const pendingQuestionCount = selectedRecord
+  const pendingQuestions = selectedRecord
     ? listPendingApplicationQuestions({
         applicationAttempts,
         jobId: selectedRecord.jobId,
-      }).length
-    : 0;
+      })
+    : [];
+  const pendingQuestionCount = pendingQuestions.length;
+  // The question step for this application, answerable right here.
+  const answerRequest =
+    selectedRecord && onPerformUserAction
+      ? ((userActionRequests ?? []).find(
+          (request) =>
+            request.kind === "manual_answer" &&
+            (request.state === "pending" ||
+              request.state === "page_opened" ||
+              request.state === "awaiting_user" ||
+              request.state === "verifying") &&
+            request.scope.type === "application" &&
+            request.scope.jobId === selectedRecord.jobId,
+        ) ?? null)
+      : null;
+  const answerStep: ApplicationAnswerStep | null =
+    answerRequest && onPerformUserAction && pendingQuestions.length > 0
+      ? {
+          request: answerRequest,
+          questions: pendingQuestions,
+          isPending: isUserActionPending?.(answerRequest.id) ?? false,
+          onCommand: onPerformUserAction,
+        }
+      : null;
   // Where this application stands, in the one vocabulary the screen uses.
   const applyPresentation = selectedRecord
     ? getApplicationApplyPresentation({
@@ -264,9 +305,33 @@ export function ApplicationsDetailPanel({
   const canRestageQueueRun =
     selectedRun?.mode === "queue_auto" &&
     selectedQueueRecoveryJobIds.length > 0;
-  const selectedStage = selectedRecord
-    ? getApplicationStagePresentation(selectedRecord)
-    : null;
+  // The same five words the row uses (ADR 0022), read from the newest run;
+  // the older stage words only for a record no run has touched yet.
+  const selectedApplyState =
+    selectedRecord && visibleApplyResult
+      ? resolveApplyStatePresentation({
+          mode: applyMode,
+          result: visibleApplyResult,
+          pendingQuestionCount:
+            selectedRecord.questionSummary.total -
+            selectedRecord.questionSummary.answered,
+        })
+      : null;
+  const selectedStage = selectedApplyState
+    ? {
+        label: selectedApplyState.title,
+        tone:
+          selectedApplyState.kind === "applied"
+            ? ("positive" as const)
+            : selectedApplyState.kind === "could_not_apply"
+              ? ("critical" as const)
+              : selectedApplyState.kind === "needs_you"
+                ? ("warning" as const)
+                : ("active" as const),
+      }
+    : selectedRecord
+      ? getApplicationStagePresentation(selectedRecord)
+      : null;
   const selectedRecordJob = selectedRecord
     ? (discoveryJobs.find((job) => job.id === selectedRecord.jobId) ?? null)
     : null;
@@ -326,6 +391,7 @@ export function ApplicationsDetailPanel({
       onStartAutoApplyQueue={onStartAutoApplyQueue}
       {...(onOpenSafeguards ? { onOpenSafeguards } : {})}
       {...(onOpenNeedsYou ? { onOpenNeedsYou } : {})}
+      answerStep={answerStep}
       {...(onAllowSiteSaves ? { onAllowSiteSaves } : {})}
       {...(onFinishInBrowser ? { onFinishInBrowser } : {})}
       {...(onConfirmFinishedInBrowser ? { onConfirmFinishedInBrowser } : {})}
@@ -506,7 +572,9 @@ export function ApplicationsDetailPanel({
             }}
             selectedApplyRunDetails={selectedApplyRunDetails}
           />
-          {needsPrimaryRecovery ? recoverySection : documentsSection}
+          {/* Where the application stands and what it asks of you come
+              first; the optional cover letter follows, never above them. */}
+          {recoverySection}
           {needsPrimaryRecovery ? convenienceLinks : null}
           {needsPrimaryRecovery ? (
             <ApplicationsDetailFactStrip
@@ -520,7 +588,7 @@ export function ApplicationsDetailPanel({
               }
             />
           ) : null}
-          {needsPrimaryRecovery ? documentsSection : recoverySection}
+          {documentsSection}
           <ApplicationsDetailPanelActivitySections
             applyRunDetailsError={applyRunDetailsError}
             applyRunDetailsStatus={applyRunDetailsStatus}
@@ -566,11 +634,9 @@ export function ApplicationsDetailPanel({
           data-testid="applications-pinned-preparation-approval"
         >
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            Job Finder is waiting for you before it prepares{" "}
             {pinnedApproval.approval.jobIds.length === 1
-              ? "this job"
-              : `these ${pinnedApproval.approval.jobIds.length} jobs`}
-            . It never presses the final submit button on a job site.
+              ? "This application is waiting for you to start it."
+              : `These ${pinnedApproval.approval.jobIds.length} applications are waiting for you to start them.`}
           </p>
           <Button
             disabled={isApplyRunPending(pinnedApproval.approval.runId)}

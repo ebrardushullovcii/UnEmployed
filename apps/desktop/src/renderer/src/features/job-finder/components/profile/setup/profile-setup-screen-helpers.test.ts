@@ -340,11 +340,9 @@ describe("getProfileSetupReviewItemCopy", () => {
       },
     });
 
-    expect(copy).toEqual({
-      label: "Check legal work details",
-      reason:
-        "The imported resume did not provide this answer. If no legal work-authorization fact is available, leave this Not set; Job Finder will not guess.",
-    });
+    expect(copy.label).toBe("Work details");
+    expect(copy.reason).toMatch(/^Optional\./);
+    expect(copy.reason).toContain("Not set");
   });
 });
 
@@ -465,7 +463,9 @@ describe("profile setup review priority", () => {
 
     expect(isFinishBlockingReviewItem(recommendedImportedLocation)).toBe(false);
     expect(isReviewableSuggestionItem(recommendedImportedLocation)).toBe(true);
-    expect(isFinishBlockingReviewItem(requiredMissingWorkMode)).toBe(true);
+    // A recommended field the resume left empty is a hint, not a gate: a
+    // person with a name, a contact, and a source is ready to search.
+    expect(isFinishBlockingReviewItem(requiredMissingWorkMode)).toBe(false);
     expect(isFinishBlockingReviewItem(criticalPending)).toBe(true);
     expect(isReviewableSuggestionItem(criticalPending)).toBe(false);
 
@@ -480,8 +480,8 @@ describe("profile setup review priority", () => {
       },
       reviewItems: [recommendedImportedLocation, requiredMissingWorkMode],
     });
-    expect(presentation.blockingPendingReviewItemCount).toBe(1);
-    expect(presentation.remainingBlockerCount).toBe(1);
+    expect(presentation.blockingPendingReviewItemCount).toBe(0);
+    expect(presentation.remainingBlockerCount).toBe(0);
   });
 });
 

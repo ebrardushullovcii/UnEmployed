@@ -740,7 +740,11 @@ describe("profile editor application identity defaults", () => {
     expect(values.collectOnlyHardCriteriaMatches).toBe(false);
 
     values.targetRoles = "Principal Product Designer";
+    // The strict-collection flag and the tailoring strength are saved from
+    // Settings (AI behavior). A profile save carries the saved values through
+    // unchanged, so a stale form value can never overwrite that choice.
     values.collectOnlyHardCriteriaMatches = true;
+    values.tailoringMode = "aggressive";
 
     const draftSearchPreferences = buildSearchPreferencesPayload(
       searchPreferences,
@@ -750,7 +754,11 @@ describe("profile editor application identity defaults", () => {
     expect(draftSearchPreferences).toBeDefined();
     expect(
       draftSearchPreferences?.discovery.collectOnlyHardCriteriaMatches,
-    ).toBe(true);
+    ).toBe(false);
+    expect(draftSearchPreferences?.tailoringMode).toBe("balanced");
+    expect(draftSearchPreferences?.targetRoles).toEqual([
+      "Principal Product Designer",
+    ]);
     expect(
       hasSearchPreferencesDraftChanges(
         searchPreferences,

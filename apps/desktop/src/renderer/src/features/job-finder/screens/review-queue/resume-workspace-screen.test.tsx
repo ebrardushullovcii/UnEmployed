@@ -564,7 +564,7 @@ describe("ResumeWorkspaceScreen", () => {
     vi.clearAllMocks();
   });
 
-  it("opens the one mounted proof disclosure from Review blocked claims at desktop width", async () => {
+  it("opens the one mounted proof disclosure from Review 1 line at desktop width", async () => {
     // Both studio layouts used to mount at once, so `id="resume-proof-details"`
     // existed twice and `getElementById` always returned the CSS-hidden
     // compact copy: at >= 1280px the button opened, scrolled and focused a
@@ -602,7 +602,7 @@ describe("ResumeWorkspaceScreen", () => {
     expect(proof.closest(".xl\\:hidden")).toBeNull();
 
     const review = screen.getByRole("button", {
-      name: "Review blocked claims",
+      name: "Review 1 line",
     });
     await act(async () => {
       fireEvent.click(review);
@@ -715,7 +715,7 @@ describe("ResumeWorkspaceScreen", () => {
     ).toBe("Application PDF ready · 1 page. Download a copy if you want one.");
     expect(
       screen.getAllByRole("button", {
-        name: /Fill it in|Approve resume|Download PDF/,
+        name: /Apply|Approve resume|Download PDF/,
       }).length,
     ).toBeGreaterThan(0);
   });
@@ -901,13 +901,14 @@ describe("ResumeWorkspaceScreen", () => {
 
     expect(screen.getByRole("dialog", { name: "Assistant" })).toBeTruthy();
     expect(guidedEditToggle?.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getAllByText("No edit requests yet").length).toBeGreaterThan(
-      0,
-    );
     expect(
-      screen.getAllByText(
-        "Ask for a tighter summary, stronger bullets, or clearer job-specific wording.",
-      ).length,
+      screen.getAllByText("Ask for a change, or ask what to change").length,
+    ).toBeGreaterThan(0);
+    // Three ready questions, the first being the one most people want.
+    expect(
+      screen.getAllByRole("button", {
+        name: "What would you change to fit this job better?",
+      }).length,
     ).toBeGreaterThan(0);
   });
 

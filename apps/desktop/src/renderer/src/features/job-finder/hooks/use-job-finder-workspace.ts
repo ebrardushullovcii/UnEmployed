@@ -22,6 +22,7 @@ import type {
   JobFinderSetResumeClaimConfirmationInput,
   JobFinderSetWorkHistoryReviewAcknowledgmentInput,
   JobFinderSettings,
+  JobFinderSearchRequest,
   JobFinderWorkspaceSnapshot,
   JobFinderWorkspaceEntityMutation,
   JobFinderWorkspaceSyncResult,
@@ -48,6 +49,7 @@ import type {
   ProjectGroupedManualAnswerCommand,
   ResumeImportProgressEvent,
   ResumeApplicationMode,
+  TailoringMode,
   ResumePdfExportIntent,
   ResumeTimelineRepairAction,
   ResumeDraft,
@@ -57,6 +59,7 @@ import type {
   SourceDebugProgressEvent,
   UpdateApplicationDefaultsInput,
   UpdateWorkspaceBehaviorInput,
+  UpdateAiBehaviorInput,
   UserActionCommandInput,
 } from "@unemployed/contracts";
 import type { JobFinderShellActions } from "../lib/job-finder-types";
@@ -602,9 +605,13 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         ),
       startAutoApplyQueueRun: (
         jobIds: JobFinderApplyQueueActionInput["jobIds"],
+        applicationAutomationMode?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
       ) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.startAutoApplyQueueRun(jobIds),
+          window.unemployed.jobFinder.startAutoApplyQueueRun(
+            jobIds,
+            applicationAutomationMode,
+          ),
         ),
       approveApplyRun: (input: JobFinderApplyRunActionInput) =>
         runWorkspaceAction(() =>
@@ -689,11 +696,15 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       setJobResumeApplicationMode: (
         jobId: string,
         resumeApplicationMode: ResumeApplicationMode,
+        resumeTailoringMode?: TailoringMode | null,
       ) =>
         runWorkspaceEntityMutation({
           type: "set_job_resume_application_mode",
           jobId,
           resumeApplicationMode,
+          ...(resumeTailoringMode === undefined
+            ? {}
+            : { resumeTailoringMode }),
         }),
       refreshWorkspace: syncWorkspace,
       resetWorkspace: () =>
@@ -701,9 +712,14 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       runAgentDiscovery: (
         onProgress?: (event: DiscoveryActivityEvent) => void,
         targetId?: string,
+        searchRequest?: JobFinderSearchRequest,
       ) =>
         runWorkspaceResultAction(() =>
-          window.unemployed.jobFinder.runAgentDiscovery(onProgress, targetId),
+          window.unemployed.jobFinder.runAgentDiscovery(
+            onProgress,
+            targetId,
+            searchRequest,
+          ),
         ),
       cancelAgentDiscovery: (input) =>
         runWorkspaceAction(() =>
@@ -918,6 +934,10 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       updateWorkspaceBehavior: (input: UpdateWorkspaceBehaviorInput) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.updateWorkspaceBehavior(input),
+        ),
+      updateAiBehavior: (input: UpdateAiBehaviorInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.updateAiBehavior(input),
         ),
       updateAppearanceTheme: (appearanceTheme: AppearanceTheme) =>
         runWorkspaceAction(() =>

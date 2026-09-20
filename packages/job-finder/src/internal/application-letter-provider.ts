@@ -18,7 +18,7 @@ import type { CoverLetterPreference } from "@unemployed/contracts";
 export interface ApplicationLetterRenderRequest {
   text: string;
   /** The type the form insisted on, or null when it did not care. */
-  fileType: "pdf" | "docx" | null;
+  fileType: "pdf" | "docx" | "txt" | null;
   jobId: string;
   applicationId: string;
 }

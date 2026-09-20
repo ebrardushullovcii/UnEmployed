@@ -281,7 +281,7 @@ function getResumePanelCopy(input: {
     return {
       headline: "Your resume is ready to reuse",
       description:
-        "Refresh profile suggestions after you update the file, then review the changes below.",
+        "Replace the file to import a newer resume, or refresh to read this one again.",
     };
   }
 

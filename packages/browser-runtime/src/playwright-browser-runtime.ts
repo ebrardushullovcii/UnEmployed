@@ -1498,7 +1498,8 @@ export function createBrowserAgentRuntime(
     const prepared = await prepareAutomationPageForTarget(context, {
       targetUrl: navigationTarget,
       bringToFront: currentSessionState.status !== "ready",
-      closeOtherPages: true,
+      closeOtherPages: !agentOptions.dedicatedPage,
+      ...(agentOptions.dedicatedPage ? { reuseExistingPage: false } : {}),
       ...(agentOptions.protectedPages
         ? {
             protectedPageUrls: agentOptions.protectedPages.map(
@@ -1717,6 +1718,10 @@ export function createBrowserAgentRuntime(
         onReadyPage((page) =>
           createPlaywrightApplyPageMechanics(page).clickElement(ref),
         ),
+      pressKey: (ref, key) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).pressKey(ref, key),
+        ),
       scroll: (direction) =>
         onReadyPage((page) =>
           createPlaywrightApplyPageMechanics(page).scroll(direction),
@@ -1732,6 +1737,10 @@ export function createBrowserAgentRuntime(
       readText: (ref) =>
         onReadyPage((page) =>
           createPlaywrightApplyPageMechanics(page).readText(ref),
+        ),
+      adoptOpenedTab: (index) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).adoptOpenedTab!(index),
         ),
     };
   }
@@ -1922,7 +1931,12 @@ export function createBrowserAgentRuntime(
             durationMs: Math.max(0, completedAtMs - stageStartedAtMs),
           });
         };
-        const targetUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
+        // A continued run opens on the page it stopped on and keeps that
+        // tab; otherwise the job's own link.
+        const targetUrl =
+          (isHttpUrlLike(input.startingUrl ?? "") ? input.startingUrl : null) ??
+          input.job.applicationUrl ??
+          input.job.canonicalUrl;
         const resumeFilePath = input.resumeArtifact.filePath.trim();
         const approvedResumeFileExists = resumeFilePath
           ? await pathExists(resumeFilePath)
@@ -2284,6 +2298,12 @@ export function createBrowserAgentRuntime(
             ...(agentOptions.searchMode
               ? { searchMode: agentOptions.searchMode }
               : {}),
+            ...(agentOptions.searchRequest
+              ? { searchRequest: agentOptions.searchRequest }
+              : {}),
+            ...(agentOptions.searchGuidance
+              ? { searchGuidance: agentOptions.searchGuidance }
+              : {}),
             ...(agentOptions.siteInstructions
               ? { siteInstructions: agentOptions.siteInstructions }
               : {}),
@@ -2523,6 +2543,17 @@ export function createBrowserAgentRuntime(
             "Browser profile ready",
             "The dedicated browser profile is open and ready for target-specific discovery.",
           );
+        }
+        // A tab opened for this run alone is closed with it; a tab parked for
+        // the person (sign-in, a challenge) stays because the run never gets
+        // here with the page still open in that case.
+        if (
+          agentOptions.dedicatedPage &&
+          page &&
+          !page.isClosed() &&
+          !agentOptions.signal?.aborted
+        ) {
+          await page.close().catch(() => undefined);
         }
       }
     },

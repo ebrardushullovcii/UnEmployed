@@ -33,10 +33,13 @@ import type {
   ApplyFormObservation,
   ApplyDocument,
   ApplyPause,
+  ApplyProposal,
 } from "./types";
 
 const DEFAULT_MAX_STEPS = 200;
-const DEFAULT_TIME_BUDGET_MS = 15 * 60_000;
+// Long forms on a slow model took 16 minutes to reach the review step;
+// 15 minutes cut them off just before it.
+const DEFAULT_TIME_BUDGET_MS = 30 * 60_000;
 const DEFAULT_NO_PROGRESS_STEP_LIMIT = 12;
 
 const PAGE_TOOL_NAMES = new Set([
@@ -104,7 +107,6 @@ export async function runApplyAgent(
   llmClient: LLMClient,
 ): Promise<ApplyAgentResult> {
   const now = config.now ?? (() => new Date());
-  const startedAtMs = now().getTime();
   const filled: ApplyFilledControl[] = [];
   const attachments: ApplyAttachedDocument[] = [];
   const pauses: ApplyPause[] = [];
@@ -117,8 +119,14 @@ export async function runApplyAgent(
     ...config,
     sources: { ...config.sources, documents: documentCatalog },
   };
-  let observation: ApplyFormObservation | null = null;
   let readyToSend: ApplyAgentResult["readyToSend"] = null;
+
+  await config.onProgress?.({
+    step: 0,
+    note: "reading the application form",
+    progressSteps: 0,
+    elapsedMs: 0,
+  });
 
   const note = (text: string): void => {
     notes.push(text);
@@ -141,16 +149,10 @@ export async function runApplyAgent(
   };
 
   const startOrigin = originOf(config.application.startingUrl);
-  const explicitlyAllowed = config.authority.allowedOrigins
-    .map(originOf)
-    .filter((origin): origin is string => origin !== null);
   const pageTools = createPageTools(config.hands, {
     allowUrl: (url) => {
       const origin = originOf(url);
       if (!origin) return null;
-      if (explicitlyAllowed.length > 0 && !explicitlyAllowed.includes(origin)) {
-        return `${origin} is outside the sites you allowed Job Finder to work on.`;
-      }
       if (config.reviewMove && startOrigin && origin !== startOrigin) {
         return `${origin} is a different site from the listing.`;
       }
@@ -163,17 +165,6 @@ export async function runApplyAgent(
             reason: string;
             fromUrl: string | null;
           }) => {
-            const origin = originOf(move.url);
-            if (
-              origin &&
-              explicitlyAllowed.length > 0 &&
-              !explicitlyAllowed.includes(origin)
-            ) {
-              return {
-                allowed: false,
-                verdict: `${origin} is outside the sites you explicitly allowed.`,
-              };
-            }
             return config.reviewMove!(move);
           },
         }
@@ -181,7 +172,6 @@ export async function runApplyAgent(
   });
 
   const syncObservation = (next: ApplyFormObservation): void => {
-    observation = next;
     pageTools.state.observation = next;
     if (next.url && !pageTools.state.visitedUrls.includes(next.url)) {
       pageTools.state.visitedUrls.push(next.url);
@@ -255,7 +245,7 @@ export async function runApplyAgent(
         note(outcome.note);
         return {
           kind: "ok",
-          progress: true,
+          progress: outcome.progress,
           content: `${outcome.note}\n\nThe page now:\n\n${describeObservation(outcome.observation)}`,
         };
       case "suggestion":
@@ -310,6 +300,24 @@ export async function runApplyAgent(
   };
 
   const domainTools: AgentLoopTool[] = [];
+  const completedControlWrites = new Set<string>();
+  const controlWriteKey = (proposal: ApplyProposal): string | null => {
+    if (
+      proposal.tool !== "type" &&
+      proposal.tool !== "select" &&
+      proposal.tool !== "set_checkbox" &&
+      proposal.tool !== "upload"
+    ) {
+      return null;
+    }
+    const observation = pageTools.state.observation;
+    const control = observation?.controls.find(
+      (candidate) => candidate.ref === proposal.ref,
+    );
+    return observation && control
+      ? `${observation.url ?? ""}|${control.ref}|${control.kind}|${control.groupLabel}|${control.label}`
+      : null;
+  };
   for (const [name, definition] of definitions) {
     if (PAGE_TOOL_NAMES.has(name)) continue;
     domainTools.push({
@@ -320,13 +328,26 @@ export async function runApplyAgent(
       execute: async (rawArguments) => {
         const parsed = parseApplyProposal(name, rawArguments);
         if (!parsed.ok) return { kind: "ok", content: parsed.error };
-        return outcomeToLoop(
-          await executeApplyProposal(
-            parsed.proposal,
-            pageTools.state.observation?.signature ?? "",
-            { config: runConfig, now, guardState },
-          ),
+        const writeKey = controlWriteKey(parsed.proposal);
+        if (writeKey && completedControlWrites.has(writeKey)) {
+          return {
+            kind: "ok",
+            content:
+              "That exact field was already completed on this page. Do not write it again; use the latest form observation and continue with a different empty field or finish.",
+          };
+        }
+        const outcome = await executeApplyProposal(
+          parsed.proposal,
+          pageTools.state.observation?.signature ?? "",
+          { config: runConfig, now, guardState },
         );
+        if (
+          writeKey &&
+          (outcome.kind === "filled" || outcome.kind === "attached")
+        ) {
+          completedControlWrites.add(writeKey);
+        }
+        return outcomeToLoop(outcome);
       },
     });
   }
@@ -341,18 +362,19 @@ export async function runApplyAgent(
         parameters: { type: "object", properties: {} },
       },
     },
-    execute: async () => ({
-      kind: "ok",
-      content:
-        documentCatalog.length === 0
-          ? "No application documents are available yet."
-          : documentCatalog
-              .map(
-                (document) =>
-                  `- ${document.id}: ${document.label} (${document.fileName}, ${document.mimeType})`,
-              )
-              .join("\n"),
-    }),
+    execute: () =>
+      Promise.resolve({
+        kind: "ok",
+        content:
+          documentCatalog.length === 0
+            ? "No application documents are available yet."
+            : documentCatalog
+                .map(
+                  (document) =>
+                    `- ${document.id}: ${document.label} (${document.fileName}, ${document.mimeType})`,
+                )
+                .join("\n"),
+      }),
   });
 
   domainTools.push({
@@ -361,7 +383,7 @@ export async function runApplyAgent(
       function: {
         name: "create_application_document",
         description:
-          "Create or revise a grounded cover letter, motivation letter, or short supporting statement requested by this application. The document is rendered locally and added to the application document list; creating it never uploads or submits it.",
+          "Create or revise a grounded cover letter, motivation letter, or short supporting statement requested by this application, as a PDF, Word (docx) or plain text (txt) file, whichever the form accepts. The document is rendered locally and added to the application document list; creating it never uploads or submits it. Use it whenever a form wants a file Job Finder does not have yet.",
         parameters: {
           type: "object",
           properties: {
@@ -378,7 +400,7 @@ export async function runApplyAgent(
               description:
                 "What the form requests and any revision needed. Do not invent candidate facts.",
             },
-            fileType: { type: "string", enum: ["pdf", "docx"] },
+            fileType: { type: "string", enum: ["pdf", "docx", "txt"] },
           },
           required: ["purpose", "instructions", "fileType"],
         },
@@ -400,7 +422,10 @@ export async function runApplyAgent(
           : "cover_letter";
       const instructions =
         typeof args.instructions === "string" ? args.instructions.trim() : "";
-      const fileType = args.fileType === "docx" ? "docx" : "pdf";
+      const fileType =
+        args.fileType === "docx" || args.fileType === "txt"
+          ? args.fileType
+          : "pdf";
       if (!instructions) {
         return {
           kind: "ok",
@@ -477,6 +502,8 @@ export async function runApplyAgent(
       pageTools.state.observation
         ? `The page is ${pageTools.state.observation.url ?? "open"}.`
         : null,
+    modelMaxOutputTokens: 4_096,
+    ...(config.onProgress ? { onStep: config.onProgress } : {}),
     ...(config.signal ? { signal: config.signal } : {}),
     now,
   });

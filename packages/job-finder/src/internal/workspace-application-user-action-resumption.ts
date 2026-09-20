@@ -4,6 +4,7 @@ import {
   createApplyFormPreparer,
   resolveApplySiteLabel,
 } from "./agent-application-preparation";
+import { persistApplicationPreparationProgress } from "./application-preparation-progress";
 import {
   ApplyExecutionResultSchema,
   ApplyJobResultSchema,
@@ -31,7 +32,6 @@ import {
   persistApplicationUserAction,
 } from "./workspace-application-user-action";
 import {
-  enforcePrepareOnlyExecutionResult,
   mapExecutionResultToApplyBlockerReason,
   mapExecutionResultToApplyJobState,
 } from "./workspace-apply-run-support";
@@ -54,6 +54,12 @@ import { withApplicationRecordTransition } from "./application-crm";
 import { mergeApplicationAnswersIntoExecutionProfile } from "./workspace-application-answer-execution";
 import { resolveApplicationAttachmentsForExecution } from "./workspace-application-attachments";
 import { persistAutomaticApplicationSafeguards } from "./automatic-safeguards";
+import { resolveApplyAuthorityForJob } from "./apply-authority-resolution";
+import {
+  enforceResolvedApplyAuthorityResult,
+  type ApplySubmissionHandoff,
+} from "./apply-submission-handoff";
+import { sendPreparedApplicationIfAllowed } from "./apply-submission-run-step";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 
 type ExactApplicationScope = {
@@ -358,11 +364,17 @@ function getPrepareOnlyVerificationOutcome(
 
   if (
     executionResult.state === "failed" ||
-    executionResult.state === "unsupported" ||
+    executionResult.state === "unsupported"
+  ) {
+    return "still_blocked";
+  }
+  // A continued run that the person's permission let send is the clearest
+  // proof the step they finished is behind them.
+  if (
     executionResult.state === "submitted" ||
     executionResult.submittedAt !== null
   ) {
-    return "still_blocked";
+    return "verified";
   }
 
   const expectedFingerprint =
@@ -844,6 +856,18 @@ export function createApplicationUserActionResumer(
         (evidence) => evidence.retention !== "temporary",
       ),
     });
+    // The person's answers, spelled out beside the questions they answer.
+    // Merged into the profile they would still have to be found; named here
+    // the agent can go straight to those fields, fill them and carry on
+    // instead of working the whole form a second time.
+    const answeredQuestionLines = questionRecords.flatMap((question) => {
+      const latest = [...answerRecords]
+        .filter((answer) => answer.questionId === question.id)
+        .sort((left, right) => right.revision - left.revision)[0];
+      return latest
+        ? [`Answer to "${question.prompt.trim()}": ${latest.text.trim()}`]
+        : [];
+    });
     const instructions = uniqueStrings([
       ...buildInstructionGuidance(activeInstruction),
       ...buildRecoveryInstructions({
@@ -852,6 +876,12 @@ export function createApplicationUserActionResumer(
         checkpointUrl: checkpoint.url,
         blockerSummary: result.blockerSummary,
       }),
+      ...(answeredQuestionLines.length > 0
+        ? [
+            "The form was already filled in before it stopped for these questions. Do not retype fields that already hold the right value; answer only the questions below, then carry on to the review step.",
+            ...answeredQuestionLines,
+          ]
+        : []),
     ]);
 
     let applicationAttachments: Awaited<
@@ -897,6 +927,27 @@ export function createApplicationUserActionResumer(
       return;
     }
 
+    // The continued run works inside the same permission the first run
+    // did. It used to be pinned to fill-in-only, so a person who had chosen
+    // "Send for me" answered the one question, watched the form fill in
+    // again, and still had to send it themselves.
+    const applyAuthority = await resolveApplyAuthorityForJob({
+      repository: ctx.repository,
+      job: { id: job.id, campaignId: run.campaignId ?? null },
+      resumeSha256: prerequisites.resumeArtifact.sha256,
+      applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+      now: new Date().toISOString(),
+    });
+    const siteLabel = resolveApplySiteLabel({
+      targetLabel: provenanceTarget?.label ?? null,
+      applicationUrl:
+        prerequisites.job.applicationUrl ?? prerequisites.job.canonicalUrl,
+    });
+    let preparedHandoff: ApplySubmissionHandoff | null = null;
+    // Start on the page the run stopped on, in the tab that is already open
+    // there, so whatever the person did on it is still done.
+    const continueFromUrl = checkpoint.url ?? null;
+
     let executionResult: ApplyExecutionResult;
     try {
       if (preparationError) {
@@ -917,12 +968,22 @@ export function createApplicationUserActionResumer(
           ? { applicationAttachments }
           : {}),
         settings,
-        mode: "prepare_only" as const,
+        mode:
+          applyAuthority.authority.mode === "autonomous_submit"
+            ? ("submit_when_ready" as const)
+            : ("prepare_only" as const),
         idempotencyKey: attemptId,
         accountCreationAuthorized: false as const,
-        intermediateMutationsAuthorized: false as const,
-        applyAutomationMode: "prepare_only" as const,
-        submitAuthorized: false as const,
+        // Field saves are allowed by default (ADR 0024).
+        intermediateMutationsAuthorized: true as const,
+        intermediateMutationAllowedOrigins: [],
+        applyAutomationMode: applyAuthority.authority.mode,
+        submitAuthorized: applyAuthority.authority.submitAuthorized,
+        preApprovedAttestationKinds:
+          applyAuthority.authority.preApprovedAttestationKinds,
+        salaryDisclosure: applyAuthority.authority.salaryDisclosure,
+        applyAllowedOrigins: [...applyAuthority.authority.allowedOrigins],
+        ...(continueFromUrl ? { startingUrl: continueFromUrl } : {}),
         recoveryContext,
         ...(instructions.length > 0 ? { instructions } : {}),
         ...buildVisualExecutionOptions({
@@ -931,12 +992,27 @@ export function createApplicationUserActionResumer(
           source: scope.source,
         }),
       };
-      const rawResult = enforcePrepareOnlyExecutionResult(
+      const rawResult = enforceResolvedApplyAuthorityResult(
+        applyAuthority.authority,
         await ctx.browserRuntime.executeApplicationFlow(scope.source, {
           ...applyFlowFacts,
           prepareApplicationForm: createApplyFormPreparer({
             executionInput: applyFlowFacts,
             aiClient: ctx.aiClient,
+            onProgress: (progress) =>
+              persistApplicationPreparationProgress({
+                repository: ctx.repository,
+                resultId: result.id,
+                runId: run.id,
+                jobId: job.id,
+                progress,
+              }),
+            ...(applyAuthority.envelope
+              ? { envelope: applyAuthority.envelope }
+              : {}),
+            onPrepared: ({ handoff }) => {
+              preparedHandoff = handoff;
+            },
             letters: buildApplyLetterDependencies({
               aiClient: ctx.aiClient,
               documentManager: ctx.documentManager,
@@ -944,12 +1020,7 @@ export function createApplicationUserActionResumer(
               profile: applyFlowFacts.profile,
               settings: applyFlowFacts.settings,
             }),
-            siteLabel: resolveApplySiteLabel({
-              targetLabel: provenanceTarget?.label ?? null,
-              applicationUrl:
-                prerequisites.job.applicationUrl ??
-                prerequisites.job.canonicalUrl,
-            }),
+            siteLabel,
           }),
         }),
       );
@@ -1191,6 +1262,42 @@ export function createApplicationUserActionResumer(
       blocker: executionResult.blocker,
       occurredAt: completedAt,
     });
+    // Sending happens after the preparation is on record, the same way an
+    // ordinary run does it; only a permission that covers this exact
+    // application ever reaches the send.
+    const sent = await sendPreparedApplicationIfAllowed({
+      ctx,
+      handoff: preparedHandoff,
+      envelope: applyAuthority.envelope,
+      source: scope.source,
+      lineage: {
+        runId: run.id,
+        jobId: job.id,
+        resultId: nextResult.id,
+        applicationRecordId: scope.applicationRecordId,
+        campaignId: run.campaignId ?? null,
+      },
+      resumeArtifact: prerequisites.resumeArtifact,
+      siteLabel,
+    }).catch((sendError: unknown) => {
+      console.error("Failed to send the continued application.", sendError);
+      return null;
+    });
+    if (sent) {
+      await persistApplicationRecord({
+        ctx,
+        job,
+        applicationRecordId: scope.applicationRecordId,
+        attempt: {
+          ...finalAttempt,
+          summary: sent.summary,
+          detail: sent.detail,
+          nextActionLabel: sent.nextActionLabel,
+        },
+        eventId: `event_${attemptId}_sent`,
+        now: new Date().toISOString(),
+      });
+    }
     await persistAutomaticApplicationSafeguards({
       ctx,
       run,

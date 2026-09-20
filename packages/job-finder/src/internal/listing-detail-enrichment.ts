@@ -63,6 +63,11 @@ export interface ListingDetailEnrichmentSummary {
 }
 
 export interface EnrichSavedJobListingDetailsInput {
+  /**
+   * Read again even inside the retry back-off after a failed attempt. Used
+   * when the person acts on a job right now and the body matters at once.
+   */
+  ignoreRetryBackoff?: boolean;
   jobs: readonly SavedJob[];
   fetchHtml: ListingHtmlFetcher;
   /** Re-scores a posting; the discovery pipeline's assessment session. */
@@ -416,7 +421,12 @@ export async function enrichSavedJobListingDetails(
   };
   const updated = new Map<string, SavedJob>();
   const queue = input.jobs.filter((job) => {
-    const needs = jobNeedsListingDetail(job, now());
+    const needs = input.ignoreRetryBackoff
+      ? !(
+          job.detailQuality === "detail_enriched" &&
+          job.listingDetailFetch?.outcome === "enriched"
+        ) && job.listingDetailFetch?.outcome !== "unsupported_url"
+      : jobNeedsListingDetail(job, now());
     if (!needs) {
       summary.skipped += 1;
     }

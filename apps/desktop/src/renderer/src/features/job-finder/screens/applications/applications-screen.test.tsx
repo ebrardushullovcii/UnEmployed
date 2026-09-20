@@ -179,11 +179,9 @@ describe("ApplicationsScreen", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("No application started yet")).toBeTruthy();
+    expect(screen.getByText("Nothing applied to yet")).toBeTruthy();
     expect(
-      screen.getByText(
-        /Shortlisting a job or tailoring its resume does not create an application record.*choose Fill it in/i,
-      ),
+      screen.getByText(/Press Apply on a shortlisted job and it shows up here/i),
     ).toBeTruthy();
     expect(
       screen.queryByText("Application details will appear here"),

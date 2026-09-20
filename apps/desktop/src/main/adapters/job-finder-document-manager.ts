@@ -144,25 +144,44 @@ async function renderPdfFromHtml(
     },
   });
 
+  // A hidden print window that never finishes must fail loudly, not leave
+  // "Exporting PDF" on screen for good.
+  const deadline = new Promise<never>((_, reject) => {
+    setTimeout(
+      () =>
+        reject(
+          new Error(
+            "The PDF did not finish rendering within 2 minutes. Try approving again.",
+          ),
+        ),
+      120_000,
+    ).unref?.();
+  });
   try {
     await writeFile(htmlPath, html, "utf8");
-    await exportWindow.loadFile(htmlPath);
-    await exportWindow.webContents.executeJavaScript(
-      "new Promise((resolve) => { if (document.fonts?.ready) { document.fonts.ready.finally(resolve); } else { resolve(); } })",
-      true,
-    );
+    await Promise.race([exportWindow.loadFile(htmlPath), deadline]);
+    await Promise.race([
+      exportWindow.webContents.executeJavaScript(
+        "new Promise((resolve) => { if (document.fonts?.ready) { document.fonts.ready.finally(resolve); } else { resolve(); } })",
+        true,
+      ),
+      deadline,
+    ]);
 
-    const pdfBuffer = await exportWindow.webContents.printToPDF({
-      margins: {
-        top: 0,
-        bottom: 0,
-        left: 0,
-        right: 0,
-      },
-      printBackground: true,
-      pageSize: "Letter",
-      preferCSSPageSize: true,
-    });
+    const pdfBuffer = await Promise.race([
+      exportWindow.webContents.printToPDF({
+        margins: {
+          top: 0,
+          bottom: 0,
+          left: 0,
+          right: 0,
+        },
+        printBackground: true,
+        pageSize: "Letter",
+        preferCSSPageSize: true,
+      }),
+      deadline,
+    ]);
 
     await writeFile(targetPath, pdfBuffer);
   } finally {
@@ -207,6 +226,20 @@ export function createLocalJobFinderDocumentManager(
     async renderLetterArtifact(input) {
       await mkdir(options.outputDirectory, { recursive: true });
       const baseName = `${Date.now()}_${sanitizeSegment(input.profile.fullName ?? "")}_${sanitizeSegment(input.job.company)}_letter`;
+      if (input.fileType === "txt") {
+        const txtPath = path.join(options.outputDirectory, `${baseName}.txt`);
+        await writeFile(txtPath, `${input.text.trim()}\n`, "utf8");
+        const sha256 = createHash("sha256")
+          .update(await readFile(txtPath))
+          .digest("hex");
+        return {
+          ok: true,
+          fileName: path.basename(txtPath),
+          mimeType: "text/plain",
+          storagePath: txtPath,
+          sha256,
+        };
+      }
       if (input.fileType === "docx") {
         const docxPath = path.join(options.outputDirectory, `${baseName}.docx`);
         await writeFile(docxPath, await renderLetterDocx(input.text));

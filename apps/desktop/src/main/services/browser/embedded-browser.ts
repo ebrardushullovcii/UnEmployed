@@ -21,6 +21,7 @@ import {
 } from "@unemployed/contracts";
 import path from "node:path";
 import { BrowserCdpBridge, type BrowserCdpPage } from "./browser-cdp-bridge";
+import { getEmbeddedBrowserFocusAction } from "./embedded-browser-focus-policy";
 import { alignClientHintHeaders } from "./browser-identity";
 import {
   browserDisplayUrl,
@@ -66,6 +67,8 @@ export class EmbeddedBrowser {
   private bridge: BrowserCdpBridge | null = null;
   private connection: Promise<Browser> | null = null;
   private attention: DesktopBrowserAttention | null = null;
+  /** The parked tab that asked for help, independent of other active work. */
+  private attentionTabId: string | null = null;
   private revision = 0;
   private closePromise: Promise<void> | null = null;
   private connectionGeneration = 0;
@@ -305,30 +308,27 @@ export class EmbeddedBrowser {
       // Electron's native save dialog keeps filesystem selection with the user.
       item.setSaveDialogOptions({ title: "Save browser download" });
     });
-    const stopForWorker = () => {
-      if (this.operations.size === 0 || this.paused || this.closing) return;
-      void this.takeControl().catch(() => undefined);
-      this.requestAttention({
-        kind: "user_action",
-        title: "Browser activity paused",
-        detail:
-          "A website started background activity outside the preparation guard. Close the browser, then resume activity to start a fresh guarded session.",
-      });
-    };
-    browserSession.serviceWorkers.on("registration-completed", stopForWorker);
-    browserSession.serviceWorkers.on("running-status-changed", (event) => {
-      if (
-        event.runningStatus === "starting" ||
-        event.runningStatus === "running"
-      )
-        stopForWorker();
-    });
+    // Service workers are ordinary on modern sites. The submit guard covers
+    // their requests too, so a worker starting is not a reason to stop.
     this.browserSession = browserSession;
     return browserSession;
   }
 
-  requestAttention(attention: DesktopBrowserAttention): void {
-    this.attention = attention;
+  requestAttention(
+    attention: DesktopBrowserAttention,
+    tabId: string | null = this.activeTabId,
+  ): void {
+    // The banner shows a run's own sentence, which can run long. The state
+    // schema caps it; an over-long sentence used to make the state read
+    // throw, which failed the apply call that had just finished the form.
+    const clamp = (text: string, max: number): string =>
+      text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+    this.attention = {
+      ...attention,
+      title: clamp(attention.title, 160),
+      detail: clamp(attention.detail, 500),
+    };
+    this.attentionTabId = tabId;
     this.emit();
   }
 
@@ -432,20 +432,35 @@ export class EmbeddedBrowser {
             "Reload the page to continue. Your saved sign-ins are still kept.",
         });
     });
-    // Agent input arrives over CDP and never moves the pointer. A page the
-    // agent creates still takes native focus on its own, so focus alone is
-    // not the user: it counts only when the page is on screen, past its
-    // creation, with the pointer over it. Then it is the user stepping in:
-    // pause the agent and let their click land, without a control button.
-    page.contents.on("focus", () => {
+    // Agent input arrives over CDP and never moves the pointer. Pages also
+    // take native focus on their own (a script focusing a field, a new tab),
+    // so focus with the pointer merely resting over the view is not the user:
+    // watching an application fill in must never end it. Only a real click or
+    // keypress on the page, with the pointer over it, is the user stepping in.
+    // Then the agent stops and their input lands, without a control button.
+    const handleUserInput = () => {
       if (!this.isUserOnPage(page)) return;
-      if (this.operations.size > 0 && !this.paused && !this.handoverPromise)
-        void this.takeControl().catch(() => undefined);
-      else if (this.attention && this.operations.size === 0) {
-        // The user is on the page that asked for them; stop asking.
+      const focusAction = getEmbeddedBrowserFocusAction({
+        activeOperationCount: this.operations.size,
+        attentionTabId: this.attentionTabId,
+        focusedTabId: page.id,
+        handoverPending: this.handoverPromise !== null,
+        hasAttention: this.attention !== null,
+        paused: this.paused,
+      });
+      if (focusAction === "resolve_task_attention") {
+        // This tab is already parked for the user. Helping here must not abort
+        // an unrelated source search or application running in another tab.
         this.attention = null;
+        this.attentionTabId = null;
         this.emit();
+      } else if (focusAction === "take_global_control") {
+        void this.takeControl().catch(() => undefined);
       }
+    };
+    page.contents.on("input-event", (_event, input) => {
+      if (input.type === "mouseDown" || input.type === "keyDown")
+        handleUserInput();
     });
     page.contents.on("before-input-event", (event, input) => {
       if (input.type !== "keyDown") return;
@@ -620,7 +635,10 @@ export class EmbeddedBrowser {
   private abortOperations(): void {
     for (const controller of this.operations.keys())
       controller.abort(
-        new DOMException("Browser activity paused by the user.", "AbortError"),
+        new DOMException(
+          "Stopped because you stepped into the browser or closed it. Press Try again when you are ready.",
+          "AbortError",
+        ),
       );
     this.disconnectAutomation();
   }
@@ -685,7 +703,10 @@ export class EmbeddedBrowser {
   async runAutomation<T>(
     label: string,
     signal: AbortSignal | undefined,
-    work: (signal: AbortSignal) => Promise<T>,
+    work: (
+      signal: AbortSignal,
+      updateActivity: (label: string) => void,
+    ) => Promise<T>,
   ): Promise<T> {
     if (this.paused || this.closing)
       throw new Error(
@@ -698,6 +719,7 @@ export class EmbeddedBrowser {
       : controller.signal;
     this.operations.set(controller, label);
     this.attention = null;
+    this.attentionTabId = null;
     this.closed = false;
     this.releasePending = false;
     for (const page of this.pageMap.values())
@@ -706,10 +728,15 @@ export class EmbeddedBrowser {
     this.focusApp();
     this.hostPages();
     this.emit();
+    const updateActivity = (nextLabel: string): void => {
+      if (!this.operations.has(controller)) return;
+      this.operations.set(controller, nextLabel.slice(0, 200));
+      this.emit();
+    };
     try {
       await this.bridge?.syncFocusEmulation();
       combined.throwIfAborted();
-      return await work(combined);
+      return await work(combined, updateActivity);
     } catch (error) {
       combined.throwIfAborted();
       throw error;
@@ -736,7 +763,6 @@ export class EmbeddedBrowser {
       this.closed = false;
       this.presentation = "peek";
       if (command.url) {
-        if (this.operations.size > 0) await this.takeControl();
         this.createPage(command.url);
       }
     } else if (command.type === "minimize") {
@@ -760,6 +786,7 @@ export class EmbeddedBrowser {
       await this.activityHooks?.resume();
       this.paused = false;
       this.attention = null;
+      this.attentionTabId = null;
       this.focusApp();
     } else if (command.type === "select_tab") this.selectPage(command.tabId);
     else if (command.type === "close_tab") {
@@ -772,6 +799,7 @@ export class EmbeddedBrowser {
         ? this.pageMap.get(this.activeTabId)
         : undefined;
       this.attention = null;
+      this.attentionTabId = null;
       if (command.type === "new_tab") this.createPage("about:blank");
       if (command.type === "navigate") {
         // Typed input follows browser rules: an address opens, anything else
@@ -804,20 +832,42 @@ export class EmbeddedBrowser {
 
   async takeControl(): Promise<void> {
     if (this.handoverPromise) return this.handoverPromise;
+    // Stepping into the browser hands the browser over: the run that was
+    // using it ends with that reason. It does not pause Job Finder as a
+    // whole; searches, resumes and queued applies that do not need this
+    // browser carry on, and the browser is back once the person presses
+    // Resume or closes it.
     this.paused = true;
     this.abortOperations();
-    const handover = Promise.resolve()
-      .then(() => this.activityHooks?.pause("Browser handed over to you."))
-      .finally(() => {
-        this.handoverPromise = null;
-        this.emit();
-      });
+    const handover = Promise.resolve().finally(() => {
+      this.handoverPromise = null;
+      this.emit();
+    });
     this.handoverPromise = handover;
     this.emit();
     return handover;
   }
 
+  // Where the pointer last was and when it last moved. A pointer resting
+  // over the browser view while the agent works is not the person stepping
+  // in; only a pointer that moved there just now is.
+  private lastCursor: { x: number; y: number; movedAt: number } | null = null;
+  private cursorMovedRecently(): boolean {
+    const point = screen.getCursorScreenPoint();
+    const now = Date.now();
+    const previous = this.lastCursor;
+    const moved =
+      !previous || previous.x !== point.x || previous.y !== point.y;
+    this.lastCursor = {
+      x: point.x,
+      y: point.y,
+      movedAt: moved ? now : (previous?.movedAt ?? 0),
+    };
+    return now - this.lastCursor.movedAt < 2_500;
+  }
+
   private isUserOnPage(page: BrowserPage): boolean {
+    if (!this.cursorMovedRecently()) return false;
     if (
       page.host === "backstage" ||
       !this.window ||
@@ -866,6 +916,10 @@ export class EmbeddedBrowser {
     // Workflow finally-blocks must not close a page handed to the user, nor
     // wait on Close while Close is waiting for those same workflows to settle.
     if (this.paused || this.closing) return;
+    // Another run (a search finishing seconds after an apply started) still
+    // owns this browser; closing it now would abort that run as if the
+    // person had stepped in. The last run to finish releases the browser.
+    if (this.operations.size > 0) return;
     // A run that ends while the user is watching leaves its pages on screen,
     // and a run that stopped because it needs the user (sign-in, a challenge)
     // keeps the page it stopped on. Both are released on Close, or when the
@@ -910,6 +964,7 @@ export class EmbeddedBrowser {
       this.closed = true;
       this.closing = false;
       this.attention = null;
+      this.attentionTabId = null;
       this.closePromise = null;
       this.emit();
     });

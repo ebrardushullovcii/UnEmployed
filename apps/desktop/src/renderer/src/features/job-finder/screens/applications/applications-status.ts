@@ -44,7 +44,7 @@ export function getApplicationLatestActivityLabel(
   record: ApplicationRecord,
 ): string {
   if (record.lastAttemptState === "unsupported") {
-    return "Manual apply only";
+    return "Needs you on the site";
   }
 
   if (record.lastAttemptState === "failed") {
@@ -171,7 +171,7 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
     // Attention, not failure: the site cannot be prepared automatically, so
     // the user finishes it themselves. `warning` (F44) says that without the
     // failure hue that `critical` claimed before the tone existed.
-    return { label: "Manual apply only", tone: "warning" };
+    return { label: "Needs you on the site", tone: "warning" };
   }
 
   if (
@@ -373,7 +373,7 @@ export function getApplicationNextStepLabel(record: ApplicationRecord): string {
     shouldPresentConsentState(record) &&
     record.lastAttemptState === "unsupported"
   ) {
-    return record.nextActionLabel ?? "Manual apply only";
+    return record.nextActionLabel ?? "Needs you on the site";
   }
 
   if (
@@ -423,7 +423,7 @@ export function getApplicationNextStepLabel(record: ApplicationRecord): string {
   ) {
     return (
       record.nextActionLabel ??
-      "Restart the run if you want to try again later."
+      "Press Try again to have another go later."
     );
   }
 

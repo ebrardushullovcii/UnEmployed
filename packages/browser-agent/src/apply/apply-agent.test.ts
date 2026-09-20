@@ -262,6 +262,21 @@ test("creates a grounded requested document and attaches the generated file", as
 });
 
 describe("apply agent run endings", () => {
+  test("reports reading and model-turn progress while it works", async () => {
+    const progress: string[] = [];
+    await runApplyAgent(
+      config(page(), {
+        onProgress: ({ note }) => {
+          progress.push(note);
+        },
+      }),
+      repeatingModel("finish", { reason: "The form is ready for review" }),
+    );
+
+    expect(progress[0]).toBe("reading the application form");
+    expect(progress).toContain("asking the assistant what to do next");
+  });
+
   test("an agent that keeps doing nothing is warned once and then stopped", async () => {
     const result = await runApplyAgent(
       config(page(), { runControl: { maxSteps: 40, noProgressStepLimit: 3 } }),
@@ -470,6 +485,37 @@ describe("no field is written twice", () => {
 
     expect(result.notes.some((note) => note.startsWith("turn 1: "))).toBe(true);
   });
+
+  test("blocks a second successful write to the same control on the same page", async () => {
+    const result = await runApplyAgent(
+      config(page()),
+      scriptedModel([
+        { name: "type", args: { ref: "c0", text: "Robin Ashford" } },
+        { name: "type", args: { ref: "c0", text: "Robin Ashford" } },
+        { name: "finish", args: { reason: "The form is prepared" } },
+      ]),
+    );
+
+    expect(result.filled).toHaveLength(1);
+    expect(result.notes.join("\n")).toContain(
+      "That exact field was already completed",
+    );
+  });
+});
+
+describe("only meaningful page movement counts as progress", () => {
+  test("repeated scrolling cannot keep a stuck run alive", async () => {
+    const result = await runApplyAgent(
+      config(page(), {
+        runControl: { noProgressStepLimit: 3, maxSteps: 20 },
+      }),
+      repeatingModel("scroll", { direction: "down" }),
+    );
+
+    expect(result.outcome).toBe("stuck");
+    expect(result.reason).toContain("nothing new happened");
+    expect(result.steps).toBeLessThan(20);
+  });
 });
 
 describe("the browser failing underneath a step", () => {
@@ -539,7 +585,7 @@ describe("the browser failing underneath a step", () => {
 });
 
 describe("shared navigation and Apply safety stay in one state", () => {
-  test("an explicitly forbidden origin cannot be approved by the move reviewer", async () => {
+  test("a send allowlist does not block an employer handoff approved by the move reviewer", async () => {
     const source = page();
     const base = hands(source);
     let navigations = 0;
@@ -578,8 +624,8 @@ describe("shared navigation and Apply safety stay in one state", () => {
     );
 
     expect(result.outcome).toBe("prepared");
-    expect(navigations).toBe(0);
-    expect(reviews).toBe(0);
+    expect(navigations).toBe(1);
+    expect(reviews).toBe(1);
   });
 
   test("navigate then type uses the page the model just saw and reviews the move once", async () => {

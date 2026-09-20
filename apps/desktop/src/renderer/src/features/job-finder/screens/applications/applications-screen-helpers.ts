@@ -169,7 +169,10 @@ export function applicationRecordNeedsUser(record: ApplicationRecord): boolean {
     record.lastAttemptState === "unsupported" ||
     (Boolean(record.nextActionLabel) &&
       !isTerminalApplicationStatus(record.status) &&
-      record.lastAttemptState !== "in_progress")
+      record.lastAttemptState !== "in_progress" &&
+      // A form filled in and left for the person to send is Ready to send,
+      // not a step waiting on them (ADR 0022).
+      record.lastAttemptState !== "ready")
   );
 }
 

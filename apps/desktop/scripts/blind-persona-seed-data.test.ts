@@ -968,10 +968,10 @@ describe("blind persona deterministic seed data", () => {
     // the application record's `automationMode`, which every seeded draft
     // and application record now carries with their defaults.
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
-      "089614bd3856bdbe5a7b9c48900ff444e561bc1a272b56fdc891de28c490b22e",
+      "83f31829adf5f22b0864d364caaeeb87f3c2542093c827e55a54a6d1c72f7196",
     );
     expect(calculateBlindPersonaStateDigest(first.P14)).toBe(
-      "7806a9fe876ec9dcefb7807731158ac637db23ae51576b28048940d95e99c088",
+      "73922ce9cf712de849484be33b4e32df37b511292ca1c226fff555406de341ef",
     );
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
       calculateBlindPersonaStateDigest(second.P13),

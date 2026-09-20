@@ -1647,7 +1647,14 @@ export function JobFinderShell({
               tailoredDraftPreparation={tailoredDraftPreparation}
               workspace={workspace}
             />
-            <BrowserPeek hasUnresolvedAttention={countNeedsYou(workspace) > 0} />
+            <BrowserPeek
+              chromeInsetStart={
+                isMac && !windowControlsState.isFullScreen
+                  ? MACOS_TRAFFIC_LIGHT_INSET
+                  : undefined
+              }
+              hasUnresolvedAttention={countNeedsYou(workspace) > 0}
+            />
             {actionScreen ? (
               <button
                 aria-current={activeScreen === "actions" ? "page" : undefined}

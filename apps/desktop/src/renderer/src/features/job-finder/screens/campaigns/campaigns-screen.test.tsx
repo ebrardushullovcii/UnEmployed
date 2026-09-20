@@ -1996,7 +1996,7 @@ describe("a finished run reports one set of numbers", () => {
     ).toBeNull();
     expect(
       within(digest).getByText(
-        "50 looked at · 50 new · 15 kept · 0 already here · 15-job plan limit reached",
+        "50 found · 50 new · 15 kept · 15-job plan limit reached",
       ),
     ).toBeTruthy();
     // The tile reads the same record as the sentence above it.
@@ -2033,7 +2033,7 @@ describe("a finished run reports one set of numbers", () => {
 
     expect(
       within(digest).getByText(
-        "50 looked at · 43 new · 15 kept · 7 already here · 15-job plan limit reached",
+        "50 found · 43 new · 15 kept · 7 already here · 15-job plan limit reached",
       ),
     ).toBeTruthy();
     const seenBeforeTile = within(digest).getByText("Seen before")
@@ -2136,7 +2136,7 @@ describe("a finished run reports one set of numbers", () => {
     fireEvent.click(screen.getByText("What the last run found"));
     expect(
       screen.getByText(
-        "94 looked at · 0 new · 15 kept · 0 already here · 15-job plan limit reached",
+        "94 found · 0 new · 15 kept · 15-job plan limit reached",
       ),
     ).toBeTruthy();
   });

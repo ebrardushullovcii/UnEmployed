@@ -18,6 +18,7 @@ import {
   toStringArray,
 } from "./resume-import-common";
 import {
+  canonicalizeRecordDateText,
   areEquivalentEducationRecords,
   areEquivalentExperienceRecords,
   scoreEducationRecordCompleteness,
@@ -127,6 +128,8 @@ function existingScalarValueForCandidate(
       return profile.applicationIdentity.preferredEmail;
     case "application_identity.preferredPhone":
       return profile.applicationIdentity.preferredPhone;
+    case "search_preferences.workModes":
+      return searchPreferences.workModes;
     case "search_preferences.salaryCurrency":
       return searchPreferences.salaryCurrency;
     default:
@@ -367,6 +370,19 @@ function normalizeSupportedEducationValue(
   return trimmed;
 }
 
+function readAliasString(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
+    const entry = value[key];
+    if (typeof entry === "string" && entry.trim().length > 0) {
+      return entry;
+    }
+  }
+  return null;
+}
+
 function normalizeRecordCandidateValue(
   candidate: ResumeImportFieldCandidate,
 ): ResumeImportFieldCandidate["value"] {
@@ -390,25 +406,49 @@ function normalizeRecordCandidateValue(
   switch (candidate.target.section) {
     case "experience": {
       const value = parsedValue;
+      // The model names the same facts under different keys from one run to
+      // the next (company/employer, highlights/bullets, current/present).
+      // Reading the aliases keeps the employer and the bullets instead of
+      // silently dropping them into an empty card.
+      const rawEndDate = readAliasString(value, ["endDate", "end", "to"]);
+      const endDateSaysCurrent =
+        rawEndDate !== null && /^(?:present|current|now|ongoing)$/i.test(rawEndDate.trim());
       return {
-        companyName:
-          typeof value.companyName === "string" ? value.companyName : null,
-        companyUrl:
-          typeof value.companyUrl === "string" ? value.companyUrl : null,
-        title: typeof value.title === "string" ? value.title : null,
-        employmentType:
-          typeof value.employmentType === "string"
-            ? value.employmentType
-            : null,
-        location: typeof value.location === "string" ? value.location : null,
-        workMode: toStringArray(value.workMode),
-        startDate: typeof value.startDate === "string" ? value.startDate : null,
-        endDate: typeof value.endDate === "string" ? value.endDate : null,
-        isCurrent: value.isCurrent === true,
-        summary: typeof value.summary === "string" ? value.summary : null,
-        achievements: toNarrativeStringArray(value.achievements),
-        skills: toStringArray(value.skills),
-        domainTags: toStringArray(value.domainTags),
+        companyName: readAliasString(value, [
+          "companyName",
+          "company",
+          "employer",
+          "organization",
+          "organisation",
+        ]),
+        companyUrl: readAliasString(value, ["companyUrl", "companyWebsite"]),
+        title: readAliasString(value, ["title", "role", "position", "jobTitle"]),
+        employmentType: readAliasString(value, ["employmentType", "type"]),
+        location: readAliasString(value, ["location"]),
+        workMode: toStringArray(value.workMode ?? value.workModes),
+        startDate: canonicalizeRecordDateText(
+          readAliasString(value, ["startDate", "start", "from"]),
+        ),
+        endDate: endDateSaysCurrent
+          ? null
+          : canonicalizeRecordDateText(rawEndDate),
+        isCurrent:
+          value.isCurrent === true ||
+          value.current === true ||
+          value.isPresent === true ||
+          endDateSaysCurrent,
+        summary: readAliasString(value, ["summary", "description", "overview"]),
+        achievements: toNarrativeStringArray(
+          value.achievements ??
+            value.highlights ??
+            value.bullets ??
+            value.responsibilities ??
+            value.accomplishments,
+        ),
+        skills: toStringArray(value.skills ?? value.technologies ?? value.tools),
+        domainTags: toStringArray(
+          value.domainTags ?? value.domains ?? value.industries,
+        ),
         peopleManagementScope:
           typeof value.peopleManagementScope === "string"
             ? value.peopleManagementScope
@@ -537,14 +577,206 @@ function normalizeRecordCandidateForReconciliation(
   }
 
   const value = normalizeRecordCandidateValue(candidate);
-  if (value === candidate.value) {
+  // The model sometimes keys a structured record by a slug ("experiences",
+  // "albanian") instead of "record". Same section, same object shape, same
+  // person's job: it must group with the deterministic twin instead of
+  // showing up beside it as a second copy to confirm.
+  const target =
+    candidate.target.key !== "record" && isObject(value)
+      ? {
+          section: candidate.target.section,
+          key: "record",
+          recordId: candidate.target.recordId ?? candidate.target.key,
+        }
+      : candidate.target;
+  if (value === candidate.value && target === candidate.target) {
     return candidate;
   }
 
   return ResumeImportFieldCandidateSchema.parse({
     ...candidate,
+    target,
     value,
     valuePreview: buildValuePreview(value),
+  });
+}
+
+/**
+ * Two extractions of the same record rarely agree on which fields they
+ * filled: the model reads the summary and dates, the text reader finds the
+ * employer line. The winner keeps its own values and takes what it lacks
+ * from its siblings, so applying one record never drops the company name
+ * only the other copy knew.
+ */
+const RECORD_FILLABLE_FIELDS = new Set([
+  "companyName",
+  "companyUrl",
+  "location",
+  "employmentType",
+  "workMode",
+  "startDate",
+  "endDate",
+  "schoolName",
+  "degree",
+  "fieldOfStudy",
+  "url",
+  "label",
+  "language",
+  "proficiency",
+  "name",
+  "projectType",
+  "role",
+  "issuer",
+  "achievements",
+  "skills",
+  "isCurrent",
+]);
+
+function enrichRecordCandidateFromSiblings(
+  winner: ResumeImportFieldCandidate,
+  siblings: readonly ResumeImportFieldCandidate[],
+): ResumeImportFieldCandidate {
+  if (!isObject(winner.value) || siblings.length === 0) {
+    return winner;
+  }
+  const merged: Record<string, unknown> = { ...winner.value };
+  let changed = false;
+  for (const sibling of siblings) {
+    if (!isObject(sibling.value)) {
+      continue;
+    }
+    for (const [key, siblingValue] of Object.entries(sibling.value)) {
+      // Prose (summary, notes) is never borrowed: the text reader's version
+      // is the raw paragraph, often first person or a bare location line.
+      if (!RECORD_FILLABLE_FIELDS.has(key)) {
+        continue;
+      }
+      const current = merged[key];
+      if (Array.isArray(current) && Array.isArray(siblingValue)) {
+        const union = uniqueStrings([
+          ...current.filter((entry): entry is string => typeof entry === "string"),
+          ...siblingValue.filter(
+            (entry): entry is string => typeof entry === "string",
+          ),
+        ]);
+        if (union.length !== current.length) {
+          merged[key] = union;
+          changed = true;
+        }
+        continue;
+      }
+      const currentEmpty =
+        current === null ||
+        current === undefined ||
+        current === false ||
+        (typeof current === "string" && current.trim().length === 0);
+      const siblingFilled =
+        siblingValue !== null &&
+        siblingValue !== undefined &&
+        siblingValue !== false &&
+        !(typeof siblingValue === "string" && siblingValue.trim().length === 0);
+      // Only gaps are filled. A sibling's longer summary is not better: the
+      // text reader's version is often the raw first-person paragraph.
+      if (currentEmpty && siblingFilled) {
+        merged[key] = siblingValue;
+        changed = true;
+      }
+    }
+  }
+  if (!changed) {
+    return winner;
+  }
+  return ResumeImportFieldCandidateSchema.parse({
+    ...winner,
+    value: merged,
+    valuePreview: buildValuePreview(merged),
+  });
+}
+
+const SHARED_MEMORY_SECTIONS = new Set([
+  "narrative",
+  "proof_point",
+  "answer_bank",
+  "application_identity",
+]);
+
+/**
+ * Importing into an empty profile fills it. The review-first policy above
+ * exists to protect values the person already typed; on a fresh profile there
+ * is nothing to protect, and asking someone to confirm forty rows of their
+ * own resume one by one is the friction the import was meant to remove. The
+ * winner of every group is applied, the person edits what is wrong on the
+ * form, and only shared-memory suggestions and identity mismatches still
+ * wait. The same applies to a scalar whose stored value is still empty.
+ */
+function promoteImportCandidatesIntoEmptyProfile(
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  candidates: readonly ResumeImportFieldCandidate[],
+): ResumeImportFieldCandidate[] {
+  const freshStart = isFreshStartCandidateProfile(profile);
+  const emptySections = new Set<string>(
+    (
+      [
+        ["experience", profile.experiences.length],
+        ["education", profile.education.length],
+        ["certification", profile.certifications.length],
+        ["link", profile.links.length],
+        ["project", profile.projects.length],
+        ["language", profile.spokenLanguages.length],
+      ] as const
+    )
+      .filter(([, count]) => count === 0)
+      .map(([section]) => section),
+  );
+  const resolvedAt = new Date().toISOString();
+
+  return candidates.map((candidate) => {
+    if (
+      candidate.resolution !== "needs_review" ||
+      SHARED_MEMORY_SECTIONS.has(candidate.target.section) ||
+      candidate.resolutionReason?.startsWith("identity_mismatch") ||
+      candidateOverallConfidence(candidate) < 0.6 ||
+      !hasSufficientEvidence(candidate)
+    ) {
+      return candidate;
+    }
+    // A first-person "About me" is the person's own words but not a resume
+    // summary yet; it stays a suggestion on Basics instead of landing
+    // verbatim in every generated resume.
+    if (
+      candidate.target.section === "identity" &&
+      candidate.target.key === "summary" &&
+      typeof candidate.value === "string" &&
+      /\b(?:i|me|my|mine|myself)\b/i.test(candidate.value)
+    ) {
+      return candidate;
+    }
+    const isRecord = isRecordTarget(candidate);
+    const existingValue = existingScalarValueForCandidate(
+      profile,
+      searchPreferences,
+      candidate,
+    );
+    const existingIsEmpty =
+      existingValue === null ||
+      existingValue === undefined ||
+      (typeof existingValue === "string" &&
+        existingValue.trim().length === 0) ||
+      (Array.isArray(existingValue) && existingValue.length === 0) ||
+      isPlaceholderScalarValue(profile, candidate, existingValue);
+    const eligible = isRecord
+      ? freshStart || emptySections.has(candidate.target.section)
+      : freshStart || isListTarget(candidate) || existingIsEmpty;
+    if (!eligible) {
+      return candidate;
+    }
+    return ResumeImportFieldCandidateSchema.parse({
+      ...candidate,
+      resolution: "auto_applied",
+      resolutionReason: "applied_into_empty_profile",
+      resolvedAt,
+    });
   });
 }
 
@@ -803,6 +1035,7 @@ export function isListTarget(candidate: ResumeImportFieldCandidate): boolean {
   return [
     "targetRoles",
     "locations",
+    "workModes",
     "skills",
     "skillGroups.coreSkills",
     "skillGroups.tools",
@@ -857,6 +1090,8 @@ function listCandidateMatchesWorkspace(
         normalizedStringValuesMatch(values, profile.locations) &&
         normalizedStringValuesMatch(values, searchPreferences.locations)
       );
+    case "search_preferences.workModes":
+      return normalizedStringValuesMatch(values, searchPreferences.workModes);
     case "skill.skills":
     case "skill.record":
       return normalizedStringValuesMatch(values, profile.skills);
@@ -1668,7 +1903,15 @@ export function reconcileCandidates(
 
     if (isRecordTarget(first) || isListTarget(first)) {
       if (isRecordTarget(first)) {
-        const rankedGroup = [...sorted].sort(compareRecordCandidates);
+        const rankedByRecord = [...sorted].sort(compareRecordCandidates);
+        const rankedGroup = rankedByRecord.map((candidate, index) =>
+          index === 0
+            ? enrichRecordCandidateFromSiblings(
+                candidate,
+                rankedByRecord.slice(1),
+              )
+            : candidate,
+        );
         let hasAutoAppliedCollectionCandidate = false;
         const recordGroupResolved: ResumeImportFieldCandidate[] = [];
 
@@ -1769,9 +2012,13 @@ export function reconcileCandidates(
     appendResolvedConflictGroup(resolved, groupResolved);
   }
 
-  return resolveRedundantFreshStartNamePartCandidates(
+  return promoteImportCandidatesIntoEmptyProfile(
     profile,
     searchPreferences,
-    resolved,
+    resolveRedundantFreshStartNamePartCandidates(
+      profile,
+      searchPreferences,
+      resolved,
+    ),
   );
 }

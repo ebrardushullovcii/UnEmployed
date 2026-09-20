@@ -34,6 +34,7 @@ import {
   type ReviseResumeDraftInput,
   type TailoredResumeDraft,
   type ExtractResumeImportStageTransportInput,
+  describeProfileAssistantBehavior,
 } from "./shared";
 import { completeTailoredResumeDraft } from "./openai-compatible-shared";
 import {
@@ -279,6 +280,14 @@ export async function runResumeGenerationAgentTask(input: {
                 },
               },
               {
+                id: `resume_preview_${Date.now()}`,
+                type: "function",
+                function: {
+                  name: "render_resume_preview",
+                  arguments: "{}",
+                },
+              },
+              {
                 id: `resume_finish_${Date.now()}`,
                 type: "function",
                 function: { name: "finish_task", arguments: "{}" },
@@ -508,10 +517,30 @@ export async function runResumeGenerationAgentTask(input: {
         }),
       }),
     timeBudgetMs: 600_000,
-    providerCallBudget: 16,
+    providerCallBudget: 40,
     noProgressLimit: 6,
     emergencyCeiling: 24,
   });
+
+  // A stopped agent task is not model output. Returning its partial (or still
+  // empty) draft made a provider timeout look like writing that had been
+  // evaluated and rejected as `provider_output_unverified`. Keep that label
+  // for completed model work only so the outer provider boundary can record
+  // the real timeout/failure provenance.
+  if (result.receipt.stopReason !== "completed") {
+    if (result.receipt.stopReason === "time_budget") {
+      const seconds = Math.max(
+        1,
+        Math.ceil(result.receipt.durationMs / 1_000),
+      );
+      throw new Error(
+        `Resume generation agent timed out after ${seconds}s before completing.`,
+      );
+    }
+    throw new Error(
+      `Resume generation agent stopped before completing (${result.receipt.stopReason}).`,
+    );
+  }
 
   return TailoredResumeDraftSchema.parse({
     ...completeTailoredResumeDraft(result.draft, input.request),
@@ -791,7 +820,7 @@ export async function runResumeImportStageAgentTask(input: {
         }),
       }),
     timeBudgetMs: 600_000,
-    providerCallBudget: 16,
+    providerCallBudget: 40,
     noProgressLimit: 6,
     emergencyCeiling: 24,
   });
@@ -848,6 +877,7 @@ export async function runProfileCopilotAgentTask(input: {
     capability: "profile_copilot",
     systemPrompt: [
       "You are the Profile Copilot. Work through the typed tools instead of returning a final JSON object.",
+      ...describeProfileAssistantBehavior(input.request.assistantBehavior),
       "Use propose_profile_operations for profile edits: it is the universal path that accepts every schema-valid operation kind and wraps them into one needs_review group per call with runtime-assigned id, apply mode, and timestamp. The dedicated set_* tools remain as conveniences.",
       "Answer grounded questions directly. For edits, set helpful response content and add one or more bounded patch groups.",
       "Never invent experience, credentials, dates, compensation currency, or metrics. Broad or ambiguous edits need review.",

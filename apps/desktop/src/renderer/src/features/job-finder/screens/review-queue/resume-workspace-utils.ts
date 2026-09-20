@@ -367,43 +367,21 @@ export function formatOptionalDate(
 export function describeResumeExportClaimBlock(input: {
   blockingAssessments: readonly Pick<ResumeClaimAssessment, "status">[];
 }): string | null {
-  if (input.blockingAssessments.length === 0) {
+  const count = input.blockingAssessments.length;
+  if (count === 0) {
     return null;
   }
 
-  const confirmCount = input.blockingAssessments.filter(
-    (assessment) => assessment.status === "confirm_needed",
-  ).length;
-  const rewriteCount = input.blockingAssessments.length - confirmCount;
-  const confirmLabel =
-    confirmCount === 1
-      ? "1 line still needs your confirmation"
-      : `${confirmCount} lines still need your confirmation`;
-  const rewriteLabel =
-    rewriteCount === 1
-      ? "1 claim must be rewritten or approved"
-      : `${rewriteCount} claims must be rewritten or approved`;
-
-  if (rewriteCount === 0) {
-    return `${confirmLabel} before this resume can be exported.`;
-  }
-  if (confirmCount === 0) {
-    return `${rewriteLabel} before this resume can be exported.`;
-  }
-  return `${confirmLabel}, and ${rewriteLabel}, before this resume can be exported.`;
+  return count === 1
+    ? "1 line needs your decision before this resume can be approved."
+    : `${count} lines need your decision before this resume can be approved.`;
 }
 
 export function resumeExportClaimBlockActionLabel(input: {
   blockingAssessments: readonly Pick<ResumeClaimAssessment, "status">[];
 }): string {
-  const confirmCount = input.blockingAssessments.filter(
-    (assessment) => assessment.status === "confirm_needed",
-  ).length;
-  const rewriteCount = input.blockingAssessments.length - confirmCount;
-  if (confirmCount > 0 && rewriteCount === 0) {
-    return "Review confirmations";
-  }
-  return "Review blocked claims";
+  const count = input.blockingAssessments.length;
+  return count === 1 ? "Review 1 line" : `Review ${count} lines`;
 }
 
 export function cloneDraft(draft: ResumeDraft): ResumeDraft {

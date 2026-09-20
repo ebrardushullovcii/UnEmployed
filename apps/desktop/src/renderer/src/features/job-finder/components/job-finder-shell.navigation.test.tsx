@@ -289,7 +289,7 @@ describe("JobFinderShell section navigation", () => {
     // The open panel carries the same accessible name, so the trigger is
     // selected by element rather than by name alone.
     const taskCenterLauncher = notificationGroup.querySelector(
-      "summary[aria-label='Tasks']",
+      "summary[aria-label='Activity']",
     ) as HTMLElement;
     const taskCenterLabels = Array.from(
       taskCenterLauncher.querySelectorAll("span"),
@@ -297,7 +297,7 @@ describe("JobFinderShell section navigation", () => {
     // One name at every width: the header used to read "Tasks" compact and
     // "Task center" at 1440, so the same destination had two names.
     const taskLabels = taskCenterLabels.filter(
-      (span) => span.textContent?.trim() === "Tasks",
+      (span) => span.textContent?.trim() === "Activity",
     );
     expect(taskLabels).toHaveLength(1);
     expect(taskLabels[0]?.className).toContain("min-[900px]:inline");
@@ -1830,7 +1830,7 @@ describe("JobFinderShell section navigation", () => {
       name: "Notifications and actions",
     });
     const summary = actionGroup.querySelector(
-      "summary[aria-label='Tasks']",
+      "summary[aria-label='Activity']",
     ) as HTMLElement;
     const taskCenter = summary?.closest("details");
 
@@ -2781,7 +2781,7 @@ describe("JobFinderShell responsive shell contract", () => {
         }),
       ).toHaveLength(1);
       expect(
-        document.querySelectorAll("summary[aria-label='Tasks']"),
+        document.querySelectorAll("summary[aria-label='Activity']"),
       ).toHaveLength(1);
       expect(
         screen.getAllByRole("button", { name: /^Needs you/ }),

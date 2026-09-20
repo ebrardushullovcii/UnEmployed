@@ -170,7 +170,7 @@ describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
     expect(screen.getByText("No matches from this search")).toBeTruthy();
     expect(
       screen
-        .getByRole("link", { name: "Edit this plan's places" })
+        .getByRole("link", { name: "Edit your places" })
         .getAttribute("href"),
     ).toBe("/job-finder/campaigns?campaignId=plan_chicago");
     expect(

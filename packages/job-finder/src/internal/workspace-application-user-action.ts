@@ -590,9 +590,11 @@ export async function releaseApplicationRecordAfterDismissedUserAction(input: {
   await input.repository.upsertApplicationRecord(
     ApplicationRecordSchema.parse({
       ...record,
-      lastAttemptState: "unsupported",
+      // Closing the step is not the end of the application: the person can
+      // press Try again later, or finish it on the site themselves.
+      lastAttemptState: "failed",
       lastActionLabel: `You ${closedWord} the step Job Finder was waiting on.`,
-      nextActionLabel: "Finish this application yourself on the job site.",
+      nextActionLabel: "Try again, or finish it yourself on the job site.",
       lastUpdatedAt: input.occurredAt,
       events: [
         ...record.events,

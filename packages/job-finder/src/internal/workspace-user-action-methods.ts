@@ -6,6 +6,7 @@ import {
   type UserActionCommand,
   type UserActionRequest,
   JobFinderActivityControlSchema,
+  type ApplicationQuestionRecord,
 } from "@unemployed/contracts";
 
 import {
@@ -227,16 +228,68 @@ async function persistManualAnswer(input: {
       applicationRecordId: scope.applicationRecordId,
     })
   ).filter((question) => question.status === "detected");
-  if (questions.length !== 1) {
-    throw new Error(
-      "This action does not identify exactly one reviewable question. Answer it in the browser, then save it from Profile if you want to reuse it.",
-    );
+
+  // A multi-question step arrives as one command with every answer tied to
+  // its question; a single-question step still arrives as one bare answer.
+  const pairs: { question: (typeof questions)[number]; answer: string }[] =
+    [];
+  if (input.command.answers && input.command.answers.length > 0) {
+    for (const entry of input.command.answers) {
+      const question = questions.find(
+        (candidate) =>
+          candidate.id === entry.questionId ||
+          candidate.id ===
+            `apply_question_${scope.applicationRecordId}_${entry.questionId}`,
+      );
+      if (!question) {
+        throw new Error(
+          "One of these answers does not match a question Job Finder is waiting on. Reload Needs you and try again.",
+        );
+      }
+      pairs.push({ question, answer: entry.answer.trim() });
+    }
+  } else {
+    if (questions.length !== 1) {
+      throw new Error(
+        "This step has several questions; answer them together from Needs you.",
+      );
+    }
+    const question = questions[0];
+    if (!question) return;
+    pairs.push({ question, answer: input.command.answer.trim() });
   }
 
-  const question = questions[0];
-  if (!question) return;
+  let pairIndex = 0;
+  for (const pair of pairs) {
+    pairIndex += 1;
+    await persistOneManualAnswer({
+      ...input,
+      question: pair.question,
+      answer: pair.answer,
+      // Several answers in one command each need their own record id.
+      recordSuffix: pairs.length === 1 ? "" : `_${pairIndex}`,
+    });
+  }
+}
+
+async function persistOneManualAnswer(input: {
+  command: SubmitUserActionManualAnswerCommand;
+  ctx: WorkspaceServiceContext;
+  request: UserActionRequest;
+  resultingRevision: number;
+  question: ApplicationQuestionRecord;
+  answer: string;
+  recordSuffix: string;
+}): Promise<void> {
+  if (input.request.scope.type !== "application") {
+    throw new Error("Manual answers require an application action.");
+  }
+  const scope = input.request.scope;
+  if (!scope.applicationRecordId || !scope.resultId) {
+    throw new Error("This manual answer is missing its application scope.");
+  }
+  const { question, answer } = input;
   const now = new Date().toISOString();
-  const answer = input.command.answer.trim();
 
   if (input.command.saveForFuture) {
     const profile = await input.ctx.repository.getProfile();
@@ -272,7 +325,7 @@ async function persistManualAnswer(input: {
     }
   }
 
-  const recordId = `manual_answer_${input.request.id}_${input.resultingRevision}`;
+  const recordId = `manual_answer_${input.request.id}_${input.resultingRevision}${input.recordSuffix}`;
   const records = await input.ctx.repository.listApplicationAnswerRecords({
     runId: scope.runId,
     jobId: scope.jobId,
@@ -302,7 +355,7 @@ async function persistManualAnswer(input: {
     confidenceLabel: "User-provided for this exact question",
     provenance: [
       {
-        id: `manual_answer_provenance_${input.request.id}_${input.resultingRevision}`,
+        id: `manual_answer_provenance_${input.request.id}_${input.resultingRevision}${input.recordSuffix}`,
         sourceKind: "user",
         sourceId: input.request.id,
         label: input.command.saveForFuture

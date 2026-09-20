@@ -98,12 +98,59 @@ const prepareOnlyNetworkGuardStates = new WeakMap<
     intermediateMutationsAuthorized: boolean;
     intermediateMutationAllowedOrigins: string[];
     intermediateMutationWindow: IntermediateMutationWindowSnapshot | null;
+    /** Epoch ms until which the one authorized send may go out. */
+    finalActionAllowedUntilMs: number;
     initScriptInstalled: boolean;
     serviceWorkerInitScriptInstalled: boolean;
     responseListenerInstalled: boolean;
     webSocketListenerInstalled: boolean;
   }
 >();
+
+/**
+ * Lets the one authorized send through the prepare-only guard.
+ *
+ * Preparation installs a guard that aborts every non-read request and cancels
+ * the form's own submit. That guard stayed on the page when the submission
+ * path pressed the send control, so "Send for me" clicked a button whose
+ * request was aborted and could only ever report an uncertain outcome. The
+ * window is short and closed again by the caller; it is only ever opened
+ * after preflight, on the exact control the authority covers.
+ */
+export async function openPrepareOnlyFinalActionWindow(
+  page: Page,
+  durationMs = 20_000,
+): Promise<void> {
+  const networkGuardState = prepareOnlyNetworkGuardStates.get(page);
+  if (networkGuardState) {
+    networkGuardState.finalActionAllowedUntilMs = Date.now() + durationMs;
+  }
+  await page
+    .evaluate(() => {
+      const state = (window as unknown as Record<string, unknown>)[
+        "__unemployedPrepareOnlyMutationGuardV1"
+      ] as { finalActionAllowed?: boolean } | undefined;
+      if (state) state.finalActionAllowed = true;
+    })
+    .catch(() => undefined);
+}
+
+export async function closePrepareOnlyFinalActionWindow(
+  page: Page,
+): Promise<void> {
+  const networkGuardState = prepareOnlyNetworkGuardStates.get(page);
+  if (networkGuardState) {
+    networkGuardState.finalActionAllowedUntilMs = 0;
+  }
+  await page
+    .evaluate(() => {
+      const state = (window as unknown as Record<string, unknown>)[
+        "__unemployedPrepareOnlyMutationGuardV1"
+      ] as { finalActionAllowed?: boolean } | undefined;
+      if (state) state.finalActionAllowed = false;
+    })
+    .catch(() => undefined);
+}
 
 /**
  * Runs inside the application page. Keep this function self-contained because
@@ -117,6 +164,11 @@ export function installPrepareOnlyMutationGuardInPage(
     intermediateMutationsAuthorized: boolean;
     intermediateMutationWindow: IntermediateMutationWindowSnapshot | null;
     submitListenerInstalled: boolean;
+    /**
+     * True only while Job Finder presses the one authorized send control.
+     * The guard then lets the form's own submit and requests through.
+     */
+    finalActionAllowed: boolean;
     formSubmitWrapper: typeof HTMLFormElement.prototype.submit | null;
     formRequestSubmitWrapper:
       | typeof HTMLFormElement.prototype.requestSubmit
@@ -143,6 +195,7 @@ export function installPrepareOnlyMutationGuardInPage(
     intermediateMutationsAuthorized,
     intermediateMutationWindow: null,
     submitListenerInstalled: false,
+    finalActionAllowed: false,
     formSubmitWrapper: null,
     formRequestSubmitWrapper: null,
     sendBeaconWrapper: null,
@@ -157,6 +210,7 @@ export function installPrepareOnlyMutationGuardInPage(
   };
   state.intermediateMutationsAuthorized = intermediateMutationsAuthorized;
   state.preparedValues ??= [];
+  state.finalActionAllowed ??= false;
   pageWindow["__unemployedPrepareOnlyMutationGuardV1"] = state;
 
   const normalizeMethod = (value: string | null | undefined): string =>
@@ -408,6 +462,9 @@ export function installPrepareOnlyMutationGuardInPage(
     method: string;
     url: string | null;
   }): boolean => {
+    if (state.finalActionAllowed) {
+      return true;
+    }
     const mutationWindow = state.intermediateMutationWindow;
     if (
       !state.intermediateMutationsAuthorized ||
@@ -428,7 +485,12 @@ export function installPrepareOnlyMutationGuardInPage(
     } catch {
       return false;
     }
-    if (parsedUrl.origin !== mutationWindow.expectedOrigin) {
+    // "*" is the default: field saves are allowed wherever the form lives
+    // (an embedded ATS answers from its own origin, not the page's), and
+    // any write that is not a final send goes through. A pinned origin from
+    // a saved permission keeps the older, narrower rule.
+    const anyOrigin = mutationWindow.expectedOrigin === "*";
+    if (!anyOrigin && parsedUrl.origin !== mutationWindow.expectedOrigin) {
       return false;
     }
     const signal = `${parsedUrl.pathname} ${parsedUrl.search} ${
@@ -440,7 +502,7 @@ export function installPrepareOnlyMutationGuardInPage(
       /(?:^|[^a-z0-9])(?:autosave|auto[-_\s]*save|draft|save[-_\s]*(?:field|answer|progress|draft)?|update[-_\s]*(?:field|answer|progress|draft|application|form)?|field|answer|attachment|upload|progress)(?:[^a-z0-9]|$)/iu;
     if (
       finalActionSignal.test(signal) ||
-      !intermediateActionSignal.test(signal)
+      (!anyOrigin && !intermediateActionSignal.test(signal))
     ) {
       return false;
     }
@@ -452,6 +514,9 @@ export function installPrepareOnlyMutationGuardInPage(
     document.addEventListener(
       "submit",
       (event) => {
+        if (state.finalActionAllowed) {
+          return;
+        }
         const form =
           event.target instanceof HTMLFormElement ? event.target : null;
         if (formCarriesPreparedValue(form) === true) {
@@ -1096,6 +1161,7 @@ export async function ensurePrepareOnlyMutationGuard(
         ...new Set(intermediateMutationAllowedOrigins),
       ],
       intermediateMutationWindow: null,
+      finalActionAllowedUntilMs: 0,
       initScriptInstalled: false,
       serviceWorkerInitScriptInstalled: false,
       responseListenerInstalled: false,
@@ -1106,6 +1172,10 @@ export async function ensurePrepareOnlyMutationGuard(
       const request = route.request();
       const method = request.method().trim().toUpperCase();
       const resourceType = request.resourceType();
+      if (Date.now() < networkGuardState!.finalActionAllowedUntilMs) {
+        await route.continue();
+        return;
+      }
 
       const denyRequest = async (): Promise<void> => {
         networkGuardState!.blockedAttempts.push({
@@ -1276,18 +1346,42 @@ export async function openPrepareOnlyIntermediateMutationWindow(
     );
   }
   const networkGuardState = prepareOnlyNetworkGuardStates.get(page);
+  // An empty origin list means "the origin the run is on right now": the
+  // window is still pinned to one origin for its short life, it just is not
+  // pinned ahead of time.
   if (
     !networkGuardState?.intermediateMutationsAuthorized ||
-    !networkGuardState.intermediateMutationAllowedOrigins.includes(
-      expectedOrigin,
-    )
+    (networkGuardState.intermediateMutationAllowedOrigins.length > 0 &&
+      !networkGuardState.intermediateMutationAllowedOrigins.includes(
+        expectedOrigin,
+      ))
   ) {
     throw new Error(
       "The current application origin is outside the explicit intermediate-mutation authority.",
     );
   }
+  // The page has usually navigated since the guard was installed (listing
+  // page to apply page), and a document created by the init script starts
+  // from whatever the script was first registered with. Re-assert the
+  // authorization on every frame before the window opens, so the frame the
+  // field lives in agrees that saves are allowed.
+  for (const frame of page.frames()) {
+    try {
+      await ensureFramePrepareOnlyMutationGuard(
+        frame,
+        networkGuardState.intermediateMutationsAuthorized,
+      );
+    } catch {
+      // A frame mid-navigation gets the window on the next write.
+    }
+  }
   await setPrepareOnlyIntermediateMutationWindow(page, {
-    expectedOrigin,
+    // No pinned origins: the window covers whichever origin the form's
+    // frame saves to. The submit guard is separate and unchanged.
+    expectedOrigin:
+      networkGuardState.intermediateMutationAllowedOrigins.length === 0
+        ? "*"
+        : expectedOrigin,
     expiresAtMs: Date.now() + INTERMEDIATE_MUTATION_WINDOW_DURATION_MS,
     remainingRequests: INTERMEDIATE_MUTATION_WINDOW_MAX_REQUESTS,
   });
@@ -1369,6 +1463,7 @@ export function recordPrepareOnlyRunInterruption(
       intermediateMutationsAuthorized: false,
       intermediateMutationAllowedOrigins: [],
       intermediateMutationWindow: null,
+      finalActionAllowedUntilMs: 0,
       initScriptInstalled: false,
       serviceWorkerInitScriptInstalled: false,
       responseListenerInstalled: false,
@@ -2020,7 +2115,7 @@ export function buildPreparationResult(input: {
   // Only the application facts are needed; the callback that fills the form is
   // not one of them.
   executionInput: Omit<ExecuteApplicationFlowInput, "prepareApplicationForm">;
-  state?: "paused" | "failed";
+  state?: "paused" | "failed" | "ready";
   summary: string;
   detail: string;
   questions: readonly ApplicationAttemptQuestion[];

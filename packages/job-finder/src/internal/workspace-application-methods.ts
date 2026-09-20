@@ -4,7 +4,11 @@ import {
   createApplyFormPreparer,
   resolveApplySiteLabel,
 } from "./agent-application-preparation";
-import { resolveApplyAuthorityForJob } from "./apply-authority-resolution";
+import { persistApplicationPreparationProgress } from "./application-preparation-progress";
+import {
+  authorizeReviewedApplicationOrigin,
+  resolveApplyAuthorityForJob,
+} from "./apply-authority-resolution";
 import {
   enforceResolvedApplyAuthorityResult,
   type ApplySubmissionHandoff,
@@ -397,6 +401,14 @@ export function createWorkspaceApplicationMethods(
    */
   async function readListingDetailForShortlistedJob(
     jobId: string,
+    options: {
+      /**
+       * Read again even inside the retry back-off. Creating a resume is the
+       * moment the listing text matters most; a fetch that failed during a
+       * network blip must not leave the job untailorable for hours.
+       */
+      force?: boolean;
+    } = {},
   ): Promise<void> {
     const fetchListingHtml = ctx.fetchListingHtml;
     if (!fetchListingHtml) {
@@ -405,7 +417,13 @@ export function createWorkspaceApplicationMethods(
     try {
       const savedJobs = await ctx.repository.listSavedJobs();
       const job = savedJobs.find((entry) => entry.id === jobId);
-      if (!job || !jobNeedsListingDetail(job)) {
+      if (!job) {
+        return;
+      }
+      const alreadyRead =
+        job.detailQuality === "detail_enriched" &&
+        job.listingDetailFetch?.outcome === "enriched";
+      if (alreadyRead || (!options.force && !jobNeedsListingDetail(job))) {
         return;
       }
       const [profile, searchPreferences] = await Promise.all([
@@ -425,6 +443,7 @@ export function createWorkspaceApplicationMethods(
         fetchHtml: fetchListingHtml,
         assess: session.assess,
         timeBudgetMs: 9_000,
+        ...(options.force ? { ignoreRetryBackoff: true } : {}),
       });
       const next = enrichment.jobs[0];
       if (!next || enrichment.changedJobIds.length === 0) {
@@ -660,9 +679,9 @@ export function createWorkspaceApplicationMethods(
       createdAt: input.startedAt,
       updatedAt: input.startedAt,
       completedAt: null,
-      summary: "Job Finder is preparing this application for you to review.",
+      summary: "Job Finder is filling in this application.",
       detail:
-        "You can pause or close the app while this runs. Job Finder never presses the final submit button on a job site — you do that yourself.",
+        "You can pause or close the app while this runs. Whether it sends the application is the mode you chose in Settings.",
       totalJobs: 1,
       pendingJobs: 1,
       submittedJobs: 0,
@@ -1232,9 +1251,15 @@ export function createWorkspaceApplicationMethods(
       resumeSha256: input.resumeArtifact.sha256,
     });
     if (!initial.authorized) {
+      // No saved permission narrows this run, so the run may let the site
+      // save answers as they are typed on whichever origin it is filling
+      // in. Nothing is sent: the submit guard is separate from this. Owner
+      // decision (ADR 0024): a form that will not carry on until it has
+      // saved is friction, not a risk worth stopping the run over.
       return {
-        intermediateMutationsAuthorized: false,
+        intermediateMutationsAuthorized: true,
         intermediateMutationAllowedOrigins: [],
+        recheckIntermediateMutationAuthority: () => Promise.resolve(true),
       };
     }
 
@@ -1838,10 +1863,10 @@ export function createWorkspaceApplicationMethods(
         updatedAt: new Date().toISOString(),
         summary:
           input.mode === "queue_auto"
-            ? "Automatic apply queue is running in safe review mode."
-            : "Automatic apply run is running in safe review mode.",
+            ? "Applying to these jobs one after another."
+            : "Applying to this job.",
         detail:
-          "Job Finder fills in and checks each application, then stops. It never presses the final submit button on a job site — you do that yourself.",
+          "Job Finder fills in each application. Whether it sends it is the mode you chose in Settings.",
       });
     const executionSignal = executionController.signal;
     const campaignStopRules = run.campaignId
@@ -2007,6 +2032,7 @@ export function createWorkspaceApplicationMethods(
           },
           capacityToken,
         );
+        const activeResultIdRun = jobResult.id;
         if (activeSource !== job.source) {
           if (activeSource && !keepSessionAlive) {
             await ctx.closeRunBrowserSession(activeSource);
@@ -2059,6 +2085,7 @@ export function createWorkspaceApplicationMethods(
           applicationUrl: job.applicationUrl ?? job.canonicalUrl,
           now: new Date().toISOString(),
         });
+        let activeEnvelopeRun = applyAuthorityRun.envelope;
         // Set while the form is being filled in, so the loop can hand a
         // finished application to the submission path without re-deriving it.
         let preparedHandoffRun: ApplySubmissionHandoff | null = null;
@@ -2082,6 +2109,17 @@ export function createWorkspaceApplicationMethods(
             applyAuthorityRun.authority.preApprovedAttestationKinds,
           salaryDisclosure: applyAuthorityRun.authority.salaryDisclosure,
           applyAllowedOrigins: [...applyAuthorityRun.authority.allowedOrigins],
+          authorizeReviewedApplicationOrigin: async (origin: string) => {
+            if (!activeEnvelopeRun) return null;
+            activeEnvelopeRun = await authorizeReviewedApplicationOrigin({
+              repository: ctx.repository,
+              envelope: activeEnvelopeRun,
+              jobId: job.id,
+              origin,
+              now: new Date().toISOString(),
+            });
+            return activeEnvelopeRun;
+          },
           ...(recoverySeed.recoveryContext
             ? { recoveryContext: recoverySeed.recoveryContext }
             : {}),
@@ -2098,6 +2136,14 @@ export function createWorkspaceApplicationMethods(
           prepareApplicationForm: createApplyFormPreparer({
             executionInput: applyFlowFactsRun,
             aiClient: ctx.aiClient,
+            onProgress: (progress) =>
+              persistApplicationPreparationProgress({
+                repository: ctx.repository,
+                resultId: activeResultIdRun,
+                runId: run.id,
+                jobId,
+                progress,
+              }),
             ...(applyAuthorityRun.envelope
               ? { envelope: applyAuthorityRun.envelope }
               : {}),
@@ -2424,7 +2470,7 @@ export function createWorkspaceApplicationMethods(
             await sendPreparedApplicationIfAllowed({
               ctx,
               handoff: preparedHandoffRun,
-              envelope: applyAuthorityRun.envelope,
+              envelope: activeEnvelopeRun,
               source: job.source,
               lineage: {
                 runId: run.id,
@@ -2502,7 +2548,7 @@ export function createWorkspaceApplicationMethods(
                   ? "Consent-blocked jobs remain explicit user actions, while every unrelated ready job was allowed to reach its safe review checkpoint."
                   : runArtifacts.consentRequests.length > 0
                     ? "The run stopped because a consent-gated step needs an explicit user decision."
-                    : "Job Finder filled in and checked the application, then stopped. It never presses the final submit button on a job site — you do that yourself."),
+                    : "Job Finder finished working through the application."),
               completedAt: campaignPauseReason
                 ? null
                 : input.mode === "queue_auto"
@@ -2785,6 +2831,9 @@ export function createWorkspaceApplicationMethods(
   async function runGenerateResume(
     jobId: string,
   ): Promise<JobFinderWorkspaceSnapshot> {
+    // A resume is written toward the listing, so read the listing first when
+    // the search only kept the card (or an earlier read failed).
+    await readListingDetailForShortlistedJob(jobId, { force: true });
     const [
       profileState,
       searchPreferences,
@@ -3576,11 +3625,18 @@ export function createWorkspaceApplicationMethods(
 
       return ctx.getWorkspaceSnapshot();
     },
-    async setJobResumeApplicationMode(jobId, resumeApplicationMode) {
+    async setJobResumeApplicationMode(
+      jobId,
+      resumeApplicationMode,
+      resumeTailoringMode,
+    ) {
       await ctx.updateJob(jobId, (job) =>
         SavedJobSchema.parse({
           ...job,
           resumeApplicationMode,
+          ...(resumeTailoringMode === undefined
+            ? {}
+            : { resumeTailoringMode }),
         }),
       );
 
@@ -3923,6 +3979,12 @@ export function createWorkspaceApplicationMethods(
           ...parsedDraft,
           workHistoryReviewAcknowledgments:
             currentDraft.workHistoryReviewAcknowledgments,
+          // Same for claim confirmations and issue approvals: the editor's copy
+          // of the draft can predate an approval made moments earlier, and a
+          // save that wrote the stale lists back silently revived blockers the
+          // person had already cleared.
+          claimConfirmations: currentDraft.claimConfirmations,
+          issueApprovals: currentDraft.issueApprovals,
           status: hadApprovedExport ? "stale" : "needs_review",
           approvedAt: null,
           approvedExportId: null,
@@ -4181,7 +4243,7 @@ export function createWorkspaceApplicationMethods(
           throw new Error(
             hasBlockingResumeIdentityMismatch(preExportValidation)
               ? "This resume has an identity mismatch between the visible profile and imported resume and cannot be exported yet."
-              : "This resume has blocking candidate-claim validation issues and cannot be exported yet.",
+              : "Some lines in this resume still need your decision before it can be exported. Open the resume: they are listed under Lines to confirm.",
           );
         }
         await assertCurrentResumeProfile(
@@ -4334,7 +4396,7 @@ export function createWorkspaceApplicationMethods(
           })
         ) {
           throw new Error(
-            `Resume export '${exportId}' contains unconfirmed or unsupported candidate claims and cannot be approved.`,
+            "Some lines in this resume still need your decision before it can be approved. They are listed under Lines to confirm.",
           );
         }
 
@@ -5351,6 +5413,7 @@ export function createWorkspaceApplicationMethods(
           applicationUrl: job.applicationUrl ?? job.canonicalUrl,
           now: new Date().toISOString(),
         });
+        let activeEnvelopeApproved = applyAuthorityApproved.envelope;
         // The browser layer opens the page; Job Finder decides what goes in
         // the form and whether anything may be sent.
         const applyFlowFactsApproved = {
@@ -5372,6 +5435,17 @@ export function createWorkspaceApplicationMethods(
           applyAllowedOrigins: [
             ...applyAuthorityApproved.authority.allowedOrigins,
           ],
+          authorizeReviewedApplicationOrigin: async (origin: string) => {
+            if (!activeEnvelopeApproved) return null;
+            activeEnvelopeApproved = await authorizeReviewedApplicationOrigin({
+              repository: ctx.repository,
+              envelope: activeEnvelopeApproved,
+              jobId: job.id,
+              origin,
+              now: new Date().toISOString(),
+            });
+            return activeEnvelopeApproved;
+          },
           ...(applyInstructions.length > 0
             ? { instructions: applyInstructions }
             : {}),
@@ -5381,6 +5455,17 @@ export function createWorkspaceApplicationMethods(
           prepareApplicationForm: createApplyFormPreparer({
             executionInput: applyFlowFactsApproved,
             aiClient: ctx.aiClient,
+            onProgress: (progress) =>
+              persistApplicationPreparationProgress({
+                repository: ctx.repository,
+                resultId: markedResult.id,
+                runId: claim.runId,
+                jobId,
+                progress,
+              }),
+            ...(activeEnvelopeApproved
+              ? { envelope: activeEnvelopeApproved }
+              : {}),
             letters: buildApplyLetterDependencies({
               aiClient: ctx.aiClient,
               documentManager: ctx.documentManager,
@@ -5910,6 +5995,7 @@ export function createWorkspaceApplicationMethods(
           applicationUrl: currentJob.applicationUrl ?? currentJob.canonicalUrl,
           now: new Date().toISOString(),
         });
+        let activeEnvelopeDirect = applyAuthorityDirect.envelope;
         // The browser layer opens the page; Job Finder decides what goes in
         // the form and whether anything may be sent.
         const applyFlowFactsDirect = {
@@ -5931,6 +6017,17 @@ export function createWorkspaceApplicationMethods(
           applyAllowedOrigins: [
             ...applyAuthorityDirect.authority.allowedOrigins,
           ],
+          authorizeReviewedApplicationOrigin: async (origin: string) => {
+            if (!activeEnvelopeDirect) return null;
+            activeEnvelopeDirect = await authorizeReviewedApplicationOrigin({
+              repository: ctx.repository,
+              envelope: activeEnvelopeDirect,
+              jobId: currentJob.id,
+              origin,
+              now: new Date().toISOString(),
+            });
+            return activeEnvelopeDirect;
+          },
           ...(recoverySeed.recoveryContext
             ? { recoveryContext: recoverySeed.recoveryContext }
             : {}),
@@ -5942,11 +6039,28 @@ export function createWorkspaceApplicationMethods(
             source: currentJob.source,
           }),
         };
+        // Set while the form is being filled in, so the finished application
+        // can be handed to the submission path. The one-press Apply used to
+        // drop this, so "Send for me" filled the form and never sent it;
+        // only a batch did.
+        let preparedHandoffDirect: ApplySubmissionHandoff | null = null;
         const applyFlowInputDirect = {
           ...applyFlowFactsDirect,
           prepareApplicationForm: createApplyFormPreparer({
             executionInput: applyFlowFactsDirect,
             aiClient: ctx.aiClient,
+            onProgress: (progress) =>
+              persistApplicationPreparationProgress({
+                repository: ctx.repository,
+                resultId: markedResult.id,
+                runId: claim.runId,
+                jobId,
+                progress,
+              }),
+            ...(activeEnvelopeDirect ? { envelope: activeEnvelopeDirect } : {}),
+            onPrepared: ({ handoff }) => {
+              preparedHandoffDirect = handoff;
+            },
             letters: buildApplyLetterDependencies({
               aiClient: ctx.aiClient,
               documentManager: ctx.documentManager,
@@ -6099,6 +6213,10 @@ export function createWorkspaceApplicationMethods(
                   attempt.replay,
                   attempt.visualEvidence,
                 ),
+                // The mode this run actually worked under, so "Ask before
+                // sending" offers its Send control (the batch loop already
+                // recorded this; the one-press path left the default).
+                automationMode: applyAuthorityDirect.authority.mode,
                 crm: existingRecord.crm,
                 events: mergeEvents(
                   existingRecord.events,
@@ -6147,6 +6265,58 @@ export function createWorkspaceApplicationMethods(
             safeguardError,
           );
         });
+
+        // Sending happens after the preparation is on record, the same way a
+        // batch does it; only a permission that covers this exact application
+        // ever reaches the send.
+        const sent = await sendPreparedApplicationIfAllowed({
+          ctx,
+          handoff: preparedHandoffDirect,
+          envelope: activeEnvelopeDirect,
+          source: currentJob.source,
+          lineage: {
+            runId: persistedRun.id,
+            jobId,
+            resultId: runArtifacts.result.id,
+            applicationRecordId: selectedApplicationRecord.id,
+            campaignId: persistedRun.campaignId ?? null,
+          },
+          resumeArtifact,
+          siteLabel: resolveApplySiteLabel({
+            targetLabel: provenanceTarget?.label ?? null,
+            applicationUrl: currentJob.applicationUrl ?? currentJob.canonicalUrl,
+          }),
+          signal: claim.controller.signal,
+        }).catch((sendError: unknown) => {
+          console.error("Failed to send the prepared application.", sendError);
+          return null;
+        });
+        if (sent) {
+          const sentAt = new Date().toISOString();
+          const currentRecord = (
+            await ctx.repository.listApplicationRecords()
+          ).find((record) => record.id === selectedApplicationRecord.id);
+          if (currentRecord) {
+            await syncRunApplicationRecord({
+              applicationRecordId: currentRecord.id,
+              consentSummary: currentRecord.consentSummary,
+              eventDetail: sent.detail,
+              eventEmphasis: sent.sent ? "positive" : "warning",
+              eventId: `event_${persistedRun.id}_${jobId}_sent_${Date.now()}`,
+              eventTitle: sent.summary,
+              jobId,
+              lastActionLabel: sent.summary,
+              lastAttemptState: sent.sent
+                ? "submitted"
+                : currentRecord.lastAttemptState,
+              latestBlocker: currentRecord.latestBlocker,
+              nextActionLabel: sent.nextActionLabel,
+              questionSummary: currentRecord.questionSummary,
+              replaySummary: currentRecord.replaySummary,
+              updatedAt: sentAt,
+            });
+          }
+        }
 
         return ctx.getWorkspaceSnapshot();
       });
@@ -6204,8 +6374,7 @@ export function createWorkspaceApplicationMethods(
             company: job.company,
             status: job.status,
             lastActionLabel: persistedRun.summary,
-            nextActionLabel:
-              "Review the pending submit approval in Applications.",
+            nextActionLabel: "Watch it in Applications.",
             lastUpdatedAt: createdAt,
             lastAttemptState: existingRecord.lastAttemptState,
             questionSummary: existingRecord.questionSummary,
@@ -6325,10 +6494,14 @@ export function createWorkspaceApplicationMethods(
         updatedAt: createdAt,
         completedAt: null,
         summary: inheritedApproval
-          ? `Preparing the remaining ${uniqueJobIds.length} ${uniqueJobIds.length === 1 ? "job" : "jobs"} you already approved.`
-          : `Automatic apply queue is staged for ${uniqueJobIds.length} jobs.`,
+          ? `Applying to the remaining ${uniqueJobIds.length} ${uniqueJobIds.length === 1 ? "job" : "jobs"}.`
+          : `Applying to ${uniqueJobIds.length} ${uniqueJobIds.length === 1 ? "job" : "jobs"}, one after another.`,
         detail:
-          "Your approval covers this batch of jobs, so Job Finder can fill them in one after another. It stops before the final submit button on every one — you press that yourself.",
+          scopedSettings.applicationAutomationMode === "autonomous_submit"
+            ? "Job Finder fills each one in and sends it when the employer's form is complete, inside the limits you set."
+            : scopedSettings.applicationAutomationMode === "confirm_before_submit"
+              ? "Job Finder fills each one in and stops at the send button so you can read it over and send it."
+              : "Job Finder fills each one in and leaves it open for you to send.",
         totalJobs: uniqueJobIds.length,
         pendingJobs: uniqueJobIds.length,
         submittedJobs: 0,
@@ -6350,8 +6523,8 @@ export function createWorkspaceApplicationMethods(
         batchCampaignId: capturedCampaignId,
         reusedFromApprovalId: inheritedApproval?.id ?? null,
         detail: inheritedApproval
-          ? "These jobs are part of the batch you already approved, so Job Finder is not asking again. It never presses the final submit button on a job site; you finish each application yourself."
-          : "Your approval covers only the jobs in this batch. Job Finder never presses the final submit button on a job site; you finish each application yourself.",
+          ? "These jobs are part of a batch you already started, so Job Finder is not asking again. Whether it sends each application is the mode you chose in Settings."
+          : "This covers only the jobs in this batch. Whether Job Finder sends each application is the mode you chose in Settings.",
       });
       const results = jobs.map((job, index) =>
         ApplyJobResultSchema.parse({
@@ -6502,7 +6675,7 @@ export function createWorkspaceApplicationMethods(
           approvedAt: now,
           revokedAt: null,
           detail:
-            "Your approval is recorded for this batch. Job Finder never presses the final submit button on a job site; you finish each application yourself.",
+            "This batch is on. Whether Job Finder sends each application is the mode you chose in Settings.",
         });
         const updatedRun = ApplyRunSchema.parse({
           ...run,
@@ -6510,7 +6683,7 @@ export function createWorkspaceApplicationMethods(
           updatedAt: now,
           summary: "Your approval is recorded for this batch.",
           detail:
-            "Job Finder can now prepare the jobs in this batch. It never presses the final submit button on a job site — you finish each application yourself.",
+            "Job Finder is working through the jobs in this batch. Whether it sends each application is the mode you chose in Settings.",
         });
 
         await Promise.all([
@@ -6639,7 +6812,7 @@ export function createWorkspaceApplicationMethods(
                   ? {
                       lastActionLabel: updatedRun.summary,
                       nextActionLabel:
-                        "Restart the run if you want to continue later.",
+                        "Press Try again to pick this up later.",
                     }
                   : {}),
                 lastUpdatedAt: now,
@@ -6917,7 +7090,7 @@ export function createWorkspaceApplicationMethods(
                       nextActionLabel:
                         remainingJobs.length > 0
                           ? "The queue skipped this job after the declined consent."
-                          : "Restart the run if you want to try again later.",
+                          : "Press Try again to have another go later.",
                       lastUpdatedAt: now,
                       events: mergeEvents(existingRecord.events, [
                         {
@@ -7206,6 +7379,7 @@ export function createWorkspaceApplicationMethods(
           status: "send_now",
           finalAction: { actionRef: "", actionLabel: "Submit application" },
           envelope: authority.envelope,
+          confirmedByPerson: true,
         },
         envelope: authority.envelope,
         source: job.source,
@@ -7232,7 +7406,9 @@ export function createWorkspaceApplicationMethods(
           eventTitle: sent.summary,
           jobId: job.id,
           lastActionLabel: sent.summary,
-          lastAttemptState: applicationRecord.lastAttemptState,
+          lastAttemptState: sent.sent
+            ? "submitted"
+            : applicationRecord.lastAttemptState,
           latestBlocker: applicationRecord.latestBlocker,
           nextActionLabel: sent.nextActionLabel,
           questionSummary: applicationRecord.questionSummary,
@@ -7344,7 +7520,7 @@ export function createWorkspaceApplicationMethods(
           updatedAt: now,
           summary: "Submit approval revoked for this automatic apply run.",
           detail:
-            "This batch is waiting for your approval again. Job Finder never presses the final submit button on a job site; you finish each application yourself.",
+            "This batch is waiting for you to start it again. Whether Job Finder sends each application is the mode you chose in Settings.",
         });
 
         await Promise.all([

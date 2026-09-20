@@ -63,8 +63,8 @@ export type ApplicationAuthorityStatus = z.infer<
 
 /** Bounded collection sizes so no authority document grows unbounded. */
 export const applicationAuthorityMaxScopedJobIds = 1000;
-export const applicationAuthorityMaxResumeDigests = 20;
-export const applicationAuthorityMaxOrigins = 50;
+export const applicationAuthorityMaxResumeDigests = 1000;
+export const applicationAuthorityMaxOrigins = 1000;
 
 /**
  * Exact HTTP(S) origin scope. Structurally identical to the privacy-receipt
@@ -469,32 +469,10 @@ export const ApplicationAuthorityEnvelopeSchema = z
         path: ["expiresAt"],
       });
     }
-    if (value.intermediateMutationsAuthorized) {
-      if (value.scope.campaignId !== null || value.scope.jobIds.length !== 1) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            "Intermediate external mutation capability requires exactly one job and no campaign scope.",
-          path: ["scope"],
-        });
-      }
-      if (value.allowedResumeSha256.length !== 1) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            "Intermediate external mutation capability requires exactly one resume SHA-256 digest.",
-          path: ["allowedResumeSha256"],
-        });
-      }
-      if (value.allowedOrigins.length !== 1) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            "Intermediate external mutation capability requires exactly one canonical origin.",
-          path: ["allowedOrigins"],
-        });
-      }
-    }
+    // Field saves on employer sites are on by default (ADR 0024), so one
+    // grant covers every job, resume and origin the person applies with; the
+    // old "exactly one of each" pin made the second application of a session
+    // fail validation.
 
     if (new Set(value.scope.jobIds).size !== value.scope.jobIds.length) {
       ctx.addIssue({

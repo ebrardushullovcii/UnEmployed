@@ -70,6 +70,13 @@ export interface ResumeAssistantPanelProps {
   validation?: ResumeValidationResult | null;
 }
 
+/** Ready questions for an empty thread; each is sent as typed. */
+export const RESUME_ASSISTANT_STARTER_PROMPTS: readonly string[] = [
+  "What would you change to fit this job better?",
+  "Make the summary sharper and more specific.",
+  "Use the posting's own words where my experience backs them.",
+];
+
 export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
   const [input, setInput] = useState("");
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
@@ -165,6 +172,16 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
 
     props.onSendAssistantMessage(nextInput);
     setInput("");
+  }
+
+  // The empty thread used to be a description of what one could type. Three
+  // ready questions are faster than composing one, and the first is the one
+  // most people actually want: what would you change.
+  function sendStarterPrompt(prompt: string) {
+    if (props.isWorkspacePending || props.assistantPending) {
+      return;
+    }
+    props.onSendAssistantMessage(prompt);
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -292,17 +309,37 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
               })
             ) : (
               <div className="flex min-h-48 items-center justify-center">
-                <div className="grid max-w-72 gap-3 text-center">
+                <div className="grid max-w-80 gap-3 text-center">
                   <div className="surface-card-tint mx-auto flex size-11 items-center justify-center rounded-full border border-(--surface-panel-border) text-muted-foreground">
                     <MessageSquare className="size-4" />
                   </div>
                   <p className="font-display text-sm text-foreground">
-                    No edit requests yet
+                    Ask for a change, or ask what to change
                   </p>
                   <p className="text-sm leading-6 text-foreground-soft">
-                    Ask for a tighter summary, stronger bullets, or clearer
-                    job-specific wording.
+                    Every suggestion shows up as a before-and-after you accept
+                    or reject. Nothing changes until you accept.
                   </p>
+                  <div
+                    className="flex flex-wrap justify-center gap-1.5"
+                    data-resume-assistant-starters
+                  >
+                    {RESUME_ASSISTANT_STARTER_PROMPTS.map((prompt) => (
+                      <Button
+                        className="h-auto max-w-full whitespace-normal px-2.5 py-1 text-left text-xs font-medium normal-case tracking-normal"
+                        disabled={
+                          props.isWorkspacePending || props.assistantPending
+                        }
+                        key={prompt}
+                        onClick={() => sendStarterPrompt(prompt)}
+                        size="compact"
+                        type="button"
+                        variant="secondary"
+                      >
+                        {prompt}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

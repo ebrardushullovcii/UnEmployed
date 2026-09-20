@@ -1114,6 +1114,7 @@ export function createJobFinderWorkspaceService(
     rawInput: SetJobFinderActivityControlInput,
   ) {
     const input = SetJobFinderActivityControlInputSchema.parse(rawInput);
+    const previousControl = await repository.getActivityControl();
     const now = new Date().toISOString();
     const control = JobFinderActivityControlSchema.parse({
       paused: input.paused,
@@ -1139,6 +1140,13 @@ export function createJobFinderWorkspaceService(
       await Promise.allSettled(
         activeRunIds.map((runId) => applicationMethods.cancelApplyRun(runId)),
       );
+    } else if (previousControl.paused) {
+      // Startup may have checked verifying actions while the workspace was
+      // paused and cached that completed no-op recovery promise. An explicit
+      // Resume is a new recovery boundary: clear the cached startup pass so
+      // the snapshot below immediately processes the already-persisted
+      // verifying actions instead of waiting for another app restart.
+      userActionRecoveryPromise = null;
     }
     return getWorkspaceSnapshot();
   }
@@ -1332,11 +1340,16 @@ export function createJobFinderWorkspaceService(
           discoveryMethods.runDiscovery(targetId),
         );
       }),
-    runAgentDiscovery: (onActivity, signal, targetId) =>
+    runAgentDiscovery: (onActivity, signal, targetId, searchRequest) =>
       trackWorkspaceOperation("discovery", async () => {
         await requireActivityEnabled();
         return runCampaignScopedDiscovery(() =>
-          discoveryMethods.runAgentDiscovery(onActivity, signal, targetId),
+          discoveryMethods.runAgentDiscovery(
+            onActivity,
+            signal,
+            targetId,
+            searchRequest,
+          ),
         );
       }),
     runDiscoveryForTarget: (targetId, onActivity, signal) =>

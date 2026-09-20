@@ -1,5 +1,6 @@
 import {
   AssetGenerationReasonSchema,
+  type AiProfileAssistantBehavior,
   type AgentProviderStatus,
   AgentTaskExecutionReceiptSchema,
   BrowserVisualObservationSetSchema,
@@ -316,6 +317,13 @@ export const OpenAiCompatibleJobFinderAiClientOptionsSchema = z.object({
   label: NonEmptyStringSchema.optional(),
   apiMode: z.enum(modelApiModes).optional(),
   reasoningEffort: z.enum(modelReasoningEfforts).optional(),
+  /**
+   * Effort for the many short turns of a browser agent (search, source
+   * check, apply) and for reading a page's job list. These are "what do I
+   * press next" decisions; deep reasoning on each one made a search take
+   * minutes per page. Resume writing keeps `reasoningEffort`.
+   */
+  agentReasoningEffort: z.enum(modelReasoningEfforts).optional(),
   contextWindowTokens: z.number().int().min(1_000).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
   resumeExtractionTimeoutMs: z.number().int().min(1_000).optional(),
@@ -403,6 +411,32 @@ export interface ReviseCandidateProfileInput {
   relevantReviewItems: readonly ProfileCopilotRelevantReviewItem[];
   request: string;
   conversationFacts?: readonly string[];
+  /** The saved AI behavior for the Profile chat (Settings). */
+  assistantBehavior?: AiProfileAssistantBehavior;
+}
+
+/**
+ * The Profile chat's saved behavior, as prompt sentences.
+ *
+ * Absent behavior means the product's original manner: propose the edits the
+ * request implies and keep replies short. Each sentence changes what the
+ * assistant volunteers or how long it talks, never what it may invent.
+ */
+export function describeProfileAssistantBehavior(
+  behavior: AiProfileAssistantBehavior | undefined,
+): string[] {
+  const initiative = behavior?.initiative ?? "suggest";
+  const replyStyle = behavior?.replyStyle ?? "brief";
+  return [
+    initiative === "answer_only"
+      ? "Do only what the person asked. Do not volunteer other edits, gaps, or advice; if you notice something else, at most mention it in one clause and leave it."
+      : initiative === "proactive"
+        ? "Be proactive: after doing what was asked, also propose the further profile improvements the saved facts support (gaps, weak wording, missing strengths), each as its own reviewable change with a one-line reason."
+        : "Do what the person asked, and propose one closely related improvement when the saved facts clearly support it; otherwise stop there.",
+    replyStyle === "conversational"
+      ? "Reply in a conversational tone with the reasoning behind each change, a short paragraph at most."
+      : "Reply briefly: one or two plain sentences that say what changed or what you found, with no preamble.",
+  ];
 }
 
 export interface AssessJobFitInput {

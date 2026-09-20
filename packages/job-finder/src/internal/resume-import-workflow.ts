@@ -1904,7 +1904,7 @@ export async function runResumeImportWorkflow(
     }
 
     const atomicallyFinalizedRun = run;
-    const finalization = await finalizeResumeImportRunAtRevision({
+    let finalization = await finalizeResumeImportRunAtRevision({
       ctx,
       expectedProfileRevision,
       profile: merged.profile,
@@ -1914,7 +1914,84 @@ export async function runResumeImportWorkflow(
       fieldCandidates: reconciledCandidates,
       supersededBaseResume,
     });
+    const retryState =
+      finalization.status === "stale"
+        ? await ctx.repository.getProfileWithRevision()
+        : null;
+    if (
+      finalization.status === "stale" &&
+      retryState &&
+      (isSameStoredResumeDocument(
+        retryState.profile.baseResume,
+        input.profile.baseResume,
+      ) ||
+        (supersededBaseResume !== null &&
+          isSameStoredResumeDocument(
+            retryState.profile.baseResume,
+            supersededBaseResume,
+          ))) &&
+      // Never retry a resume that names a different person than the profile
+      // now shows; that import stays in review, as the hold path decided.
+      resolveResumeIdentity(
+        CandidateProfileSchema.parse({
+          ...retryState.profile,
+          baseResume: input.profile.baseResume,
+        }),
+      ).mismatchReasons.length === 0
+    ) {
+      // A profile write landed while the model was reading the resume (the
+      // setup screen saving, a copilot patch, a warning being cleared). Every
+      // extracted detail used to be downgraded to review for that alone, so
+      // the person confirmed their whole resume by hand. When the stored
+      // resume is still the one this import replaces, re-read the profile,
+      // re-reconcile the same candidates against it, and try once more. A
+      // newer resume import or a manual resume change keeps the old path.
+      const retryProfile = CandidateProfileSchema.parse({
+        ...retryState.profile,
+        baseResume: input.profile.baseResume,
+      });
+      const retrySearchPreferences = await ctx.repository.getSearchPreferences();
+      reconciledCandidates = await preserveLatestCandidateDecisions(
+        ctx,
+        run.id,
+        reconcileCandidates(
+          retryProfile,
+          retrySearchPreferences,
+          reconciledCandidates,
+        ),
+      );
+      const retryMerged = applyResolvedResumeImportCandidatesToWorkspace({
+        profile: retryProfile,
+        searchPreferences: retrySearchPreferences,
+        candidates: reconciledCandidates,
+        analysisProviderKind: run.analysisProviderKind,
+        analysisProviderLabel: run.analysisProviderLabel,
+        analysisWarnings,
+      });
+      run = ResumeImportRunSchema.parse({
+        ...run,
+        status: hasBlockingResumeImportCandidates(reconciledCandidates)
+          ? "review_ready"
+          : "applied",
+        candidateCounts: countResumeImportCandidates(reconciledCandidates),
+      });
+      finalization = await finalizeResumeImportRunAtRevision({
+        ctx,
+        expectedProfileRevision: retryState.revision,
+        profile: retryMerged.profile,
+        searchPreferences: retryMerged.searchPreferences,
+        run,
+        documentBundles: [bundle],
+        fieldCandidates: reconciledCandidates,
+        supersededBaseResume: await readSupersededBaseResume(
+          ctx,
+          retryState.revision,
+        ),
+      });
+    }
     if (finalization.status === "stale") {
+      // No retry was possible, or it lost again: the run is already persisted
+      // as review-ready with every would-be-applied candidate held.
       return {
         profile: finalization.profile,
         searchPreferences: finalization.searchPreferences,

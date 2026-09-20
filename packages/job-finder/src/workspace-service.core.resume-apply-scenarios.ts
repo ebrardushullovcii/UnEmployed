@@ -263,7 +263,7 @@ describe("createJobFinderWorkspaceService", () => {
     });
     expect(executionInput).toMatchObject({
       mode: "prepare_only",
-      intermediateMutationsAuthorized: false,
+      intermediateMutationsAuthorized: true,
       accountCreationAuthorized: false,
       submitAuthorized: false,
     });
@@ -2203,9 +2203,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applicationAttempts).toHaveLength(0);
     expect(snapshot.applicationRecords[0]).toMatchObject({
       jobId: "job_ready",
-      nextActionLabel: expect.stringMatching(
-        /pending submit approval/i,
-      ) as string,
+      nextActionLabel: expect.stringMatching(/watch it in applications/i) as string,
     });
     const preparationEvent = snapshot.applicationRecords[0]?.events.find(
       (event) => event.title === "Application preparation approval requested",
@@ -4248,7 +4246,7 @@ describe("createJobFinderWorkspaceService", () => {
     });
     renderResumeArtifact.mockClear();
     await expect(workspaceService.exportResumePdf("job_ready")).rejects.toThrow(
-      /blocking candidate-claim validation issues/i,
+      /still need your decision/i,
     );
     expect(renderResumeArtifact).not.toHaveBeenCalled();
     expect(

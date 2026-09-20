@@ -255,17 +255,15 @@ export function SettingsCandidateAssets() {
 
   return (
     <section className="surface-panel-shell grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+      {/* The page header above already says what this library is for and
+          where the files live; the card names the one thing you do here. */}
       <div className="grid min-w-0 gap-1.5">
-        <p className="text-xs font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground">
-          Documents &amp; assets
-        </p>
         <h2 className="min-w-0 break-words font-display font-semibold text-(--text-headline)">
-          Keep reusable application material on this device
+          Add a file
         </h2>
         <p className="text-sm leading-6 text-foreground-soft">
-          Files you add are copied into Job Finder&apos;s own private folder on
-          this device. Nothing is uploaded anywhere unless you attach it to an
-          application.
+          When an application asks for a file like this, Job Finder offers it
+          from here. Nothing is uploaded unless you attach it.
         </p>
       </div>
 

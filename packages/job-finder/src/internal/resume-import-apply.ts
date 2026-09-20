@@ -5,6 +5,8 @@ import {
   type JobSearchPreferences,
   type ResumeImportFieldCandidate,
   type ResumeImportRun,
+  type WorkMode,
+  workModeValues,
 } from "@unemployed/contracts";
 
 import {
@@ -50,6 +52,7 @@ type ResolvedResumeImportSelection = {
     salaryCurrency?: string | null;
     targetRoles?: string[];
     locations?: string[];
+    workModes?: string[];
     skills?: string[];
     skillGroups?: CandidateProfile["skillGroups"];
     narrative?: Partial<CandidateProfile["narrative"]>;
@@ -196,6 +199,16 @@ function buildResolvedSelection(
           selection.scalarFields.locations = uniqueStrings([
             ...(selection.scalarFields.locations ?? []),
             ...toCandidateListValues(candidate),
+          ]);
+          break;
+        case "workModes":
+          selection.scalarFields.workModes = uniqueStrings([
+            ...(selection.scalarFields.workModes ?? []),
+            ...toCandidateListValues(candidate)
+              .map((entry) => entry.trim().toLowerCase())
+              .filter((entry): entry is WorkMode =>
+                (workModeValues as readonly string[]).includes(entry),
+              ),
           ]);
           break;
         case "skills":
@@ -673,6 +686,12 @@ function mergeResolvedSelectionIntoWorkspace(
       locations: selection.scalarFields.locations?.length
         ? uniqueStrings(selection.scalarFields.locations)
         : searchPreferences.locations,
+      // A header that literally says "Remote" answers the work-mode question
+      // the person would otherwise be asked; saved choices are never replaced.
+      workModes: searchPreferences.workModes.length === 0 &&
+        selection.scalarFields.workModes?.length
+        ? uniqueStrings(selection.scalarFields.workModes)
+        : searchPreferences.workModes,
       salaryCurrency:
         selection.scalarFields.salaryCurrency ??
         searchPreferences.salaryCurrency,

@@ -386,6 +386,48 @@ export function createPageTools(
       definition: {
         type: "function",
         function: {
+          name: "press_key",
+          description:
+            "Press a keyboard key on an element or on the active page. Use this for Enter, Escape, Tab, arrow keys, and controls that only respond to the keyboard.",
+          parameters: {
+            type: "object",
+            properties: {
+              ref: {
+                type: "string",
+                description:
+                  "Optional handle from observe. Omit to press the key on the active page.",
+              },
+              key: {
+                type: "string",
+                description:
+                  "A Playwright keyboard key such as Enter, Escape, Tab, ArrowDown, or Shift+Tab.",
+              },
+            },
+            required: ["key"],
+          },
+        },
+      },
+      execute: async (raw) => {
+        const args = parseToolArguments(raw);
+        const ref = asString(args.ref);
+        const key = asString(args.key);
+        if (!key) return ok("press_key needs a key.");
+        if (!hands.pressKey) {
+          return ok("This browser cannot press keyboard keys yet.");
+        }
+        const moved = await refuseIfMoved(state.observation?.signature ?? "");
+        if (moved) return moved;
+        const pressed = await hands.pressKey(ref ?? undefined, key);
+        if (!pressed.ok) {
+          return ok(`The ${key} key would not respond: ${pressed.error}`);
+        }
+        return settle(`Pressed ${key}${ref ? ` on ${ref}` : ""}.`);
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
           name: "type",
           description: "Type into a field, replacing what is there.",
           parameters: {
@@ -513,7 +555,7 @@ export function createPageTools(
           parameters: {
             type: "object",
             properties: {
-              milliseconds: { type: "number", description: "Up to 10000." },
+              milliseconds: { type: "number", description: "Up to 30000. A page checking the browser by itself can take a minute or two: wait 20000 to 30000 at a time." },
             },
           },
         },
@@ -521,7 +563,7 @@ export function createPageTools(
       execute: async (raw) => {
         const requested = parseToolArguments(raw).milliseconds;
         const milliseconds =
-          typeof requested === "number" ? Math.max(0, Math.min(10_000, requested)) : 1_000;
+          typeof requested === "number" ? Math.max(0, Math.min(30_000, requested)) : 1_000;
         await hands.wait(milliseconds);
         return ok(
           `Waited ${Math.round(milliseconds)}ms. The page now:\n\n${describeObservation(await observe())}`,

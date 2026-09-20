@@ -187,30 +187,30 @@ export function ReviewQueuePreviewPanel({
                 </p>
                 <p className="text-(length:--text-small) leading-5 text-foreground-muted">
                   {isPendingTooLong
-                    ? "This request is taking longer than expected. Open the resume workspace and use Reload workspace to check for a saved result."
-                    : "You can leave this screen. The draft keeps running and finishes on its own."}
+                    ? "This is taking longer than usual. Open the resume and reload it to check for a saved result."
+                    : "You can leave this page. The resume keeps writing and finishes on its own."}
                 </p>
               </div>
             ) : null}
             <h2 className="tracking-[-0.03em] text-(--text-headline)">
               {hasGenerationFailure
-                ? "Resume issue"
+                ? "The resume could not be written"
                 : isGenerating
-                  ? "Preparing resume"
+                  ? "Writing the resume"
                   : needsGeneration
-                    ? "No tailored resume yet"
-                    : "Preparing resume"}
+                    ? "No resume yet"
+                    : "Writing the resume"}
             </h2>
             <p className="max-w-136 text-(length:--text-body) leading-7 text-foreground-soft">
               {hasGenerationFailure
-                ? `The last tailored resume attempt for ${selectedItem.title} did not finish. Try again to create a fresh draft.`
+                ? `The last attempt for ${selectedItem.title} did not finish. Try again for a fresh one.`
                 : isGenerating
                   ? isPendingTooLong
-                    ? `The resume request for ${selectedItem.title} is still running. Open the resume workspace and reload it to check whether a saved result is ready; do not start another request yet.`
-                    : `Job Finder is preparing the resume for ${selectedItem.title}. The draft and PDF are being built now.`
+                    ? `The resume for ${selectedItem.title} is still being written. Open it and reload to check for a saved result; do not start it again yet.`
+                    : `Job Finder is writing the resume for ${selectedItem.title}.`
                   : needsGeneration
-                    ? `Create a tailored resume for ${selectedItem.title} to continue.`
-                    : `Job Finder is still preparing the resume for ${selectedItem.title}. You can continue once it is ready.`}
+                    ? `Create the resume for ${selectedItem.title} at the level you picked above.`
+                    : `Job Finder is still writing the resume for ${selectedItem.title}.`}
             </p>
             {isGenerating && isPendingTooLong ? (
               <Button
@@ -218,7 +218,7 @@ export function ReviewQueuePreviewPanel({
                 type="button"
                 variant="secondary"
               >
-                Open workspace to reload
+                Open the resume to reload
               </Button>
             ) : null}
             {!isGenerating ? (
@@ -232,9 +232,7 @@ export function ReviewQueuePreviewPanel({
                   type="button"
                   variant="primary"
                 >
-                  {hasGenerationFailure
-                    ? "Try again"
-                    : "Create tailored resume"}
+                  {hasGenerationFailure ? "Try again" : "Create the resume"}
                 </Button>
                 {hasGenerationFailure ? (
                   <Button
@@ -242,7 +240,7 @@ export function ReviewQueuePreviewPanel({
                     type="button"
                     variant="secondary"
                   >
-                    Open resume workspace
+                    Open the resume
                   </Button>
                 ) : null}
               </div>
@@ -285,18 +283,16 @@ export function ReviewQueuePreviewPanel({
               <StatusBadge tone="positive">Ready for this job</StatusBadge>
             </div>
             <p className="rounded-(--radius-field) border border-primary/20 bg-primary/8 px-4 py-3 text-sm leading-6 text-foreground-soft">
-              Job Finder will attach this exact imported file during
-              preparation. It will not rewrite it, remove roles, or create a
-              job-specific copy.
+              This exact file goes out. Job Finder does not rewrite it, remove
+              roles, or make a job-specific copy.
             </p>
             <div className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-sm leading-6 text-(--warning-text)">
               <strong className="block text-foreground">
                 Check sensitive personal details before attaching
               </strong>
               Original resumes can include a home address, date of birth,
-              nationality, phone number, or other details you may not want to
-              share with every employer. Review the preview below before
-              preparing the application.
+              nationality, or other details you may not want to share with
+              every employer. Read the preview below before applying.
             </div>
             <dl className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 px-4 py-3 text-sm sm:grid-cols-2">
               <div className="grid gap-1">
@@ -349,7 +345,7 @@ export function ReviewQueuePreviewPanel({
           <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
             <EmptyState
               title="Original resume unavailable"
-              description="Import or re-import your original resume in Profile. This mode never substitutes a tailored resume when the original file is missing."
+              description="Import your original resume in Profile. Job Finder never swaps in a different resume when the original is missing."
             />
             <Button asChild type="button" variant="primary">
               <Link to={JOB_FINDER_ROUTE_PATHS.profile}>Go to Profile</Link>
@@ -367,7 +363,7 @@ export function ReviewQueuePreviewPanel({
           <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
             <EmptyState
               title="Resume unavailable"
-              description="We couldn't load the latest resume. Reopen the workspace to refresh the preview, export a new PDF, or approve the exact version you want to use."
+              description="The latest resume could not be loaded. Open it to refresh the preview."
             />
             {selectedItem ? (
               <Button
@@ -375,7 +371,7 @@ export function ReviewQueuePreviewPanel({
                 type="button"
                 variant="primary"
               >
-                Open resume workspace
+                Open the resume
               </Button>
             ) : null}
           </div>
@@ -408,19 +404,19 @@ export function ReviewQueuePreviewPanel({
               <p className="text-(length:--text-small) text-foreground-soft">
                 Approved {formatDateOnly(selectedItem.resumeReview.approvedAt)}
                 {" · "}
-                used when you prepare the application.
+                this is the file that goes out.
               </p>
             ) : null}
             {selectedItem.resumeReview.status === "needs_review" ? (
               <p className="text-(length:--text-small) text-foreground-soft">
-                This is a draft preview. Review and approve the resume before
-                you prepare the application.
+                This is the resume as it stands. Edit it if you like; Apply
+                approves it.
               </p>
             ) : null}
             {selectedItem.resumeReview.status === "stale" ? (
               <p className="text-(length:--text-small) text-(--warning-text)">
-                This approved resume is out of date. Review the current version
-                and approve it again before preparing the application.
+                This approved resume is out of date. Open it and approve the
+                current version.
               </p>
             ) : null}
             {/* The panel header above already carries the one primary action
@@ -435,7 +431,7 @@ export function ReviewQueuePreviewPanel({
                 type="button"
                 variant="link"
               >
-                Open resume workspace
+                Edit resume
               </Button>
             ) : null}
             {selectedAsset.previewSections.map((section, sectionIndex) => (

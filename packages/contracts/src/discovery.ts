@@ -1373,6 +1373,11 @@ export type SavedJob = JobPosting & {
   provenance: SavedJobDiscoveryProvenance[];
   discoveryFeedback: DiscoveryFeedback | null;
   resumeApplicationMode: z.infer<typeof ResumeApplicationModeSchema> | null;
+  /**
+   * How far a tailored resume for this job may go, when the person chose a
+   * level for this job. `null` follows the profile-wide setting.
+   */
+  resumeTailoringMode?: z.infer<typeof TailoringModeSchema> | null;
   latestMatchAssessmentAudit: MatchAssessmentChangeAudit | null;
 };
 type SavedJobInput = z.input<typeof JobPostingSchema> & {
@@ -1389,6 +1394,7 @@ type SavedJobInput = z.input<typeof JobPostingSchema> & {
     | z.input<typeof ResumeApplicationModeSchema>
     | null
     | undefined;
+  resumeTailoringMode?: z.input<typeof TailoringModeSchema> | null | undefined;
   latestMatchAssessmentAudit?:
     | z.input<typeof MatchAssessmentChangeAuditSchema>
     | null
@@ -1404,6 +1410,7 @@ export const SavedJobSchema: z.ZodType<SavedJob, z.ZodTypeDef, SavedJobInput> =
     provenance: z.array(SavedJobDiscoveryProvenanceSchema).default([]),
     discoveryFeedback: DiscoveryFeedbackSchema.nullable().default(null),
     resumeApplicationMode: ResumeApplicationModeSchema.nullable().default(null),
+    resumeTailoringMode: TailoringModeSchema.nullable().default(null),
     latestMatchAssessmentAudit:
       MatchAssessmentChangeAuditSchema.nullable().default(null),
   });
@@ -1544,6 +1551,8 @@ export const ReviewQueueItemSchema = z.object({
   resumeAssetId: NonEmptyStringSchema.nullable(),
   resumeApplicationMode:
     ResumeApplicationModeSchema.default("tailored_per_job"),
+  /** The per-job tailoring level, or `null` when the profile setting applies. */
+  resumeTailoringMode: TailoringModeSchema.nullable().optional(),
   resumeReview: ReviewQueueResumeReviewStateSchema.default({
     status: "not_started",
   }),

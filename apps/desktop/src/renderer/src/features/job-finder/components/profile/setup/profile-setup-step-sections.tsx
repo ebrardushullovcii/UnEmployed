@@ -1,6 +1,5 @@
 import {
   useDeferredValue,
-  useEffect,
   useId,
   useMemo,
   useState,
@@ -64,10 +63,6 @@ import {
   ProfileListEditor,
 } from "../profile-list-editor";
 import { PROFILE_WORK_CONSTRAINT_COPY } from "../profile-work-constraints-copy";
-import {
-  RESUME_APPROACH_OPTIONS,
-  STRONG_REWRITE_WARNING,
-} from "../profile-tailoring-copy";
 import { ResumeImportProgress } from "../resume-import-progress";
 
 const booleanSelectOptions = [
@@ -75,26 +70,6 @@ const booleanSelectOptions = [
   { label: "Yes", value: "yes" },
   { label: "No", value: "no" },
 ] as const;
-const ADDED_SOURCE_READABILITY_TIMEOUT_MS = 15_000;
-
-export function formatAddedSourceReadabilityResult(
-  run: SourceDebugRunRecord,
-): string {
-  if (run.state === "completed") {
-    const countMatch = run.finalSummary?.match(
-      /\b(\d+)\s+(?:job cards?|jobs?|listings?)\b/iu,
-    );
-    return `Readable · ${countMatch?.[1] ?? "0"} job cards found`;
-  }
-  if (run.state === "cancelled") {
-    return "Check timed out; Job Finder will try again during the next search";
-  }
-  const reason =
-    run.finalSummary?.trim().replace(/[.]$/u, "") ||
-    "the page did not return readable job cards";
-  return `Could not read this page (${reason})`;
-}
-
 // Same wording as the employment type on a work-history card, so a saved
 // preference and a listing's stated type compare as equal text.
 const SETUP_EMPLOYMENT_TYPE_OPTIONS = [
@@ -105,7 +80,6 @@ const SETUP_EMPLOYMENT_TYPE_OPTIONS = [
   "Temporary",
 ] as const;
 
-const tailoringModeOptions = RESUME_APPROACH_OPTIONS;
 
 function getImportConflictSummary(
   candidate: ResumeImportFieldCandidateSummary,
@@ -182,6 +156,42 @@ interface FooterOptions {
 
 export type RenderFooter = (options?: FooterOptions) => ReactNode;
 
+function describeImportedProfile(profile: CandidateProfile): string[] {
+  const parts: string[] = [];
+  const hasName = Boolean(profile.fullName?.trim() || profile.firstName?.trim());
+  const hasContact = Boolean(profile.email?.trim() || profile.phone?.trim());
+  if (hasName && hasContact) {
+    parts.push("Name and contact");
+  } else if (hasName) {
+    parts.push("Name");
+  } else if (hasContact) {
+    parts.push("Contact");
+  }
+  if (profile.headline?.trim()) {
+    parts.push("Headline");
+  }
+  if (profile.summary?.trim()) {
+    parts.push("Summary");
+  }
+  const roles = profile.experiences.length;
+  if (roles > 0) {
+    parts.push(`${roles} ${roles === 1 ? "role" : "roles"}`);
+  }
+  const schools = profile.education.length;
+  if (schools > 0) {
+    parts.push(`${schools} ${schools === 1 ? "school" : "schools"}`);
+  }
+  const skills = profile.skills.length;
+  if (skills > 0) {
+    parts.push(`${skills} ${skills === 1 ? "skill" : "skills"}`);
+  }
+  const links = profile.links.length;
+  if (links > 0) {
+    parts.push(`${links} ${links === 1 ? "link" : "links"}`);
+  }
+  return parts;
+}
+
 export function ProfileSetupImportStep(props: {
   importDisabledReason?: string | null;
   isImportResumePending: boolean;
@@ -223,14 +233,19 @@ export function ProfileSetupImportStep(props: {
   const importQualitySummary = getResumeImportStageFallbackSummary(
     props.latestResumeImportRun,
   );
+  // One line that says what the import actually filled, so a person can see
+  // at a glance whether their resume was read before they walk the steps.
+  const importedProfileSummary =
+    props.profile.baseResume.extractionStatus === "ready"
+      ? describeImportedProfile(props.profile)
+      : [];
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
         <CardTitle>Start with your resume</CardTitle>
         <CardDescription>
-          Import a resume first when you have one. Setup will turn
-          low-confidence or missing details into focused review items instead of
-          dropping you into the whole editor.
+          Your resume fills in the profile. Anything unclear or missing shows
+          up as a short list to confirm, so you never start from a blank form.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 pt-6">
@@ -260,6 +275,20 @@ export function ProfileSetupImportStep(props: {
             ) : null}
           </div>
         </div>
+
+        {importedProfileSummary.length > 0 ? (
+          <div
+            className="rounded-(--radius-field) border border-border/30 bg-background/60 p-4"
+            data-profile-setup-import-summary
+          >
+            <p className="text-(length:--text-tiny) uppercase tracking-[0.2em] text-muted-foreground">
+              What came from your resume
+            </p>
+            <p className="mt-2 text-sm leading-6 text-foreground">
+              {importedProfileSummary.join(" · ")}
+            </p>
+          </div>
+        ) : null}
 
         {importQualityNotes.length > 0 ? (
           <div
@@ -451,12 +480,6 @@ export function ProfileSetupTargetingStep(props: {
   const workModesGroupId = "profile-setup-field-search-preferences-work-modes";
   const workModesDescriptionId = `${workModesGroupId}-description`;
   const workModesGuidanceId = `${workModesGroupId}-guidance`;
-  const tailoringModeGroupId =
-    "profile-setup-field-search-preferences-tailoring-mode";
-  const tailoringModeGuidanceId =
-    "profile-setup-field-search-preferences-tailoring-mode-guidance";
-  const tailoringModeWarningId =
-    "profile-setup-field-search-preferences-tailoring-mode-warning";
   const requiresVisaSponsorshipId =
     "profile-setup-field-eligibility-requires-visa-sponsorship";
   const remoteEligibleId = "profile-setup-field-eligibility-remote-eligible";
@@ -484,13 +507,6 @@ export function ProfileSetupTargetingStep(props: {
   );
   const [manualSourceLabel, setManualSourceLabel] = useState("");
   const [manualSourceUrl, setManualSourceUrl] = useState("");
-  const [addedSourceCheck, setAddedSourceCheck] = useState<{
-    phase: "waiting_for_save" | "checking";
-    previousRunId: string | null;
-    targetId: string;
-  } | null>(null);
-  const [addedSourceCheckTimedOut, setAddedSourceCheckTimedOut] =
-    useState(false);
   const manualSourceLabelId = "profile-setup-field-manual-source-label";
   const manualSourceUrlId = "profile-setup-field-manual-source-url";
   const manualSourceUrlErrorId = "profile-setup-field-manual-source-url-error";
@@ -533,9 +549,20 @@ export function ProfileSetupTargetingStep(props: {
   const enabledSourceCount = discoveryTargets.filter(
     (target) => target.enabled,
   ).length;
-  const isManualSourceComplete =
-    manualSourceLabel.trim().length > 0 &&
-    isValidProfileSetupSourceUrl(manualSourceUrl);
+  // The address is enough; a name is derived from the site when none is
+  // typed, the same as the paste box on Profile › Job sources.
+  const isManualSourceComplete = isValidProfileSetupSourceUrl(manualSourceUrl);
+  const manualSourceDerivedLabel = (() => {
+    try {
+      const host = new URL(manualSourceUrl.trim()).hostname.replace(
+        /^www\./,
+        "",
+      );
+      return host || manualSourceUrl.trim();
+    } catch {
+      return manualSourceUrl.trim();
+    }
+  })();
   const isManualSourceUrlInvalid =
     manualSourceUrl.trim().length > 0 &&
     !isValidProfileSetupSourceUrl(manualSourceUrl);
@@ -579,74 +606,7 @@ export function ProfileSetupTargetingStep(props: {
     );
   };
 
-  const latestAddedSourceRun = useMemo(() => {
-    if (!addedSourceCheck) {
-      return null;
-    }
-
-    return (
-      (props.recentSourceDebugRuns ?? [])
-        .filter(
-          (run) =>
-            run.targetId === addedSourceCheck.targetId &&
-            run.id !== addedSourceCheck.previousRunId,
-        )
-        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0] ??
-      null
-    );
-  }, [addedSourceCheck, props.recentSourceDebugRuns]);
-
-  useEffect(() => {
-    if (
-      addedSourceCheck?.phase !== "checking" ||
-      (latestAddedSourceRun &&
-        latestAddedSourceRun.state !== "running" &&
-        latestAddedSourceRun.state !== "idle")
-    ) {
-      setAddedSourceCheckTimedOut(false);
-      return;
-    }
-
-    const timeout = window.setTimeout(
-      () => setAddedSourceCheckTimedOut(true),
-      ADDED_SOURCE_READABILITY_TIMEOUT_MS,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [addedSourceCheck?.phase, latestAddedSourceRun]);
-
-  useEffect(() => {
-    if (
-      !addedSourceCheck ||
-      addedSourceCheck.phase !== "waiting_for_save" ||
-      props.isProfileSetupPending ||
-      !props.onRunSourceDebug ||
-      !(props.savedDiscoveryTargets ?? []).some(
-        (target) => target.id === addedSourceCheck.targetId,
-      )
-    ) {
-      return;
-    }
-
-    const previousRunId = (props.recentSourceDebugRuns ?? []).find(
-      (run) => run.targetId === addedSourceCheck.targetId,
-    )?.id;
-    setAddedSourceCheck({
-      ...addedSourceCheck,
-      phase: "checking",
-      previousRunId: previousRunId ?? null,
-    });
-    props.onRunSourceDebug(addedSourceCheck.targetId, {
-      readabilityTimeoutMs: ADDED_SOURCE_READABILITY_TIMEOUT_MS,
-    });
-  }, [
-    addedSourceCheck,
-    props.isProfileSetupPending,
-    props.onRunSourceDebug,
-    props.recentSourceDebugRuns,
-    props.savedDiscoveryTargets,
-  ]);
-
-  const addManualDiscoveryTarget = (options?: { checkSite?: boolean }) => {
+  const addManualDiscoveryTarget = () => {
     if (!isManualSourceComplete) {
       return;
     }
@@ -656,7 +616,7 @@ export function ProfileSetupTargetingStep(props: {
       ...discoveryTargets,
       {
         id: targetId,
-        label: manualSourceLabel.trim(),
+        label: manualSourceLabel.trim() || manualSourceDerivedLabel,
         startingUrl: manualSourceUrl.trim(),
         // Adding a site is already the act of choosing it: saving it switched
         // off left people with "All 1 saved sources are turned off" and no
@@ -674,19 +634,6 @@ export function ProfileSetupTargetingStep(props: {
       },
     ];
     updateDiscoveryTargets(nextTargets);
-    if (options?.checkSite && props.onRunSourceDebug) {
-      setAddedSourceCheckTimedOut(false);
-      setAddedSourceCheck({
-        phase: "waiting_for_save",
-        previousRunId: null,
-        targetId,
-      });
-      // The established source check reads saved targets. Persist the new row
-      // first, then the effect above starts the check as soon as that save is
-      // visible. Adding itself is immediate; neither save nor check blocks the
-      // form from closing or the source from appearing in the catalog.
-      props.onSaveAndGoToStep("targeting");
-    }
     setManualSourceLabel("");
     setManualSourceUrl("");
     setIsManualSourceOpen(false);
@@ -700,10 +647,10 @@ export function ProfileSetupTargetingStep(props: {
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
-        <CardTitle>Tell Job Finder what to optimize for</CardTitle>
+        <CardTitle>What to search for</CardTitle>
         <CardDescription>
-          Capture the roles, locations, work modes, and work details that are
-          true for you. Job Finder never guesses these.
+          Roles, places, and ways of working you want. Suggestions come from
+          your resume; change anything that is off.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 pt-6">
@@ -797,106 +744,8 @@ export function ProfileSetupTargetingStep(props: {
             </p>
           </div>
         </div>
-        <Controller
-          control={props.preferencesForm.control}
-          name="tailoringMode"
-          render={({ field }) => (
-            <fieldset
-              aria-describedby={`${tailoringModeGuidanceId}${field.value === "aggressive" ? ` ${tailoringModeWarningId}` : ""}`}
-              className="grid gap-(--gap-field)"
-              id={tailoringModeGroupId}
-            >
-              <legend className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-                How strongly should Job Finder tailor each resume?
-              </legend>
-              <p
-                className="text-sm leading-6 text-foreground-soft"
-                id={tailoringModeGuidanceId}
-              >
-                This sets the default for reusable resume strategies and per-job
-                drafts. You can change it later for a strategy or an individual
-                job.
-              </p>
-              <div className="grid items-stretch gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {tailoringModeOptions.map((option) => {
-                  const optionId = `${tailoringModeGroupId}-${option.value}`;
-                  const selected =
-                    option.value === "original_resume"
-                      ? props.resumeApplicationMode === "original_resume"
-                      : props.resumeApplicationMode !== "original_resume" &&
-                        field.value === option.value;
-
-                  return (
-                    <label
-                      // The radio inside is `sr-only`, so it takes focus but
-                      // paints nothing: a keyboard user arrowing through these
-                      // cards could change the selection without ever seeing
-                      // where they were. The ring is drawn on the card the
-                      // focused input belongs to.
-                      className="grid h-full min-w-0 cursor-pointer content-start gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 p-4 text-left transition-colors hover:border-primary/35 has-[:checked]:border-primary/70 has-[:checked]:bg-primary/8 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/45"
-                      htmlFor={optionId}
-                      key={option.value}
-                    >
-                      <input
-                        checked={selected}
-                        className="peer sr-only"
-                        id={optionId}
-                        name={field.name}
-                        onBlur={field.onBlur}
-                        onChange={() => {
-                          if (option.value === "original_resume") {
-                            props.onResumeApplicationModeChange?.(
-                              "original_resume",
-                            );
-                            return;
-                          }
-
-                          props.onResumeApplicationModeChange?.(
-                            "tailored_per_job",
-                          );
-                          field.onChange(option.value);
-                        }}
-                        ref={
-                          option.value === "original_resume"
-                            ? undefined
-                            : option.value === "conservative"
-                              ? field.ref
-                              : undefined
-                        }
-                        type="radio"
-                        value={option.value}
-                      />
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-foreground">
-                          {option.label}
-                        </span>
-                        {selected ? (
-                          <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-(--tracking-label) text-primary">
-                            Selected
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="text-sm leading-5 text-foreground-soft">
-                        {option.description}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-              {field.value === "aggressive" ? (
-                <p
-                  className="text-sm leading-6 text-(--warning-text)"
-                  id={tailoringModeWarningId}
-                  role="status"
-                >
-                  {/* One source for this promise: the inline copy drifted
-                      from the shared warning the Preferences tab prints. */}
-                  {STRONG_REWRITE_WARNING}
-                </p>
-              ) : null}
-            </fieldset>
-          )}
-        />
+        {/* The resume level is chosen per job on Shortlisted (Original, Light,
+            Tailored, Aggressive), so setup no longer asks for a default. */}
         <div className="grid gap-(--gap-content) md:grid-cols-2">
           <p
             className="text-sm leading-6 text-foreground-soft md:col-span-2"
@@ -1116,10 +965,9 @@ export function ProfileSetupTargetingStep(props: {
               Job sources
             </h3>
             <p className="max-w-2xl text-sm leading-6 text-foreground-soft">
-              Find a public careers page or job board you already know and add
-              it here. A site you add is turned on for search straight away;
-              turn one off in its row to leave it out. Job Finder cannot search
-              until at least one valid source is on.
+              Paste a careers page or job board you already browse. A site you
+              add is turned on for search right away; turn one off in its row
+              to leave it out.
             </p>
           </div>
 
@@ -1128,8 +976,7 @@ export function ProfileSetupTargetingStep(props: {
               className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)"
               role="status"
             >
-              Add the job sites you use. Paste the page where you normally
-              browse open roles — for example
+              Add at least one site to search — for example
               https://weworkremotely.com/remote-jobs, https://remoteok.com, or a
               company&apos;s careers page. Job Finder searches only the sites
               you add.
@@ -1268,24 +1115,6 @@ export function ProfileSetupTargetingStep(props: {
                               {starterAccessNote ? (
                                 <p className="text-(length:--text-body) leading-6 text-foreground-soft">
                                   {starterAccessNote}
-                                </p>
-                              ) : null}
-                              {addedSourceCheck?.targetId === target.id ? (
-                                <p
-                                  aria-live="polite"
-                                  className="text-(length:--text-body) leading-6 text-foreground-soft"
-                                  data-profile-setup-source-check={target.id}
-                                  role="status"
-                                >
-                                  {latestAddedSourceRun &&
-                                  latestAddedSourceRun.state !== "running" &&
-                                  latestAddedSourceRun.state !== "idle"
-                                    ? formatAddedSourceReadabilityResult(
-                                        latestAddedSourceRun,
-                                      )
-                                    : addedSourceCheckTimedOut
-                                      ? "Check timed out; Job Finder will try again during the next search"
-                                      : "Checking this site…"}
                                 </p>
                               ) : null}
                             </div>
@@ -1502,13 +1331,13 @@ export function ProfileSetupTargetingStep(props: {
                 data-profile-setup-manual-source-form
                 onSubmit={(event) => {
                   event.preventDefault();
-                  addManualDiscoveryTarget({ checkSite: true });
+                  addManualDiscoveryTarget();
                 }}
               >
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="grid gap-(--gap-field)">
                     <FieldLabel htmlFor={manualSourceLabelId}>
-                      Source name
+                      Source name (optional)
                     </FieldLabel>
                     <ProfileInput
                       id={manualSourceLabelId}

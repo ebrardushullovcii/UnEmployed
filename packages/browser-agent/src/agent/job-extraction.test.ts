@@ -1019,6 +1019,26 @@ describe("buildStructuredCandidateJobs", () => {
     ]);
   });
 
+  test("never takes a card's age badge as the employer", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://weworkremotely.com/categories/remote-full-stack-programming-jobs",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://weworkremotely.com/remote-jobs/lemon-io-senior-net-full-stack-developer-1",
+          anchorText: "Senior .NET Full-stack Developer 12d",
+          headingText: "Senior .NET Full-stack Developer",
+          lines: ["Senior .NET Full-stack Developer", "12d"],
+        },
+      ],
+    });
+
+    // A card with nothing but a title and an age badge has no employer to
+    // report; whatever comes out, the badge is never it.
+    expect(jobs.every((job) => job.company !== "12d")).toBe(true);
+  });
+
   test("prefers the fuller LinkedIn dismiss-title when the visible heading is truncated", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:

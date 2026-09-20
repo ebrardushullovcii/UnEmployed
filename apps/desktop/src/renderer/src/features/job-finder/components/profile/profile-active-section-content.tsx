@@ -1,7 +1,6 @@
 import type {
   DiscoveryRunRecord,
   EditableSourceInstructionArtifact,
-  ResumeApplicationMode,
   SourceAccessPrompt,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
@@ -44,6 +43,7 @@ interface ProfileActiveSectionContentProps {
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   onOpenBrowserSessionForTarget: (targetId: string) => void;
   onRunDiscoveryForTarget?: (targetId: string) => void;
+  onSaveNow?: () => void;
   onRunSourceDebug: (
     targetId: string,
     options?: { readabilityTimeoutMs?: number },
@@ -55,9 +55,6 @@ interface ProfileActiveSectionContentProps {
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void;
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>;
   profileForm: UseFormReturn<ProfileEditorValues>;
-  /** The saved application default, so Preferences can offer and change it. */
-  resumeApplicationMode?: ResumeApplicationMode;
-  onSelectResumeApplicationMode?: (mode: ResumeApplicationMode) => void;
   recentSourceDebugRuns: readonly SourceDebugRunRecord[];
   sourceAccessPrompts: readonly SourceAccessPrompt[];
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[];
@@ -78,13 +75,12 @@ export function ProfileActiveSectionContent({
   onGetSourceDebugRunDetails,
   onOpenBrowserSessionForTarget,
   onRunDiscoveryForTarget,
+  onSaveNow,
   onRunSourceDebug,
   onSaveSourceInstructionArtifact,
   onVerifySourceInstructions,
   preferencesForm,
   profileForm,
-  resumeApplicationMode,
-  onSelectResumeApplicationMode,
   recentSourceDebugRuns,
   sourceAccessPrompts,
   sourceInstructionArtifacts,
@@ -108,10 +104,6 @@ export function ProfileActiveSectionContent({
         busy={isProfileMutationPending}
         preferencesForm={preferencesForm}
         profileForm={profileForm}
-        {...(resumeApplicationMode ? { resumeApplicationMode } : {})}
-        {...(onSelectResumeApplicationMode
-          ? { onSelectResumeApplicationMode }
-          : {})}
         customAnswerArray={backgroundArrays.customAnswerArray}
       />
     ),
@@ -127,6 +119,7 @@ export function ProfileActiveSectionContent({
         onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
         onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
         {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
+        {...(onSaveNow ? { onSaveNow } : {})}
         onRunSourceDebug={onRunSourceDebug}
         onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
         onVerifySourceInstructions={onVerifySourceInstructions}

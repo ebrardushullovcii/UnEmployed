@@ -13,7 +13,7 @@ function renderSection(
   render(
     <SettingsApplyModeSection
       maxApplicationsPerLocalDay={20}
-      mode="fill_only"
+      mode="prepare_only"
       onSave={onSave}
       {...props}
     />,
@@ -22,21 +22,12 @@ function renderSection(
 }
 
 describe("SettingsApplyModeSection", () => {
-  it("is one switch, two lines, and the daily cap", () => {
+  it("shows the three useful application modes and the daily cap", () => {
     renderSection();
 
-    expect(
-      screen.getByRole("switch", {
-        name: /Let Job Finder send applications for me/,
-      }),
-    ).toBeTruthy();
-    const explanations = screen.getByTestId("apply-mode-explanations");
-    expect(explanations.textContent).toContain(
-      "Job Finder fills the form and leaves the browser open; you click Apply.",
-    );
-    expect(explanations.textContent).toContain(
-      "Job Finder fills and sends; it stops for anything it cannot answer honestly.",
-    );
+    expect(screen.getByRole("radio", { name: /Prepare for me/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /Ask before sending/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /Send for me/ })).toBeTruthy();
     expect(
       screen.getByLabelText("Most applications in one day"),
     ).toBeTruthy();
@@ -54,31 +45,25 @@ describe("SettingsApplyModeSection", () => {
     const save = screen.getByRole("button", { name: "Save" });
     expect(save).toHaveProperty("disabled", true);
 
-    fireEvent.click(
-      screen.getByRole("switch", {
-        name: /Let Job Finder send applications for me/,
-      }),
-    );
+    fireEvent.click(screen.getByRole("radio", { name: /Ask before sending/ }));
     fireEvent.change(screen.getByLabelText("Most applications in one day"), {
       target: { value: "8" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onSave).toHaveBeenCalledWith({
-      mode: "apply_for_me",
+      mode: "confirm_before_submit",
       maxApplicationsPerLocalDay: 8,
     });
     expect(screen.getAllByRole("button", { name: "Save" })).toHaveLength(1);
   });
 
-  it("shows the switch already on for a workspace that sends applications", () => {
-    renderSection({ mode: "apply_for_me" });
+  it("shows the saved send-for-me mode selected", () => {
+    renderSection({ mode: "autonomous_submit" });
 
     expect(
       screen
-        .getByRole("switch", {
-          name: /Let Job Finder send applications for me/,
-        })
+        .getByRole("radio", { name: /Send for me/ })
         .getAttribute("aria-checked"),
     ).toBe("true");
   });

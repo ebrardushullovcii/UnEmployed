@@ -172,7 +172,7 @@ describe("apply policy executor", () => {
     expect(fillText).toHaveBeenCalledWith("c0", "robin.ashford@example.test");
   });
 
-  test("a declaration the person has not pre-approved pauses instead of being ticked", async () => {
+  test("a declaration the person has not pre-approved is left for them without stopping the run", async () => {
     const page = rawPage({
       controls: [
         rawControl({
@@ -193,12 +193,53 @@ describe("apply policy executor", () => {
       { config, now, guardState: createApplyGuardState() },
     );
 
-    expect(outcome.kind).toBe("paused");
-    if (outcome.kind === "paused") {
-      expect(outcome.pause.code).toBe("declaration_needs_you");
-      expect(outcome.pause.question?.prompt).toContain("I certify");
+    // Not a pause: the run carries on and hands the box back with the
+    // finished form. Stopping here left the rest of the form empty.
+    expect(outcome.kind).toBe("suggestion");
+    if (outcome.kind === "suggestion") {
+      expect(outcome.question?.prompt).toContain("I certify");
+      expect(outcome.note).toMatch(/carry on/i);
     }
     expect(setToggle).not.toHaveBeenCalled();
+  });
+
+  test("a declaration the person answered Yes to earlier is ticked from that saved answer", async () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          inputType: "checkbox",
+          label: "I certify that the information I have given is true and complete",
+          required: true,
+        }),
+      ],
+    });
+    const { config, hands } = configFor(page);
+    config.sources.reusableAnswers = [
+      {
+        id: "saved_certify",
+        kind: "other",
+        label: "I certify that the information I have given is true and complete",
+        question: "I certify that the information I have given is true and complete",
+        answer: "Yes",
+        roleFamilies: [],
+        proofEntryIds: [],
+      },
+    ];
+    const setToggle = vi.spyOn(hands, "setToggle");
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "set_checkbox", ref: "c0", checked: true },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("filled");
+    if (outcome.kind === "filled") {
+      expect(outcome.filled.answer.sourceKind).toBe("answer_library");
+    }
+    expect(setToggle).toHaveBeenCalledWith("c0", true);
   });
 
   test("a declaration the person pre-approved is ticked and recorded as theirs", async () => {
@@ -299,7 +340,7 @@ describe("apply policy executor", () => {
     expect(fillText).not.toHaveBeenCalled();
   });
 
-  test("a page on a site the person did not allow is refused, with the reason", async () => {
+  test("a reviewed employer handoff may be filled even when only the listing origin is authorized to send", async () => {
     const page = rawPage({
       url: "https://somewhere-else.example.test/form",
       controls: [rawControl({ index: 0, label: "Email", inputType: "email" })],
@@ -315,10 +356,7 @@ describe("apply policy executor", () => {
       { config, now, guardState: createApplyGuardState() },
     );
 
-    expect(outcome.kind).toBe("refused");
-    if (outcome.kind === "refused") {
-      expect(outcome.reason).toContain("outside the sites you allowed");
-    }
+    expect(outcome.kind).toBe("filled");
   });
 
   test("a hop to another site is reported as a fact when nothing forbids it", async () => {
@@ -449,6 +487,44 @@ describe("submit preflight", () => {
   const sendableAuthority = authority({
     mode: "autonomous_submit",
     submitAuthorized: true,
+    allowedOrigins: ["https://apply.example.test"],
+  });
+
+  test("stops before sending on an employer origin outside the saved authority", () => {
+    const observation = observationOf(
+      rawPage({
+        url: "https://employer.example-ats.test/form",
+        stepLabel: "Step 2 of 2",
+        controls: [
+          rawControl({
+            index: 0,
+            label: "Email",
+            required: true,
+            value: "robin@example.test",
+          }),
+        ],
+        actions: [
+          {
+            index: 0,
+            label: "Submit application",
+            visible: true,
+            disabled: false,
+          },
+        ],
+      }),
+    );
+
+    const result = runSubmitPreflight({
+      observation,
+      proposedActionRef: "a0",
+      authority: sendableAuthority,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason:
+        "Job Finder is not authorized to send an application on https://employer.example-ats.test. The form is still available for review.",
+    });
   });
 
   test("stops when a required answer is still empty", () => {
@@ -701,7 +777,11 @@ describe("being ready to send", () => {
   test("a complete form with authority is reported ready, and nothing is pressed", async () => {
     const page = completePage();
     const { config, hands } = configFor(page, {
-      authority: { mode: "autonomous_submit", submitAuthorized: true },
+      authority: {
+        mode: "autonomous_submit",
+        submitAuthorized: true,
+        allowedOrigins: ["https://apply.example.test"],
+      },
     });
     const clickAction = vi.spyOn(hands, "clickAction");
     const observation = observationOf(page);
@@ -724,7 +804,11 @@ describe("being ready to send", () => {
   test("confirm-first reaches the send button but is never the one to press it", async () => {
     const page = completePage();
     const { config, hands } = configFor(page, {
-      authority: { mode: "confirm_before_submit", submitAuthorized: false },
+      authority: {
+        mode: "confirm_before_submit",
+        submitAuthorized: false,
+        allowedOrigins: ["https://apply.example.test"],
+      },
     });
     const clickAction = vi.spyOn(hands, "clickAction");
     const observation = observationOf(page);

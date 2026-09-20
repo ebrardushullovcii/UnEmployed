@@ -7,7 +7,7 @@ import { listSourceAttentionReasons } from "@unemployed/job-finder/source-health
 import { projectPlanSafeguardPauses } from "@unemployed/job-finder/plan-safeguard-pauses";
 import { PlanSafeguardPauseCards } from "../../components/plan-safeguard-pause-cards";
 import { Button } from "@renderer/components/ui/button";
-import { PageHeader } from "../../components/page-header";
+import { PageHeaderStack } from "../../components/page-header";
 import { JobFinderActivityControl } from "../../components/job-finder-activity-control";
 import { JobFinderGlobalSearch } from "../../components/job-finder-global-search";
 import { CampaignNotificationCenter } from "../../components/campaign-notification-center";
@@ -75,28 +75,13 @@ function formatRecommendedActionButtonLabel(route: string): string {
   return "Open";
 }
 
+/**
+ * The same population the header badge and the Needs you page count. Home
+ * used to derive its own number here, without the applications paused on a
+ * site step, so the stat card said 2 while the recommendation said 1.
+ */
 function countHomeNeedsYou(workspace: JobFinderWorkspaceSnapshot): number {
-  const requests = workspace.userActionRequests ?? [];
-  const groupedDecisions = workspace.intelligence?.groupedDecisions ?? [];
-  const unresolved = requests.filter(
-    (request) =>
-      !["resolved", "skipped", "cancelled", "expired", "superseded"].includes(
-        request.state,
-      ),
-  );
-  const pendingDecisions = groupedDecisions.filter(
-    (decision) => decision.approval === "pending",
-  );
-  const representedRequestIds = new Set(
-    pendingDecisions.flatMap((decision) =>
-      decision.lineage.map((entry) => entry.requestId),
-    ),
-  );
-  const unrepresentedRequests = unresolved.filter(
-    (request) => !representedRequestIds.has(request.id),
-  );
-  return unrepresentedRequests.length + pendingDecisions.length +
-    projectPlanSafeguardPauses(workspace.intelligence?.safeguards, workspace.campaigns).length;
+  return countNeedsYou(workspace);
 }
 
 /**
@@ -393,7 +378,7 @@ export function JobSearchHomeScreen(props: {
         }
       : null;
 
-  const effectiveRecommendedNext = safeguardPauses[0] ? {
+  const rawRecommendedNext = safeguardPauses[0] ? {
     label: "Open Safeguards", detail: safeguardPauses[0].explanation, route: safeguardPauses[0].route,
   } : showProfileSetupBlocker
     ? {
@@ -422,10 +407,20 @@ export function JobSearchHomeScreen(props: {
           ? {
               label: "Run your first search",
               detail:
-                "Your job sources are ready. Run the active search plan to collect your first openings and see metrics here.",
+                "Your job sources are ready. Run a search to collect your first openings and see them here.",
               route: discoveryRoute,
             }
           : (searchLoopRecommendation ?? dashboard.recommendedNextAction);
+  // The dashboard's recommendation is built in the main process from live
+  // browser-step requests only; the badge beside it counts applications
+  // paused on a site step too. One number on the page, from one selector.
+  const effectiveRecommendedNext =
+    rawRecommendedNext.route === "/job-finder/actions" && needsYouCount > 0
+      ? {
+          ...rawRecommendedNext,
+          detail: `${needsYouCount} ${needsYouCount === 1 ? "item" : "items"} cannot continue without you.`,
+        }
+      : rawRecommendedNext;
 
   const unresolvedDiscoveryFeedback = searchSucceeded
     ? null
@@ -546,7 +541,7 @@ export function JobSearchHomeScreen(props: {
 
   return (
     <section className="grid min-w-0 gap-5 pb-8">
-      <PageHeader
+      <PageHeaderStack
         actions={
           <JobFinderActivityControl
             onPause={props.onPauseActivity}

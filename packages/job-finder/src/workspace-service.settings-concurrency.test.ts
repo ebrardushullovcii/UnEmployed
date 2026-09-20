@@ -189,6 +189,53 @@ describe("scoped settings updates against transaction-current state", () => {
     expect(snapshot.settings.keepSessionAlive).toBe(true);
   });
 
+  test("AI behavior saves settings, the letter preference, and both halves of the resume approach", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    await base.commitSettingsUpdate((current) => ({
+      ...current,
+      appearanceTheme: "dark",
+    }));
+    const service = createTestHarness(base);
+
+    const snapshot = await service.updateAiBehavior({
+      aiBehavior: {
+        profileAssistant: { initiative: "proactive", replyStyle: "brief" },
+        jobSearch: { selectivity: "best_matches", remoteCountsAsAnyLocation: false },
+        applying: {
+          coverLetterPolicy: "never",
+          writtenAnswerLength: "full",
+          preApprovedDeclarations: [],
+        },
+      },
+      coverLetter: {
+        tone: "warm",
+        length: "short",
+        language: "German",
+        sample: null,
+      },
+      resumeApproach: "aggressive",
+    });
+
+    const settings = await base.getSettings();
+    const searchPreferences = await base.getSearchPreferences();
+    expect(settings.aiBehavior?.jobSearch.selectivity).toBe("best_matches");
+    expect(settings.aiBehavior?.applying.coverLetterPolicy).toBe("never");
+    expect(settings.coverLetter?.tone).toBe("warm");
+    expect(settings.resumeApplicationMode).toBe("tailored_per_job");
+    expect(settings.appearanceTheme).toBe("dark");
+    expect(searchPreferences.tailoringMode).toBe("aggressive");
+    // Best matches only also turns on the strict collection filter.
+    expect(searchPreferences.discovery.collectOnlyHardCriteriaMatches).toBe(true);
+    expect(snapshot.searchPreferences.tailoringMode).toBe("aggressive");
+
+    // Keeping the original file is the other half of the same choice.
+    const original = await service.updateAiBehavior({
+      resumeApproach: "original_resume",
+    });
+    expect(original.settings.resumeApplicationMode).toBe("original_resume");
+    expect(original.searchPreferences.tailoringMode).toBe("aggressive");
+  });
+
   test("application defaults keep theme and CRM untouched", async () => {
     const base = createInMemoryJobFinderRepository(createSeed());
     await base.commitSettingsUpdate((current) => ({

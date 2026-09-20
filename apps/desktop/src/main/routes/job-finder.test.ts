@@ -23,6 +23,7 @@ import {
   SaveCampaignRuleRouteInputSchema,
   UpdateApplicationDefaultsInputSchema,
   UpdateWorkspaceBehaviorInputSchema,
+  UpdateAiBehaviorInputSchema,
   resumeClaimOwnershipStatement,
 } from "@unemployed/contracts";
 import { createEmptyJobFinderRepositoryState } from "../adapters/job-finder-initial-state";
@@ -68,6 +69,7 @@ const {
   mockUpdateApplicationDefaults,
   mockUpdateTrackerCrm,
   mockUpdateWorkspaceBehavior,
+  mockUpdateAiBehavior,
 } = vi.hoisted(() => ({
   mockApplyGroupedManualAnswer: vi.fn(),
   mockBrowserWindowFromWebContents: vi.fn(
@@ -111,6 +113,7 @@ const {
   mockUpdateApplicationDefaults: vi.fn(),
   mockUpdateTrackerCrm: vi.fn(),
   mockUpdateWorkspaceBehavior: vi.fn(),
+  mockUpdateAiBehavior: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -129,6 +132,8 @@ vi.mock("electron", () => ({
 vi.mock("../services/job-finder", () => ({
   defaultBenchmarkCases: [],
   getDesktopTestDelayMs: vi.fn(() => 0),
+  getJobFinderApplicationAuthorityService: vi.fn(),
+  getJobFinderRepositoryForWorkspaceService: vi.fn(() => null),
   getJobFinderWorkspaceService: mockGetJobFinderWorkspaceService,
   importResumeFromSourcePath: mockImportResumeFromSourcePath,
   isDesktopTestApiEnabled: mockIsDesktopTestApiEnabled,
@@ -1448,6 +1453,30 @@ describe("job-finder scoped settings routes", () => {
     expect(result).toEqual(snapshot);
   });
 
+  it("routes AI-behavior payloads to updateAiBehavior", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-22T10:02:30.000Z");
+    mockUpdateAiBehavior.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      updateAiBehavior: mockUpdateAiBehavior,
+    });
+
+    const input = UpdateAiBehaviorInputSchema.parse({
+      aiBehavior: {
+        profileAssistant: { initiative: "proactive", replyStyle: "brief" },
+        jobSearch: { selectivity: "wide_net", remoteCountsAsAnyLocation: false },
+        applying: { coverLetterPolicy: "never", writtenAnswerLength: "full" },
+      },
+      resumeApproach: "aggressive",
+    });
+    const result = await registerAndFindHandler("job-finder:update-ai-behavior")(
+      { sender: {} },
+      input,
+    );
+
+    expect(mockUpdateAiBehavior).toHaveBeenCalledWith(input);
+    expect(result).toEqual(snapshot);
+  });
+
   it("routes appearance-theme payloads to updateAppearanceTheme with the parsed theme", async () => {
     const snapshot = createEmptyWorkspace("2026-08-22T10:03:00.000Z");
     mockUpdateAppearanceTheme.mockResolvedValue(snapshot);
@@ -2673,6 +2702,41 @@ describe("job-finder agent discovery outcome routes", () => {
 
     expect(result).toEqual({ outcome: "completed", snapshot });
     expect(mockGetWorkspaceSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("passes the person's search request to the discovery service", async () => {
+    const snapshot = workspaceWithRunState(
+      "2026-08-26T10:07:00.000Z",
+      "completed",
+      12,
+    );
+    mockRunAgentDiscovery.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      runAgentDiscovery: mockRunAgentDiscovery,
+      getWorkspaceSnapshot: mockGetWorkspaceSnapshot,
+    });
+    const searchRequest = {
+      intent: "around engineering",
+      breadth: "wide" as const,
+      freshness: "recent" as const,
+      sourceIds: ["target_example"],
+    };
+
+    await registerAndFindDiscoveryHandler()(
+      { sender },
+      {
+        requestId: "agent_discovery_goal",
+        targetId: null,
+        searchRequest,
+      },
+    );
+
+    expect(mockRunAgentDiscovery).toHaveBeenCalledWith(
+      expect.any(Function),
+      undefined,
+      undefined,
+      searchRequest,
+    );
   });
 
   it("rethrows non-abort discovery failures instead of inventing an outcome", async () => {

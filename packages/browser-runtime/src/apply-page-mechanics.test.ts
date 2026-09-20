@@ -1,7 +1,10 @@
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { readRawApplyPage } from "./apply-page-mechanics";
+import {
+  createPlaywrightApplyPageMechanics,
+  readRawApplyPage,
+} from "./apply-page-mechanics";
 
 /**
  * Two lists the page draws itself, read one after the other.
@@ -86,4 +89,168 @@ describe("reading the choices of lists the page draws itself", () => {
 
     await page.close();
   }, 60_000);
+
+  test("one task sees and closes only popups opened by its own page", async () => {
+    const context = await browser.newContext();
+    const taskPage = await context.newPage();
+    const unrelatedTaskPage = await context.newPage();
+    await unrelatedTaskPage.setContent("<title>Other task</title>");
+    await taskPage.setContent(`
+      <title>Current task</title>
+      <button id="open">Apply</button>
+      <script>
+        document.getElementById("open").addEventListener("click", () => {
+          const popup = window.open("about:blank", "_blank");
+          if (popup) popup.document.title = "Current task popup";
+        });
+      </script>
+    `);
+
+    await taskPage.click("#open");
+    await expect.poll(() => context.pages().length).toBe(3);
+
+    const observation = await readRawApplyPage(taskPage);
+    expect(observation.openedTabs).toHaveLength(1);
+    expect(observation.openedTabs[0]?.title).toBe("Current task popup");
+
+    const mechanics = createPlaywrightApplyPageMechanics(taskPage);
+    const adoption = await mechanics.adoptOpenedTab!(0);
+    expect(adoption).toEqual({
+      ok: false,
+      error: "That tab never loaded a web page.",
+    });
+    expect(unrelatedTaskPage.isClosed()).toBe(false);
+    expect(await unrelatedTaskPage.title()).toBe("Other task");
+
+    await context.close();
+  }, 60_000);
+
+  test("presses keyboard-only controls on the requested field", async () => {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <label for="city">City</label>
+      <input id="city" />
+      <p id="result">Waiting</p>
+      <script>
+        document.getElementById("city").addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            document.getElementById("result").textContent = "Accepted";
+          }
+        });
+      </script>
+    `);
+
+    const mechanics = createPlaywrightApplyPageMechanics(page);
+    expect(await mechanics.pressKey("c0", "Enter")).toEqual({
+      ok: true,
+      observedValue: "Enter",
+    });
+    expect(await page.locator("#result").innerText()).toBe("Accepted");
+
+    await page.close();
+  });
+
+  test("reads a question wrapped around an otherwise unlabelled select", async () => {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <li>
+        <div>
+          Are you currently authorized to work in this country?
+          <div><select required><option>Select...</option><option>Yes</option><option>No</option></select></div>
+        </div>
+      </li>
+    `);
+
+    const observation = await readRawApplyPage(page);
+    expect(observation.controls[0]?.label).toBe(
+      "Are you currently authorized to work in this country?",
+    );
+
+    await page.close();
+  });
+
+  test("does not report success when a controlled input clears the value", async () => {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <label>Current location <input id="location" /></label>
+      <script>
+        document.getElementById("location").addEventListener("input", (event) => {
+          setTimeout(() => { event.target.value = ""; }, 10);
+        });
+      </script>
+    `);
+
+    const mechanics = createPlaywrightApplyPageMechanics(page);
+    await expect(mechanics.fillText("c0", "Pristina")).resolves.toEqual({
+      ok: false,
+      error:
+        "The field cleared the answer instead of keeping it. Leave it for the person or try a different control once.",
+    });
+
+    await page.close();
+  });
+
+  test("reads and operates accessible shadow-root and iframe forms", async () => {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <h1>Application</h1>
+      <div id="shadow-host"></div>
+      <iframe id="embedded" srcdoc='
+        <label for="email">Email in frame</label>
+        <input id="email" type="email" />
+        <button id="continue">Continue</button>
+      '></iframe>
+      <script>
+        const root = document.getElementById("shadow-host").attachShadow({ mode: "open" });
+        root.innerHTML = '<label for="name">Name in component</label><input id="name" />';
+      </script>
+    `);
+    await expect.poll(() => page.frames().length).toBe(2);
+    const childFrame = page
+      .frames()
+      .find((frame) => frame !== page.mainFrame())!;
+    await childFrame.evaluate(() => {
+      document.getElementById("continue")?.addEventListener("click", () => {
+        document.body.dataset.continued = "yes";
+      });
+    });
+
+    const mechanics = createPlaywrightApplyPageMechanics(page);
+    const observation = await mechanics.readPage();
+    const shadowControl = observation.controls.find(
+      (control) => control.id === "name",
+    );
+    const frameControl = observation.controls.find(
+      (control) => control.id === "email",
+    );
+    const frameAction = observation.actions.find(
+      (action) => action.label === "Continue",
+    );
+
+    const shadowRef = shadowControl?.ref ?? `c${shadowControl?.index}`;
+    expect(shadowRef).toMatch(/^c\d+$/u);
+    expect(frameControl?.ref).toMatch(/^f0c\d+$/u);
+    expect(frameAction?.ref).toMatch(/^f0a\d+$/u);
+    expect(observation.bodyText).toContain("Email in frame");
+
+    expect(await mechanics.fillText(shadowRef, "Ada Lovelace")).toEqual({
+      ok: true,
+      observedValue: "Ada Lovelace",
+    });
+    expect(
+      await mechanics.fillText(frameControl!.ref!, "ada@example.test"),
+    ).toEqual({
+      ok: true,
+      observedValue: "ada@example.test",
+    });
+    expect(await mechanics.clickAction(frameAction!.ref!)).toEqual({
+      ok: true,
+      observedValue: "clicked",
+    });
+    expect(
+      await childFrame.locator("body").getAttribute("data-continued"),
+    ).toBe("yes");
+
+    await page.close();
+  });
 });

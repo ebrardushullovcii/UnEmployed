@@ -8,17 +8,33 @@ import {
   type AgentLoopToolCall,
 } from "./agent-loop";
 
-function call(name: string, args: Record<string, unknown> = {}, id = `call_${name}`): AgentLoopToolCall {
-  return { id, type: "function", function: { name, arguments: JSON.stringify(args) } };
+function call(
+  name: string,
+  args: Record<string, unknown> = {},
+  id = `call_${name}`,
+): AgentLoopToolCall {
+  return {
+    id,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) },
+  };
 }
 
-function scripted(turns: AgentLoopToolCall[][]): AgentLoopModel & { calls: number } {
+function scripted(
+  turns: AgentLoopToolCall[][],
+): AgentLoopModel & { calls: number } {
   const model = {
     calls: 0,
     chatWithTools: () => {
       const turn = turns[Math.min(model.calls, turns.length - 1)] ?? [];
       model.calls += 1;
-      return Promise.resolve({ content: "", toolCalls: turn.map((entry, index) => ({ ...entry, id: `${entry.id}_${model.calls}_${index}` })) });
+      return Promise.resolve({
+        content: "",
+        toolCalls: turn.map((entry, index) => ({
+          ...entry,
+          id: `${entry.id}_${model.calls}_${index}`,
+        })),
+      });
     },
   };
   return model;
@@ -32,7 +48,11 @@ function tool(
   return {
     definition: {
       type: "function",
-      function: { name, description: name, parameters: { type: "object", properties: {} } },
+      function: {
+        name,
+        description: name,
+        parameters: { type: "object", properties: {} },
+      },
     },
     execute,
     ...options,
@@ -40,7 +60,11 @@ function tool(
 }
 
 const finishTool = tool("finish", (raw) => {
-  const args = JSON.parse(raw || "{}") as { reason?: string; stuck?: boolean; needsPerson?: boolean };
+  const args = JSON.parse(raw || "{}") as {
+    reason?: string;
+    stuck?: boolean;
+    needsPerson?: boolean;
+  };
   return Promise.resolve({
     kind: "finish",
     finish: {
@@ -61,7 +85,14 @@ describe("runAgentLoop", () => {
   test("the model's finish reason is the run's reason, word for word", async () => {
     const result = await runAgentLoop({
       messages: opening,
-      model: scripted([[call("finish", { reason: "Every posting opens a sign-in page first", needsPerson: true })]]),
+      model: scripted([
+        [
+          call("finish", {
+            reason: "Every posting opens a sign-in page first",
+            needsPerson: true,
+          }),
+        ],
+      ]),
       tools: [finishTool],
       subjectLabel: "the careers site",
     });
@@ -72,7 +103,9 @@ describe("runAgentLoop", () => {
   });
 
   test("a stall gets one warning, then the run ends if nothing moves", async () => {
-    const look = tool("look", () => Promise.resolve({ kind: "ok", content: "same page" }));
+    const look = tool("look", () =>
+      Promise.resolve({ kind: "ok", content: "same page" }),
+    );
     const model = scripted([[call("look")]]);
     const result = await runAgentLoop({
       messages: opening,
@@ -84,7 +117,8 @@ describe("runAgentLoop", () => {
     expect(result.ending).toBe("stalled");
     expect(result.reason).toContain("nothing new happened");
     const warnings = result.messages.filter(
-      (message) => message.role === "user" && message.content.startsWith("Stall check"),
+      (message) =>
+        message.role === "user" && message.content.startsWith("Stall check"),
     );
     expect(warnings).toHaveLength(1);
     expect(result.steps).toBeLessThan(10);
@@ -94,9 +128,15 @@ describe("runAgentLoop", () => {
     let calls = 0;
     const work = tool("work", () => {
       calls += 1;
-      return Promise.resolve({ kind: "ok", content: "did something", progress: calls % 2 === 0 });
+      return Promise.resolve({
+        kind: "ok",
+        content: "did something",
+        progress: calls % 2 === 0,
+      });
     });
-    const turns: AgentLoopToolCall[][] = Array.from({ length: 12 }, () => [call("work")]);
+    const turns: AgentLoopToolCall[][] = Array.from({ length: 12 }, () => [
+      call("work"),
+    ]);
     turns.push([call("finish", { reason: "Done" })]);
     const result = await runAgentLoop({
       messages: opening,
@@ -111,26 +151,46 @@ describe("runAgentLoop", () => {
 
   test("a browser failure is handed back as a fact and the run carries on", async () => {
     let attempts = 0;
-    const flaky = tool("press", () => {
-      attempts += 1;
-      if (attempts === 1) {
-        return Promise.reject(new Error("The page moved to a new address while Job Finder was reading it."));
-      }
-      return Promise.resolve({ kind: "ok", content: "pressed", progress: true });
-    }, {
-      failureKind: "browser",
-      describeError: (error) =>
-        error instanceof Error ? error.message : "The browser did not respond.",
-    });
+    const flaky = tool(
+      "press",
+      () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return Promise.reject(
+            new Error(
+              "The page moved to a new address while Job Finder was reading it.",
+            ),
+          );
+        }
+        return Promise.resolve({
+          kind: "ok",
+          content: "pressed",
+          progress: true,
+        });
+      },
+      {
+        failureKind: "browser",
+        describeError: (error) =>
+          error instanceof Error
+            ? error.message
+            : "The browser did not respond.",
+      },
+    );
     const result = await runAgentLoop({
       messages: opening,
-      model: scripted([[call("press")], [call("press")], [call("finish", { reason: "Done" })]]),
+      model: scripted([
+        [call("press")],
+        [call("press")],
+        [call("finish", { reason: "Done" })],
+      ]),
       tools: [flaky, finishTool],
       subjectLabel: "the site",
     });
     expect(result.ending).toBe("finished");
     const failureNote = result.messages.find(
-      (message) => message.role === "tool" && message.content.startsWith("That step did not complete"),
+      (message) =>
+        message.role === "tool" &&
+        message.content.startsWith("That step did not complete"),
     );
     expect(failureNote?.content).toContain("moved to a new address");
     expect(result.turnNotes.join("\n")).toContain("browser failure");
@@ -165,7 +225,10 @@ describe("runAgentLoop", () => {
 
   test("a safety stop ends the run with the host's reason", async () => {
     const guard = tool("press", () =>
-      Promise.resolve({ kind: "stop", reason: "The page tried to send the application on its own." }),
+      Promise.resolve({
+        kind: "stop",
+        reason: "The page tried to send the application on its own.",
+      }),
     );
     const result = await runAgentLoop({
       messages: opening,
@@ -240,11 +303,40 @@ describe("runAgentLoop", () => {
     expect(result.progressSteps).toBeGreaterThan(0);
   });
 
+  test("a silent model turn stops promptly and reports progress", async () => {
+    const updates: string[] = [];
+    const result = await runAgentLoop({
+      messages: opening,
+      model: {
+        chatWithTools: () => new Promise(() => undefined),
+      },
+      tools: [finishTool],
+      subjectLabel: "the site",
+      ceilings: { modelTurnTimeoutMs: 10 },
+      onStep: ({ note }) => {
+        updates.push(note);
+      },
+    });
+
+    expect(result.ending).toBe("timed_out");
+    expect(result.reason).toContain("did not answer in time");
+    expect(updates).toEqual([
+      "asking the assistant what to do next",
+      "the assistant did not answer before this turn's time limit",
+    ]);
+  });
+
   test("a long conversation is trimmed in the middle and the opening survives", async () => {
     const chatty = tool("look", () =>
-      Promise.resolve({ kind: "ok", content: "x".repeat(5_000), progress: true }),
+      Promise.resolve({
+        kind: "ok",
+        content: "x".repeat(5_000),
+        progress: true,
+      }),
     );
-    const turns: AgentLoopToolCall[][] = Array.from({ length: 40 }, () => [call("look")]);
+    const turns: AgentLoopToolCall[][] = Array.from({ length: 40 }, () => [
+      call("look"),
+    ]);
     turns.push([call("finish", { reason: "Done" })]);
     const result = await runAgentLoop({
       messages: opening,
@@ -257,10 +349,76 @@ describe("runAgentLoop", () => {
     expect(result.messages[0]).toEqual(opening[0]);
     expect(result.messages[1]).toEqual(opening[1]);
     const trimmed = result.messages.find(
-      (message) => message.role === "user" && message.content.startsWith("Earlier turns were trimmed"),
+      (message) =>
+        message.role === "user" &&
+        message.content.startsWith("Earlier turns were trimmed"),
     );
     expect(trimmed).toBeDefined();
     expect(result.messages.length).toBeLessThan(40);
+  });
+
+  test("a tool that hangs is given up after its deadline and the run carries on", async () => {
+    let calls = 0;
+    const hang = tool(
+      "read",
+      () => {
+        calls += 1;
+        return calls === 1
+          ? new Promise(() => undefined)
+          : Promise.resolve({ kind: "ok", content: "read", progress: true });
+      },
+      { failureKind: "browser" },
+    );
+    const result = await runAgentLoop({
+      messages: opening,
+      model: scripted([
+        [call("read")],
+        [call("read")],
+        [call("finish", { reason: "Done" })],
+      ]),
+      tools: [hang, finishTool],
+      subjectLabel: "the site",
+      ceilings: { toolTimeoutMs: 1_000 },
+    });
+    expect(result.ending).toBe("finished");
+    const gaveUp = result.messages.find(
+      (message) =>
+        message.role === "tool" &&
+        message.content.includes("took longer than"),
+    );
+    expect(gaveUp).toBeDefined();
+    expect(result.turnNotes.join("\n")).toContain("took too long");
+  });
+
+  test("a stop request lands while the model ignores its abort signal", async () => {
+    const controller = new AbortController();
+    const pending = runAgentLoop({
+      messages: opening,
+      model: { chatWithTools: () => new Promise(() => undefined) },
+      tools: [finishTool],
+      subjectLabel: "the site",
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 50);
+    const result = await pending;
+    expect(result.ending).toBe("aborted");
+  });
+
+  test("a stop request lands even while a tool call is hanging", async () => {
+    const controller = new AbortController();
+    const hang = tool("read", () => new Promise(() => undefined), {
+      failureKind: "browser",
+    });
+    const pending = runAgentLoop({
+      messages: opening,
+      model: scripted([[call("read")]]),
+      tools: [hang, finishTool],
+      subjectLabel: "the site",
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 50);
+    const result = await pending;
+    expect(result.ending).toBe("aborted");
   });
 
   test("a model that answers without a tool is nudged, not ended", async () => {

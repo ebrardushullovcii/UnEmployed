@@ -241,24 +241,8 @@ export function getProfileSetupReadinessBlockers(
       step: PROFILE_SETUP_READINESS_BLOCKER_STEPS.identity_contact,
     });
   }
-  if (!readiness.hasMeaningfulBackground) {
-    blockers.push({
-      id: "background",
-      step: PROFILE_SETUP_READINESS_BLOCKER_STEPS.background,
-    });
-  }
-  if (!readiness.hasEligibilityPreferences) {
-    blockers.push({
-      id: "eligibility_preferences",
-      step: PROFILE_SETUP_READINESS_BLOCKER_STEPS.eligibility_preferences,
-    });
-  }
-  if (!readiness.hasWorkModePreference) {
-    blockers.push({
-      id: "work_mode_preference",
-      step: PROFILE_SETUP_READINESS_BLOCKER_STEPS.work_mode_preference,
-    });
-  }
+  // Work history, eligibility and work mode are no longer blockers; the
+  // ids stay in the type for older persisted states.
   if (!readiness.hasDiscoverySource) {
     blockers.push({
       id: "discovery_source",
@@ -366,28 +350,18 @@ function getHighestPriorityPendingStep(
 }
 
 /**
- * Only critical items and required missing-field items gate completion.
- * Recommended imported suggestions (they carry a proposal or a source
- * candidate) stay optional to review, so a user is never forced to confirm
- * or dismiss an import suggestion before finishing setup.
+ * Only critical items gate completion. Recommended items, whether an imported
+ * suggestion or a field the resume left empty (location, years of
+ * experience, work eligibility), stay optional to review: finishing needs a
+ * name, a contact path, and a job source, and a person with those should be
+ * searching rather than answering a questionnaire (ADR 0024). The guided
+ * setup footer applies the same rule, so Finish is never offered and then
+ * refused.
  */
 export function isProfileSetupFinishBlockingReviewItem(
   item: ProfileReviewItem,
 ): boolean {
-  if (item.status !== "pending") {
-    return false;
-  }
-  if (item.severity === "critical") {
-    return true;
-  }
-  return (
-    item.severity !== "optional" &&
-    item.target.recordId === null &&
-    item.proposedValue === null &&
-    item.sourceCandidateId === null &&
-    item.sourceRunId === null &&
-    item.sourceSnippet === null
-  );
+  return item.status === "pending" && item.severity === "critical";
 }
 
 function hasBlockingPendingReviewItems(
@@ -558,14 +532,12 @@ export function evaluateProfileSetupReadiness(
   );
   const hasNarrative = hasMeaningfulNarrative(profile);
   const hasAnswerBank = hasMeaningfulAnswerBank(profile);
+  // Finishing needs a name, one way to be contacted, and one place to look.
+  // Work history, targeting, eligibility and work mode improve results and
+  // stay visible as hints, but a person with a resume and a job board should
+  // be searching, not answering a questionnaire (ADR 0024).
   const materiallyComplete =
-    hasCoreIdentity &&
-    hasContactPath &&
-    hasMeaningfulBackground &&
-    hasTargeting &&
-    hasEligibilityPreferences &&
-    hasWorkModePreference &&
-    hasDiscoverySource;
+    hasCoreIdentity && hasContactPath && hasDiscoverySource;
   const started = Boolean(
     hasResumeText ||
     hasCoreIdentity ||
@@ -586,11 +558,7 @@ export function evaluateProfileSetupReadiness(
     recommendedStep = "essentials";
   } else if (!hasMeaningfulBackground) {
     recommendedStep = "background";
-  } else if (
-    !hasEligibilityPreferences ||
-    !hasWorkModePreference ||
-    !hasDiscoverySource
-  ) {
+  } else if (!hasDiscoverySource) {
     recommendedStep = "targeting";
   } else if (!hasNarrative || !hasAnswerBank) {
     recommendedStep = "extras";

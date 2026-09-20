@@ -126,6 +126,7 @@ function session(bodyText = "Apply for the role"): ApplyPageSession {
     readPage: () => Promise.resolve(rawPage(bodyText)),
     navigate: () => Promise.resolve({ ok: true, url: PAGE_URL }),
     clickElement: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+    pressKey: (_ref, key) => Promise.resolve({ ok: true, observedValue: key }),
     scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
     wait: () => Promise.resolve(),
     goBack: () => Promise.resolve({ ok: true, url: PAGE_URL }),
@@ -317,7 +318,7 @@ function modelThatFinishes(): LLMClient {
 }
 
 describe("agent application preparation seam", () => {
-  test("a finished prepare-only run becomes a paused record that says nothing was sent", async () => {
+  test("a finished prepare-only run becomes a ready record that says nothing was sent", async () => {
     const openSession = session();
     const installPrepareOnlyGuard = vi.spyOn(
       openSession,
@@ -337,7 +338,7 @@ describe("agent application preparation seam", () => {
       intermediateMutationsAuthorized: false,
       allowedOrigins: [],
     });
-    expect(result.state).toBe("paused");
+    expect(result.state).toBe("ready");
     expect(result.submittedAt).toBeNull();
     expect(result.outcome).toBeNull();
     expect(result.detail).toContain("nothing was sent");
@@ -360,7 +361,10 @@ describe("agent application preparation seam", () => {
     });
 
     expect(result.blocker?.code).toBe("site_login_required");
-    expect(result.summary).toBe("This application needs you");
+    expect(result.summary).toBe(
+      "This site wants you signed in before it will show the form",
+    );
+    expect(result.blocker?.summary).toBe(result.summary);
     expect(result.detail).toContain("wants you signed in");
   });
 });
@@ -405,7 +409,7 @@ describe("the preparer the browser layer is handed", () => {
       intermediateMutationsAuthorized: false,
       allowedOrigins: [],
     });
-    expect(result.state).toBe("paused");
+    expect(result.state).toBe("ready");
     expect(result.submittedAt).toBeNull();
     expect(result.detail).toContain("nothing was sent");
   });
@@ -433,6 +437,46 @@ describe("the preparer the browser layer is handed", () => {
 });
 
 describe("the review card shown before you press send", () => {
+  test("a grounding note longer than the card allows is clamped, not a crash", () => {
+    const longNote = `Resume line: ${"x".repeat(400)}`;
+    const card = buildApplyReviewCard({
+      preparedAt: "2026-09-14T10:05:00.000Z",
+      siteLabel: "Fixture Board",
+      result: {
+        outcome: "prepared",
+        reason: "Filled in.",
+        steps: 3,
+        finalUrl: "http://127.0.0.1:47900/apply/a",
+        filled: [
+          {
+            ref: "c5",
+            label: "Why do you want to work here?",
+            questionKind: "cover_letter",
+            answer: {
+              value: "Dear team, I build platforms.",
+              kind: "cover_letter",
+              sourceKind: "generated",
+              sourceId: "application.letter",
+              provenanceLabel: "the letter written for this application",
+              groundedIn: [longNote, longNote, longNote, longNote, longNote, longNote, longNote, longNote, longNote, longNote],
+            },
+            at: "2026-09-14T10:00:00.000Z",
+          },
+        ],
+        attachments: [],
+        pauses: [],
+        notes: [],
+        timeline: [],
+        modelTurns: 1,
+        readyToSend: null,
+      },
+    });
+
+    expect(card.letter?.groundedIn).toHaveLength(8);
+    expect(card.letter?.groundedIn[0]?.length).toBeLessThanOrEqual(240);
+    expect(card.answers[0]?.groundedIn[0]?.endsWith("…")).toBe(true);
+  });
+
   test("shows every answer, where it came from, and what is still waiting on you", () => {
     const card = buildApplyReviewCard({
       preparedAt: "2026-09-14T10:05:00.000Z",
@@ -599,6 +643,7 @@ describe("each mode, end to end through the seam", () => {
       clickAction: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
       navigate: () => Promise.resolve({ ok: true, url: PAGE_URL }),
       clickElement: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+      pressKey: (_ref, key) => Promise.resolve({ ok: true, observedValue: key }),
       scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
       wait: () => Promise.resolve(),
       goBack: () => Promise.resolve({ ok: true, url: PAGE_URL }),
@@ -822,10 +867,10 @@ describe("questions and failures reaching the record", () => {
       "Up to 50k",
       "50k to 70k",
     ]);
-    // ADR 0022: unanswered questions are handed over, never a blocking task.
-    expect(result.blocker).toBeNull();
-    expect(result.summary).toBe("Filled in what it could; 2 questions left for you");
-    expect(result.nextActionLabel).toBe("Open the Job Finder browser and finish it");
+    expect(result.blocker?.code).toBe("missing_candidate_answer");
+    expect(result.blocker?.questionIds).toHaveLength(2);
+    expect(result.summary).toContain("needs your answers to 2 questions");
+    expect(result.nextActionLabel).toBe("Answer the form's questions and continue");
   });
 
   test("a run that throws is recorded as stopped, in words the person can read", async () => {
@@ -847,7 +892,7 @@ describe("questions and failures reaching the record", () => {
       now: () => new Date("2026-09-14T10:05:00.000Z"),
     });
 
-    expect(result.state).toBe("paused");
+    expect(result.state).toBe("failed");
     expect(result.detail).toContain("the careers site");
     expect(result.blocker).not.toBeNull();
   });
@@ -987,7 +1032,7 @@ describe("a real application form reaching the record", () => {
       now: () => new Date("2026-09-14T10:05:00.000Z"),
     });
 
-    expect(result.state).toBe("paused");
+    expect(result.state).toBe("ready");
     for (const question of result.questions) {
       expect(question.prompt.trim().length).toBeGreaterThan(0);
       expect(question.id.trim().length).toBeGreaterThan(0);

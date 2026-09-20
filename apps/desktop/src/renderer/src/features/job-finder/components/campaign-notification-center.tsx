@@ -14,15 +14,15 @@ const NOTIFICATION_ROUTES: Record<CampaignNotification["kind"], string> = {
   digest_ready: "/job-finder/discovery",
   strong_match: "/job-finder/discovery",
   blocked_work: "/job-finder/actions",
-  schedule_paused: "/job-finder/campaigns",
-  rule_effect_update: "/job-finder/campaigns",
+  schedule_paused: "/job-finder/discovery",
+  rule_effect_update: "/job-finder/discovery",
 };
 const NOTIFICATION_OPEN_LABELS: Record<CampaignNotification["kind"], string> = {
   digest_ready: "Open Find jobs",
   strong_match: "Open Find jobs",
   blocked_work: "Open Needs you",
-  schedule_paused: "Open Search plans",
-  rule_effect_update: "Open Search plans",
+  schedule_paused: "Open Find jobs",
+  rule_effect_update: "Open Find jobs",
 };
 
 /**

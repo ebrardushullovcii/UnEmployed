@@ -1042,16 +1042,14 @@ describe("contracts profile setup schemas", () => {
     expect(readiness.started).toBe(false);
     expect(readiness.materiallyComplete).toBe(false);
     expect(readiness.recommendedStep).toBe("import");
+    // Only a name with a contact and one job source gate finishing.
     expect(getProfileSetupReadinessBlockers(readiness)).toEqual([
       { id: "identity_contact", step: "essentials" },
-      { id: "background", step: "background" },
-      { id: "eligibility_preferences", step: "targeting" },
-      { id: "work_mode_preference", step: "targeting" },
       { id: "discovery_source", step: "targeting" },
     ]);
   });
 
-  test("keeps setup incomplete until the work-mode preference is chosen", () => {
+  test("finishes setup without a work-mode preference; the preference stays a hint", () => {
     const preferencesWithoutWorkMode = {
       ...completeSearchPreferencesFixture,
       workModes: [],
@@ -1062,19 +1060,12 @@ describe("contracts profile setup schemas", () => {
     );
 
     expect(readinessWithoutWorkMode.hasWorkModePreference).toBe(false);
-    expect(readinessWithoutWorkMode.materiallyComplete).toBe(false);
+    expect(readinessWithoutWorkMode.materiallyComplete).toBe(true);
     expect(
       getProfileSetupReadinessBlockers(readinessWithoutWorkMode).map(
         (blocker) => blocker.id,
       ),
-    ).toEqual(["work_mode_preference"]);
-
-    const stateWithoutWorkMode = deriveProfileSetupState(
-      completeProfileFixture,
-      preferencesWithoutWorkMode,
-      { now: "2026-04-11T10:15:00.000Z" },
-    );
-    expect(stateWithoutWorkMode.status).not.toBe("completed");
+    ).toEqual([]);
 
     const readinessWithWorkMode = evaluateProfileSetupReadiness(
       completeProfileFixture,

@@ -4,6 +4,7 @@ import type {
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
 import type { QueueEntry } from "./applications-detail-panel-helpers";
+import type { ApplicationAnswerStep } from "./applications-answer-step";
 import {
   ApplicationsDetailPanelRecoveryActionsSection,
   type ConfirmFinishedInBrowserStatus,
@@ -25,6 +26,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onOpenSafeguards?: () => void;
   onOpenNeedsYou?: () => void;
+  answerStep?: ApplicationAnswerStep | null;
   onAllowSiteSaves?: (host: string | null) => void;
   /**
    * Pass-through only. The declared return type has to match the leaf's, or
@@ -58,6 +60,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
     onStartAutoApplyQueue,
     onOpenSafeguards,
     onOpenNeedsYou,
+    answerStep = null,
     onAllowSiteSaves,
     onFinishInBrowser,
     onConfirmFinishedInBrowser,
@@ -86,6 +89,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
       onStartAutoApplyQueue={onStartAutoApplyQueue}
       {...(onOpenSafeguards ? { onOpenSafeguards } : {})}
       {...(onOpenNeedsYou ? { onOpenNeedsYou } : {})}
+      answerStep={answerStep}
       {...(onAllowSiteSaves ? { onAllowSiteSaves } : {})}
       {...(onFinishInBrowser ? { onFinishInBrowser } : {})}
       {...(onConfirmFinishedInBrowser ? { onConfirmFinishedInBrowser } : {})}

@@ -424,7 +424,7 @@ describe("DiscoveryDetailPanel", () => {
       "hide_job",
       null,
     );
-    expect(getByRole("button", { name: "Copy listing link" })).toBeTruthy();
+    expect(getByRole("button", { name: "Copy link" })).toBeTruthy();
     expect(getByRole("status")).toBeTruthy();
   });
 
@@ -472,7 +472,7 @@ describe("DiscoveryDetailPanel", () => {
     );
 
     expect(screen.queryByText("Resume needs review")).toBeNull();
-    expect(screen.getByText("Ready to prepare")).toBeTruthy();
+    expect(screen.getByText("Ready to apply")).toBeTruthy();
   });
 
   it("confirms the exact job identity after a shortlist outcome", () => {
@@ -1181,7 +1181,7 @@ describe("DiscoveryDetailPanel", () => {
     const listingActivityCard = screen.getByTestId(
       "discovery-detail-listing-activity",
     );
-    const listingActivityLabel = screen.getByText("Listing activity");
+    const listingActivityLabel = screen.getByText("Listing status");
     const activeBadge = screen.getByText("Active");
     expect(listingActivityCard.contains(listingActivityLabel)).toBe(true);
     expect(listingActivityCard.contains(activeBadge)).toBe(true);
@@ -1308,7 +1308,7 @@ describe("DiscoveryDetailPanel", () => {
     ).toBe(true);
     expect(screen.getByText(canonicalUrl)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Copy listing link" }),
+      screen.getByRole("button", { name: "Copy link" }),
     ).toBeTruthy();
   });
 
@@ -1435,7 +1435,7 @@ describe("DiscoveryDetailPanel listing facts", () => {
     expect(factGrid?.textContent).not.toContain("UpdatedUnknown");
     expect(
       container.querySelector("[data-job-detail-fact-grid]")?.textContent,
-    ).toContain("Listing activityUnknown");
+    ).toContain("Listing statusUnknown");
   });
 
   it("keeps a known listing date visible", () => {
@@ -1479,8 +1479,10 @@ describe("DiscoveryDetailPanel listing facts", () => {
     const method = screen.getByTestId("discovery-detail-application-method");
     expect(method.textContent).toBe("Application method: Manual application");
 
+    // The listing URL and its method live behind "Source details" now; the
+    // pane's open area keeps only what decides a shortlist.
     const listingCard = container.querySelector(
-      "[data-job-detail-fact-grid] > div:last-child",
+      '[data-testid="discovery-detail-source-details"]',
     );
     expect(listingCard?.textContent).toContain("Original listing");
     expect(listingCard?.contains(method)).toBe(true);

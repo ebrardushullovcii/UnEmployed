@@ -1,6 +1,4 @@
 import {
-  formatPrepareApplicationDescription,
-  formatPrepareApplicationSubject,
   JOB_FINDER_BROWSER_NAME,
   JOB_FINDER_BROWSER_NAME_SENTENCE_START,
 } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
@@ -18,7 +16,9 @@ import type {
   DiscoveryActivityEvent,
   DiscoveryFeedbackReason,
   JobFinderAgentDiscoveryResult,
+  JobFinderSearchRequest,
   JobFinderApplyConsentActionInput,
+  JobFinderApplyQueueActionInput,
   JobFinderApplyRunActionInput,
   JobFinderResumeWorkspace,
   JobFinderApplicationStartTarget,
@@ -35,6 +35,7 @@ import type {
   RemoveEmployerExclusionInput,
   ResumeAssistantMessage,
   ResumeApplicationMode,
+  TailoringMode,
   ResumeDraft,
   ResumeDraftPatch,
   ResumeStrategyRecommendation,
@@ -43,6 +44,7 @@ import type {
   SetCampaignResumeStrategyDefaultInput,
   UpdateApplicationDefaultsInput,
   UpdateWorkspaceBehaviorInput,
+  UpdateAiBehaviorInput,
 } from "@unemployed/contracts";
 import {
   countTailoredDraftPreparationEligible,
@@ -98,6 +100,7 @@ import {
   getJobFinderErrorDetail,
   getJobFinderErrorMessage,
 } from "@renderer/features/job-finder/lib/job-finder-error-message";
+import { buildJobFinderContextRoute } from "../features/job-finder/lib/job-finder-context-navigation";
 import { buildResumeWorkspaceRoute } from "@renderer/features/job-finder/lib/resume-workspace-route";
 import { buildSourceDebugOutcomeMessage } from "./job-finder-page-route-utils";
 import {
@@ -802,7 +805,6 @@ export function createPrimaryPageActions(
     navigate,
     profileSetupState,
     profileCopilotRequestTokenRef,
-    requestApplyCopilotVisualCheckpoints,
     refreshResumeWorkspace,
     resumeAssistantRequestTokenRef,
     runAction,
@@ -866,7 +868,10 @@ export function createPrimaryPageActions(
     return formatDailyPreparationCapacityReachedText(capacity);
   };
 
-  const runDiscoveryAction = (targetId?: string) => {
+  const runDiscoveryAction = (
+    targetId?: string,
+    searchRequest?: JobFinderSearchRequest,
+  ) => {
     if (isDiscoveryRunActive) {
       return;
     }
@@ -931,7 +936,7 @@ export function createPrimaryPageActions(
               // so Results can show them while the source keeps searching.
               refreshCoordinator.notifyJobsPersisted();
             }
-          }, targetId);
+          }, targetId, searchRequest);
 
           // Finish with one authoritative workspace read after any bounded
           // progressive refresh has settled. A slower snapshot requested for
@@ -1057,6 +1062,13 @@ export function createPrimaryPageActions(
     runner: () => Promise<unknown>,
     successMessage: string,
     scope: PendingActionScope,
+    /**
+     * The job the run is for. When present the person is taken to that
+     * job's application on Applications as soon as the run starts, so they
+     * watch it fill in instead of waiting on Shortlisted for minutes with a
+     * button that says "Filling in the form…" and nothing else moving.
+     */
+    destination?: { jobId: string },
   ) => {
     // Stay resolves false: take no action and keep every draft. Leave
     // resolves true after the controller discarded only the named draft
@@ -1067,9 +1079,21 @@ export function createPrimaryPageActions(
           return;
         }
 
+        if (destination) {
+          setResumeWorkspaceDirty(false);
+          navigate(
+            buildJobFinderContextRoute("/job-finder/applications", {
+              jobId: destination.jobId,
+            }),
+          );
+        }
+
         void runAction(
           runner,
           () => {
+            if (destination) {
+              return;
+            }
             setResumeWorkspaceDirty(false);
             navigate("/job-finder/applications");
           },
@@ -1338,6 +1362,7 @@ export function createPrimaryPageActions(
       ),
     onStartAutoApplyQueue: async (
       jobIds: string[],
+      applicationAutomationMode?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
     ): Promise<JobFinderAutoApplyQueueStartOutcome> => {
       const capacityRefusal = getDailyCapacityRefusalMessage();
       if (capacityRefusal) {
@@ -1376,15 +1401,23 @@ export function createPrimaryPageActions(
       let backendRejected = false;
       const confirmed = await runAction(
         () =>
-          actions.startAutoApplyQueueRun(jobIds).catch((error: unknown) => {
-            backendRejected = true;
-            throw error;
-          }),
+          (applicationAutomationMode
+            ? actions.startAutoApplyQueueRun(
+                jobIds,
+                applicationAutomationMode,
+              )
+            : actions.startAutoApplyQueueRun(jobIds))
+            .catch((error: unknown) => {
+              backendRejected = true;
+              throw error;
+            }),
         () => {
           setResumeWorkspaceDirty(false);
           navigate("/job-finder/applications");
         },
-        "Automatic apply queue staged. Review and approve it in Applications before any later execution step.",
+        jobIds.length === 1
+          ? "Applying to 1 job. Watch it in Applications."
+          : `Applying to ${jobIds.length} jobs, one after another. Watch them in Applications.`,
         { scope: jobFinderPendingActions.apply() },
       );
 
@@ -1404,7 +1437,7 @@ export function createPrimaryPageActions(
 
       startAutoFlow(
         () => actions.startAutoApplyRun(input),
-        "Safe application preparation staged. Review and approve the fill-only run in Applications. Final submission and account creation remain disabled.",
+        "Application staged. Press Apply now in Applications to start it.",
         jobFinderPendingActions.apply(),
       );
     },
@@ -1415,43 +1448,20 @@ export function createPrimaryPageActions(
         return;
       }
 
-      // Name the job and the employer in the consent dialog. Agreeing to
-      // "Fill it in" with nothing on screen identifying the
-      // application is not informed consent.
-      const preparedJob = (
-        latestWorkspaceRef?.current ?? workspace
-      )?.discoveryJobs.find((job) => job.id === input.jobId);
-      const prepareSubject = formatPrepareApplicationSubject({
-        jobTitle: preparedJob?.title ?? null,
-        employerName: preparedJob?.company ?? null,
-      });
-
-      requestApplyCopilotVisualCheckpoints({
-        jobId: input.jobId,
-        subject: prepareSubject,
-        description: formatPrepareApplicationDescription(prepareSubject),
-        onResolve: (visualCheckpointsEnabled) => {
-          // Re-checked at the moment of confirmation, not only when the
-          // dialog opened: a refusal here keeps the dialog open and says why.
-          const refusalAtConfirm = getDailyCapacityRefusalMessage();
-          if (refusalAtConfirm) {
-            return refusalAtConfirm;
-          }
-
-          startAutoFlow(
-            () =>
-              actions.startApplyCopilotRun({
-                ...input,
-                visualCheckpointsEnabled,
-              }),
-            visualCheckpointsEnabled
-              ? "Preparation finished with visual checkpoints. Job Finder never clicks Submit — check the result below."
-              : "Preparation finished. Job Finder never clicks Submit — check the result below.",
-            jobFinderPendingActions.apply(),
-          );
-          return null;
-        },
-      });
+      // One press starts it. The mode (fill in, ask before sending, send for
+      // me) is a setting the person already chose; a second dialog naming
+      // the same job was one more click on every application. Screenshots
+      // stay off unless Settings turns them on.
+      startAutoFlow(
+        () =>
+          actions.startApplyCopilotRun({
+            ...input,
+            visualCheckpointsEnabled: false,
+          }),
+        "Application run finished.",
+        jobFinderPendingActions.apply(),
+        { jobId: input.jobId },
+      );
     },
     onCheckBrowserSession: () =>
       void runAction(
@@ -1556,7 +1566,17 @@ export function createPrimaryPageActions(
     onApproveCurrentResume: (jobId: string) =>
       void runResumeWorkspaceAction(
         async () => {
-          await actions.exportResumePdf(jobId, "approval");
+          try {
+            await actions.exportResumePdf(jobId, "approval");
+          } catch (error) {
+            // A refused export re-checks the draft and saves what it found.
+            // The studio has to show that fresh result, or the person keeps
+            // looking at a list they already finished while the button says
+            // something still blocks — the exact state one tester hit,
+            // fixed only by restarting the app.
+            await refreshResumeWorkspace(jobId).catch(() => false);
+            throw error;
+          }
           const workspace = await actions.getResumeWorkspace(jobId);
           const exportToApprove = workspace.exports
             .filter(
@@ -1584,6 +1604,69 @@ export function createPrimaryPageActions(
         "Resume approved and ready for application preparation.",
         { scope: jobFinderPendingActions.resumeExport(jobId) },
       ),
+    onApproveResumeAndApply: (jobId: string) => {
+      const capacityRefusal = getDailyCapacityRefusalMessage();
+      if (capacityRefusal) {
+        applyRouteScopedMessage({ message: capacityRefusal });
+        return;
+      }
+      // Light and Tailored drafts keep every fact the person wrote, so
+      // pressing Apply is the approval: the PDF is built, the draft approved
+      // and the application started, without a detour through the studio.
+      // Aggressive drafts still go through review (ADR 0018).
+      void (async () => {
+        try {
+          await withPendingScope(
+            jobFinderPendingActions.resumeExport(jobId),
+            async () => {
+              await actions.exportResumePdf(jobId, "approval");
+              const workspace = await actions.getResumeWorkspace(jobId);
+              const exportToApprove = workspace.exports
+                .filter(
+                  (artifact) =>
+                    artifact.jobId === jobId &&
+                    artifact.draftId === workspace.draft.id,
+                )
+                .sort(
+                  (left, right) =>
+                    new Date(right.exportedAt).getTime() -
+                    new Date(left.exportedAt).getTime(),
+                )[0];
+              if (!exportToApprove) {
+                throw new Error(
+                  "Job Finder could not create the application PDF for this resume.",
+                );
+              }
+              await actions.approveResume(jobId, exportToApprove.id);
+              await refreshResumeWorkspace(jobId);
+            },
+          );
+        } catch (error) {
+          applyRouteScopedMessage({
+            message: getJobFinderErrorMessage(
+              error,
+              "The resume could not be approved, so the application was not started.",
+            ),
+          });
+          // The refusal names lines the person has to decide on; the place
+          // to decide is the resume, so it opens with the fresh check.
+          await refreshResumeWorkspace(jobId).catch(() => false);
+          setSelectedReviewJobId(jobId);
+          navigate(buildResumeWorkspaceRoute(jobId));
+          return;
+        }
+        startAutoFlow(
+          () =>
+            actions.startApplyCopilotRun({
+              jobId,
+              visualCheckpointsEnabled: false,
+            }),
+          "Application run finished.",
+          jobFinderPendingActions.apply(),
+          { jobId },
+        );
+      })();
+    },
     onApproveResume: (jobId: string, exportId: string) =>
       void runResumeWorkspaceAction(
         () => actions.approveResume(jobId, exportId),
@@ -1731,7 +1814,16 @@ export function createPrimaryPageActions(
         // review collections. Retain the exact clicked id so the refreshed
         // Shortlisted surface cannot silently fall back to another row.
         setSelectedReviewJobId(jobId);
-        applyRouteScopedMessage({ message: successMessage }, ownerStartRoute);
+        applyRouteScopedMessage(
+          {
+            message: successMessage,
+            actionLink: {
+              label: "Open Shortlisted",
+              route: "/job-finder/review-queue",
+            },
+          },
+          ownerStartRoute,
+        );
         return { status: "success", message: successMessage };
       } catch (error) {
         if (isHandledRefreshError(error)) {
@@ -1771,13 +1863,23 @@ export function createPrimaryPageActions(
     onSetJobResumeApplicationMode: (
       jobId: string,
       resumeApplicationMode: ResumeApplicationMode,
+      resumeTailoringMode?: TailoringMode | null,
     ) =>
       void runAction(
-        () => actions.setJobResumeApplicationMode(jobId, resumeApplicationMode),
+        () =>
+          actions.setJobResumeApplicationMode(
+            jobId,
+            resumeApplicationMode,
+            resumeTailoringMode,
+          ),
         () => setSelectedReviewJobId(jobId),
         resumeApplicationMode === "original_resume"
           ? "This job will use your original resume unchanged."
-          : "This job will use a tailored resume.",
+          : resumeTailoringMode === "aggressive"
+            ? "This job will get an aggressive resume."
+            : resumeTailoringMode === "conservative"
+              ? "This job will get a lightly tailored resume."
+              : "This job will get a tailored resume.",
         { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onRejectProfileCopilotPatchGroup: (patchGroupId: string) =>
@@ -1862,7 +1964,8 @@ export function createPrimaryPageActions(
         "Earlier draft restored. Review it before exporting or approving again.",
         { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
-    onRunAgentDiscovery: () => runDiscoveryAction(),
+    onRunAgentDiscovery: (searchRequest?: JobFinderSearchRequest) =>
+      runDiscoveryAction(undefined, searchRequest),
     onRunDiscoveryForTarget: (targetId: string) => runDiscoveryAction(targetId),
     onCancelDiscovery: async (runId: string) => {
       try {
@@ -2407,6 +2510,19 @@ export function createPrimaryPageActions(
         label: "Workspace behavior",
         onSuccess: () => undefined,
         savedMessage: "Workspace behavior saved.",
+        scope: jobFinderPendingActions.settingsSave(),
+        surface: "settings",
+      }),
+    onUpdateAiBehavior: (input: UpdateAiBehaviorInput) =>
+      runSaveAction({
+        action: () => actions.updateAiBehavior(input),
+        dedupeKey: createSaveDedupeKey("settings", input),
+        failedFallback:
+          "AI behavior was not saved. Retry before leaving this page.",
+        label: "AI behavior",
+        onSuccess: () => undefined,
+        savedMessage:
+          "AI behavior saved. Your next search, resume, chat, and application use it.",
         scope: jobFinderPendingActions.settingsSave(),
         surface: "settings",
       }),

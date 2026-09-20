@@ -97,6 +97,14 @@ export interface AgentLoopCeilings {
   noProgressStepLimit?: number;
   /** Browser failures in a row that end the run. */
   browserFailureLimit?: number;
+  /** One model request may not consume the whole run while the page sits idle. */
+  modelTurnTimeoutMs?: number;
+  /**
+   * Longest one tool call may take before the loop gives up on it and tells
+   * the model so. A page read or a save that hangs must never freeze the run
+   * or swallow a stop request.
+   */
+  toolTimeoutMs?: number;
 }
 
 export interface AgentLoopOptions {
@@ -113,11 +121,13 @@ export interface AgentLoopOptions {
     note: string;
     progressSteps: number;
     elapsedMs: number;
-  }) => void;
+  }) => void | Promise<void>;
   /** Extra lines for the stall warning, such as where the run is. */
   describeStall?: () => string | null;
   /** Rough size at which older turns are trimmed. */
   compactionMaxChars?: number;
+  /** Output cap for one model turn. Omit to use the provider default. */
+  modelMaxOutputTokens?: number;
   signal?: AbortSignal;
   now?: () => Date;
 }
@@ -142,13 +152,20 @@ export interface AgentLoopResult {
   /** One line per turn: what the model asked for and what came of it. */
   turnNotes: string[];
   messages: AgentLoopMessage[];
-  timing: { totalMs: number; modelMs: number; toolMs: number; modelTurns: number };
+  timing: {
+    totalMs: number;
+    modelMs: number;
+    toolMs: number;
+    modelTurns: number;
+  };
 }
 
 const DEFAULT_MAX_STEPS = 300;
 const DEFAULT_TIME_BUDGET_MS = 20 * 60_000;
 const DEFAULT_NO_PROGRESS_STEP_LIMIT = 12;
 const DEFAULT_BROWSER_FAILURE_LIMIT = 3;
+const DEFAULT_MODEL_TURN_TIMEOUT_MS = 240_000;
+const DEFAULT_TOOL_TIMEOUT_MS = 90_000;
 const DEFAULT_COMPACTION_MAX_CHARS = 360_000;
 const COMPACTION_KEEP_RECENT = 14;
 
@@ -192,8 +209,14 @@ function compactMessages(
   turnNotes: readonly string[],
   maxChars: number,
 ): AgentLoopMessage[] {
-  const total = messages.reduce((sum, message) => sum + messageChars(message), 0);
-  if (total <= maxChars || messages.length <= openingCount + COMPACTION_KEEP_RECENT) {
+  const total = messages.reduce(
+    (sum, message) => sum + messageChars(message),
+    0,
+  );
+  if (
+    total <= maxChars ||
+    messages.length <= openingCount + COMPACTION_KEEP_RECENT
+  ) {
     return messages;
   }
   // Cut only at an assistant message, so a tool result never loses the call
@@ -235,6 +258,14 @@ export async function runAgentLoop(
     1,
     options.ceilings?.browserFailureLimit ?? DEFAULT_BROWSER_FAILURE_LIMIT,
   );
+  const toolTimeoutMs = Math.max(
+    1_000,
+    options.ceilings?.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+  );
+  const modelTurnTimeoutMs = Math.max(
+    10,
+    options.ceilings?.modelTurnTimeoutMs ?? DEFAULT_MODEL_TURN_TIMEOUT_MS,
+  );
   const compactionMaxChars =
     options.compactionMaxChars ?? DEFAULT_COMPACTION_MAX_CHARS;
 
@@ -256,9 +287,9 @@ export async function runAgentLoop(
   let modelTurns = 0;
 
   const elapsed = (): number => now().getTime() - startedAtMs;
-  const note = (text: string): void => {
+  const note = async (text: string): Promise<void> => {
     turnNotes.push(`turn ${steps}: ${text}`);
-    options.onStep?.({
+    await options.onStep?.({
       step: steps,
       note: text,
       progressSteps,
@@ -268,7 +299,10 @@ export async function runAgentLoop(
   const result = (
     ending: AgentLoopEnding,
     reason: string,
-    extra: { finish?: AgentLoopFinish; stop?: { reason: string; data?: unknown } } = {},
+    extra: {
+      finish?: AgentLoopFinish;
+      stop?: { reason: string; data?: unknown };
+    } = {},
   ): AgentLoopResult => ({
     ending,
     reason,
@@ -329,15 +363,60 @@ export async function runAgentLoop(
     }
 
     steps += 1;
+    await note("asking the assistant what to do next");
     const modelStartedAt = now().getTime();
     let response: Awaited<ReturnType<AgentLoopModel["chatWithTools"]>>;
+    const turnTimeout = new AbortController();
+    const turnTimeoutMs = Math.max(
+      1,
+      Math.min(modelTurnTimeoutMs, timeBudgetMs - elapsed()),
+    );
+    const turnTimer = setTimeout(() => turnTimeout.abort(), turnTimeoutMs);
+    const turnSignal = options.signal
+      ? AbortSignal.any([options.signal, turnTimeout.signal])
+      : turnTimeout.signal;
     try {
-      response = await options.model.chatWithTools(
-        messages,
-        definitions,
-        options.signal ? { signal: options.signal } : {},
-      );
+      response = await Promise.race([
+        options.model.chatWithTools(messages, definitions, {
+          signal: turnSignal,
+          ...(options.modelMaxOutputTokens
+            ? { maxOutputTokens: options.modelMaxOutputTokens }
+            : {}),
+        }),
+        // The race must end on a stop request too, not only on the turn
+        // timer: a provider that ignores its abort signal would otherwise
+        // hold the loop, and the person's Stop, until the model answered.
+        new Promise<never>((_resolve, reject) => {
+          if (turnSignal.aborted) {
+            reject(new DOMException("Timed out", "AbortError"));
+            return;
+          }
+          turnSignal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Timed out", "AbortError")),
+            { once: true },
+          );
+        }),
+      ]);
+    } catch (error) {
+      if (options.signal?.aborted) {
+        return result(
+          "aborted",
+          `Job Finder stopped work on ${options.subjectLabel} before it was finished.`,
+        );
+      }
+      if (turnTimeout.signal.aborted) {
+        await note(
+          "the assistant did not answer before this turn's time limit",
+        );
+        return result(
+          "timed_out",
+          `Job Finder stopped on ${options.subjectLabel} because the assistant did not answer in time. Nothing was submitted, and everything completed so far is kept.`,
+        );
+      }
+      throw error;
     } finally {
+      clearTimeout(turnTimer);
       modelMs += now().getTime() - modelStartedAt;
       modelTurns += 1;
     }
@@ -350,7 +429,7 @@ export async function runAgentLoop(
         content:
           "Answer with one of the tools. Look at the page again if you need to, or call finish if there is nothing left to do.",
       });
-      note("answered without a tool");
+      await note("answered without a tool");
       continue;
     }
 
@@ -390,7 +469,8 @@ export async function runAgentLoop(
         messages.push({
           role: "tool",
           toolCallId: toolCall.id,
-          content: "The safety time limit was reached before this step was run.",
+          content:
+            "The safety time limit was reached before this step was run.",
         });
         continue;
       }
@@ -401,17 +481,21 @@ export async function runAgentLoop(
           toolCallId: toolCall.id,
           content: `There is no tool called ${toolCall.function.name}.`,
         });
-        note(`asked for unknown tool ${toolCall.function.name}`);
+        await note(`asked for unknown tool ${toolCall.function.name}`);
         continue;
       }
 
       const toolStartedAt = now().getTime();
       let outcome: AgentLoopToolOutcome;
       try {
-        outcome = await tool.execute(toolCall.function.arguments, {
-          step: steps,
-          ...(options.signal ? { signal: options.signal } : {}),
-        });
+        outcome = await withToolDeadline(
+          tool.execute(toolCall.function.arguments, {
+            step: steps,
+            ...(options.signal ? { signal: options.signal } : {}),
+          }),
+          toolTimeoutMs,
+          options.signal,
+        );
         if (tool.failureKind === "browser") {
           consecutiveBrowserFailures = 0;
         }
@@ -431,9 +515,34 @@ export async function runAgentLoop(
           });
           continue;
         }
+        if (error instanceof ToolDeadlineError) {
+          // A hung step is reported as a fact and counted like a dead page:
+          // three in a row end the run in plain words instead of a freeze.
+          consecutiveBrowserFailures += 1;
+          const failure = `That step took longer than ${Math.round(toolTimeoutMs / 1000)} seconds and was given up.`;
+          await note(`${toolCall.function.name} → took too long`);
+          if (consecutiveBrowserFailures >= browserFailureLimit) {
+            ended = result(
+              "browser_failed",
+              `Job Finder stopped on ${options.subjectLabel} because the page kept taking too long to answer. Everything it did so far is kept.`,
+            );
+            messages.push({
+              role: "tool",
+              toolCallId: toolCall.id,
+              content: failure,
+            });
+            continue;
+          }
+          messages.push({
+            role: "tool",
+            toolCallId: toolCall.id,
+            content: `${failure} Look at the page again before deciding what to do next; if this keeps happening, finish and say what happened.`,
+          });
+          continue;
+        }
         if (tool.failureKind !== "browser") {
           consecutiveBrowserFailures = 0;
-          note(`${toolCall.function.name} → tool failure`);
+          await note(`${toolCall.function.name} → tool failure`);
           messages.push({
             role: "tool",
             toolCallId: toolCall.id,
@@ -448,7 +557,7 @@ export async function runAgentLoop(
         const failure = endSentence(
           tool.describeError?.(error) ?? "The browser did not respond.",
         );
-        note(`${toolCall.function.name} → browser failure: ${failure}`);
+        await note(`${toolCall.function.name} → browser failure: ${failure}`);
         if (consecutiveBrowserFailures >= browserFailureLimit) {
           ended = result(
             "browser_failed",
@@ -481,7 +590,7 @@ export async function runAgentLoop(
             toolCallId: toolCall.id,
             content: outcome.content,
           });
-          note(
+          await note(
             `${toolCall.function.name} → ${outcome.content.split("\n")[0]?.slice(0, 160) ?? "ok"}`,
           );
           break;
@@ -492,7 +601,7 @@ export async function runAgentLoop(
             toolCallId: toolCall.id,
             content: "Finished.",
           });
-          note(
+          await note(
             `finished${outcome.finish.stuck ? " as stuck" : ""}${outcome.finish.needsPerson ? " (needs the person)" : ""}: ${outcome.finish.reason}`,
           );
           ended = result("finished", endSentence(outcome.finish.reason), {
@@ -506,26 +615,86 @@ export async function runAgentLoop(
             toolCallId: toolCall.id,
             content: `Job Finder stopped the run: ${outcome.reason}`,
           });
-          note(`stopped: ${outcome.reason}`);
+          await note(`stopped: ${outcome.reason}`);
           ended = result("stopped", endSentence(outcome.reason), {
-            stop: { reason: outcome.reason, ...(outcome.data !== undefined ? { data: outcome.data } : {}) },
+            stop: {
+              reason: outcome.reason,
+              ...(outcome.data !== undefined ? { data: outcome.data } : {}),
+            },
           });
           break;
         }
         default: {
           const exhaustive: never = outcome;
-          throw new Error(`Unhandled tool outcome: ${JSON.stringify(exhaustive)}`);
+          throw new Error(
+            `Unhandled tool outcome: ${JSON.stringify(exhaustive)}`,
+          );
         }
       }
     }
     if (ended) {
       return ended;
     }
-    messages = compactMessages(messages, openingCount, turnNotes, compactionMaxChars);
+    messages = compactMessages(
+      messages,
+      openingCount,
+      turnNotes,
+      compactionMaxChars,
+    );
   }
 
   return result(
     "ceiling",
     `Job Finder stopped on ${options.subjectLabel} after a very long run without finishing. Everything it did so far is kept.`,
   );
+}
+
+
+class ToolDeadlineError extends Error {
+  constructor() {
+    super("Tool call exceeded its deadline.");
+    this.name = "ToolDeadlineError";
+  }
+}
+
+/**
+ * Resolves with the tool's outcome, or rejects when the deadline passes or
+ * the run is stopped, whichever comes first. The tool's own promise is left
+ * to settle on its own; nothing here can cancel a hung page call.
+ */
+function withToolDeadline<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      fn();
+    };
+    const onAbort = () =>
+      finish(() =>
+        reject(new DOMException("The run was stopped.", "AbortError")),
+      );
+    const timer = setTimeout(
+      () => finish(() => reject(new ToolDeadlineError())),
+      timeoutMs,
+    );
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => finish(() => resolve(value)),
+      (error: unknown) =>
+        finish(() =>
+          reject(error instanceof Error ? error : new Error(String(error))),
+        ),
+    );
+  });
 }

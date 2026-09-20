@@ -28,9 +28,16 @@ function startFixtureServer(): Promise<FixtureServer> {
   const server = http.createServer((request, response) => {
     const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
     requests.push(`${request.method ?? "GET"} ${requestUrl.pathname}`);
-    if (requestUrl.pathname === "/submit") {
+    if (
+      requestUrl.pathname === "/submit" ||
+      requestUrl.pathname === "/submit-confirmed"
+    ) {
       response.writeHead(200, { "content-type": "text/html" });
-      response.end("<main>fixture submitted page</main>");
+      response.end(
+        requestUrl.pathname === "/submit-confirmed"
+          ? "<main>Thank you for applying. We have received your application.</main>"
+          : "<main>fixture submitted page</main>",
+      );
       return;
     }
     response.writeHead(200, { "content-type": "text/html" });
@@ -309,6 +316,32 @@ describe("source-generic application browser hands", () => {
     await page.waitForTimeout(100);
     expect(
       server.requests.filter((request) => request.includes("/submit")),
+    ).toHaveLength(1);
+  });
+
+  test("counts the employer page's receipt confirmation as submitted", async () => {
+    const { page, server } = await createPage(
+      "<form action='/submit-confirmed'><button id=send type=submit>Send application</button></form>",
+    );
+    const observation = await observeApplicationForm(page);
+    const result = await executeExactlyOneFinalAction(page, {
+      expectedObservation: observation.identity,
+      expectedControl: observation.controls[0]!.identity,
+      expectedPageOrigin: expectedOrigin(page),
+      allowedOrigins: [expectedOrigin(page)],
+      veto: () => true,
+    });
+
+    expect(result).toMatchObject({
+      outcome: "submitted",
+      reason: "employer_confirmation",
+      confirmation: {
+        destination: { safePath: "/submit-confirmed" },
+      },
+      facts: { actionIssued: true, actionCompleted: true },
+    });
+    expect(
+      server.requests.filter((request) => request.includes("/submit-confirmed")),
     ).toHaveLength(1);
   });
 

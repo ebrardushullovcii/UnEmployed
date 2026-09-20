@@ -82,19 +82,18 @@ describe("guided setup readiness, stated once", () => {
       draftSearchPreferences: buildSearchPreferences(),
     });
 
+    // Finishing needs a name with a contact and one job source; the rest are
+    // hints, not gates.
     expect(presentation.blockers.map((blocker) => blocker.id)).toEqual([
       "identity_contact",
-      "background",
-      "eligibility_preferences",
-      "work_mode_preference",
       "discovery_source",
     ]);
     expect(text).toBe(
-      "Still needed to finish: Add your name and an email or phone · Add work history · Answer one work or location detail · Pick where you want to work (remote, hybrid, onsite, or flexible) · Enable a job source (on the Job targets step).",
+      "Still needed to finish: Add your name and an email or phone · Add a job source.",
     );
   });
 
-  it("never claims setup can finish while the work mode is missing", () => {
+  it("finishes with a name, a contact and a source even before a work mode is chosen", () => {
     // Regression for first-run QA: target role + runnable source used to read
     // "Ready to search" while the ready check still required a work mode.
     const profile = CandidateProfileSchema.parse({
@@ -154,9 +153,8 @@ describe("guided setup readiness, stated once", () => {
       draftProfile: profile,
       draftSearchPreferences: searchPreferencesWithoutWorkMode,
     });
-    expect(blocked.text).toBe(
-      "Still needed to finish: Pick where you want to work (remote, hybrid, onsite, or flexible).",
-    );
+    // The work mode is a hint on Job targets, no longer a gate.
+    expect(blocked.text).toBe("Everything required is in. You can finish setup.");
 
     const ready = buildReadinessLine({
       draftProfile: profile,
@@ -211,11 +209,10 @@ describe("guided setup readiness, stated once", () => {
     // Mina has a name and an email; her zero years of experience is a true
     // answer and no longer counts against the essentials.
     expect(presentation.blockers.map((blocker) => blocker.id)).toEqual([
-      "work_mode_preference",
       "discovery_source",
     ]);
     expect(text).toBe(
-      "Still needed to finish: Pick where you want to work (remote, hybrid, onsite, or flexible) · Enable a job source (on the Job targets step).",
+      "Still needed to finish: Add a job source.",
     );
     // One readiness system: the footer primary is gated by the same
     // presentation the line above is written from.

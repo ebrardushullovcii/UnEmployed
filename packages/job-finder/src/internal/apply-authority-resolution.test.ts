@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
 
 import {
+  authorizeReviewedApplicationOrigin,
   PREPARE_ONLY_AUTHORITY,
   resolveApplyAuthority,
 } from "./apply-authority-resolution";
@@ -75,7 +76,9 @@ function envelope(overrides: Record<string, unknown> = {}) {
   });
 }
 
-function resolve(overrides: Parameters<typeof resolveApplyAuthority>[0] | null = null) {
+function resolve(
+  overrides: Parameters<typeof resolveApplyAuthority>[0] | null = null,
+) {
   return resolveApplyAuthority(
     overrides ?? {
       envelope: envelope(),
@@ -194,5 +197,36 @@ describe("what one application may do", () => {
     });
     expect(result.authority).toEqual(PREPARE_ONLY_AUTHORITY);
     expect(result.narrowedBecause).toContain("outside what you allowed");
+  });
+
+  test("a reviewed employer ATS handoff joins the same task permission", async () => {
+    let current = envelope();
+    const repository = {
+      getApplicationAuthorityEnvelope: () => Promise.resolve(current),
+      commitApplicationAuthorityEnvelope: (input: {
+        envelope: typeof current;
+        expectedRevision: number | null;
+      }) => {
+        expect(input.expectedRevision).toBe(1);
+        current = input.envelope;
+        return Promise.resolve({
+          status: "applied" as const,
+          envelope: current,
+        });
+      },
+    };
+
+    const widened = await authorizeReviewedApplicationOrigin({
+      repository,
+      envelope: current,
+      jobId: "job_test",
+      origin: "https://ats.example.test/application/1",
+      now: NOW,
+    });
+
+    expect(widened).toMatchObject({
+      revision: 2,
+      allowedOrigins: [`${ORIGIN}/`, "https://ats.example.test"],
+    });
   });
 });

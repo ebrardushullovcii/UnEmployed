@@ -153,10 +153,18 @@ export async function resolveEffectiveResumeTailoringStrengthForJob(
   ctx: WorkspaceServiceContext,
   jobId: string,
 ): Promise<TailoringMode | null> {
-  const [strategyContext, searchPreferences] = await Promise.all([
+  const [strategyContext, searchPreferences, savedJobs] = await Promise.all([
     resolveResumeStrategyContextForJob(ctx, jobId),
     ctx.repository.getSearchPreferences(),
+    ctx.repository.listSavedJobs(),
   ]);
+  // The level the person picked for this job on Shortlisted wins over a
+  // strategy and over the profile-wide setting.
+  const jobLevel =
+    savedJobs.find((job) => job.id === jobId)?.resumeTailoringMode ?? null;
+  if (jobLevel) {
+    return jobLevel;
+  }
   return resolveEffectiveResumeTailoringStrength({
     strategyTailoringStrength: strategyContext?.tailoringStrength ?? null,
     searchPreferencesTailoringMode: searchPreferences.tailoringMode,

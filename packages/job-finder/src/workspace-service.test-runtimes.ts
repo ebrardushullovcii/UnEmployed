@@ -383,7 +383,11 @@ function mergeLearningPhaseFindings(
     for (const [key, value] of Object.entries(part)) {
       const current = merged[key];
       if (Array.isArray(value)) {
-        merged[key] = [...(Array.isArray(current) ? current : []), ...value];
+        const currentValues: unknown[] = Array.isArray(current)
+          ? Array.from(current as unknown[])
+          : [];
+        const values: unknown[] = Array.from(value as unknown[]);
+        merged[key] = currentValues.concat(values);
       } else if (current === undefined || current === null) {
         merged[key] = value;
       }
@@ -405,9 +409,15 @@ function mergeLearningPhaseEvidence(
   for (const part of parts) {
     for (const [key, value] of Object.entries(part)) {
       const current = merged[key];
-      merged[key] = Array.isArray(value)
-        ? [...(Array.isArray(current) ? current : []), ...value]
-        : (current ?? value);
+      if (Array.isArray(value)) {
+        const currentValues: unknown[] = Array.isArray(current)
+          ? Array.from(current as unknown[])
+          : [];
+        const values: unknown[] = Array.from(value as unknown[]);
+        merged[key] = currentValues.concat(values);
+      } else {
+        merged[key] = current ?? value;
+      }
     }
   }
   return merged as SourceDebugPhaseEvidenceInput;

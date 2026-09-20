@@ -2,6 +2,7 @@ import type {
   ApplicationAttemptQuestion,
   ApplyBlockedAttempt,
   CoverLetterPreference,
+  AiApplyingBehavior,
   ApplyNavigationResult,
   ApplyServiceWorkerFinding,
   ApplyWriteResult,
@@ -207,6 +208,11 @@ export interface ApplyPageHands {
   observe: () => Promise<ApplyFormObservation>;
   navigate: (url: string) => Promise<ApplyNavigationResult>;
   clickElement: (ref: string) => Promise<ApplyWriteResult>;
+  /** Presses a keyboard key on one element, or on the active page. */
+  pressKey?: (
+    ref: string | undefined,
+    key: string,
+  ) => Promise<ApplyWriteResult>;
   scroll: (
     direction: "down" | "up" | "top" | "bottom",
   ) => Promise<ApplyWriteResult>;
@@ -272,7 +278,7 @@ export interface ApplyAuthority {
   submitAuthorized: boolean;
   preApprovedAttestationKinds: readonly ApplicationAttestationKind[];
   salaryDisclosure: ApplicationSalaryDisclosureRule;
-  /** Exact origins the saved document covers. Empty means "only where we started". */
+  /** Exact origins where the final application may be sent. */
   allowedOrigins: readonly string[];
 }
 
@@ -310,7 +316,7 @@ export interface ApplyLetterProvider {
     language: string | null;
     delivery: "file" | "text";
     /** A file type the form insists on, when it named one. */
-    fileType: "pdf" | "docx" | null;
+    fileType: "pdf" | "docx" | "txt" | null;
   }) => Promise<
     | { ok: true; text: string; document: ApplyDocument | null }
     | { ok: false; reason: string }
@@ -434,6 +440,11 @@ export interface ApplyAgentConfig {
   application: { jobId: string; applicationId: string; startingUrl: string };
   /** Site name in the person's words, used in the copy: "Greenhouse", "the careers site". */
   siteLabel: string;
+  /**
+   * The saved AI applying behavior (Settings): when to write a letter and how
+   * long written answers run. Shapes the writing, never the permissions.
+   */
+  writing?: AiApplyingBehavior;
   /** Safety ceilings only. The agent decides when it is done. */
   runControl?: {
     maxSteps?: number;
@@ -444,6 +455,12 @@ export interface ApplyAgentConfig {
     /** How long the walk from a listing to the form may take. */
     applyEntryTimeBudgetMs?: number;
   };
+  onProgress?: (progress: {
+    step: number;
+    note: string;
+    progressSteps: number;
+    elapsedMs: number;
+  }) => void | Promise<void>;
   /**
    * The second judgement on leaving the listing's site. Given the address,
    * the model's stated reason, and where the run is; allows or refuses.

@@ -13,6 +13,9 @@ import {
   type DiscoveryTargetExecution,
   type JobDiscoveryTarget,
   type JobFinderDiscoveryState,
+  type JobFinderSearchRequest,
+  type AiJobSearchBehavior,
+  AiBehaviorPreferenceSchema,
   type JobFinderWorkspaceSnapshot,
   type JobPosting,
   type JobSearchPreferences,
@@ -198,6 +201,20 @@ const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
 const LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR = 6;
 const PUBLIC_API_PREFETCH_CONCURRENCY = 8;
 const MIN_DISCOVERY_TARGET_TIME_BUDGET_MS = 120_000;
+/**
+ * How many sources one search works on at the same time. Each gets its own
+ * browser tab; the number stays small so a laptop and a site's patience both
+ * hold. Override with UNEMPLOYED_SEARCH_CONCURRENCY.
+ */
+const DISCOVERY_SOURCE_CONCURRENCY = (() => {
+  const configured = Number.parseInt(
+    process.env.UNEMPLOYED_SEARCH_CONCURRENCY ?? "",
+    10,
+  );
+  return Number.isFinite(configured) && configured > 0
+    ? Math.min(configured, 8)
+    : 3;
+})();
 const DISCOVERY_STALL_STEP_WINDOW = 8;
 
 /**
@@ -254,6 +271,11 @@ type SettledPublicProviderJobsResult =
   | { result: PublicProviderJobsResult; error: null }
   | { result: null; error: unknown };
 
+type ReadyDiscoveryTarget = {
+  target: JobDiscoveryTarget;
+  prefetchedPublicApiResult: Promise<SettledPublicProviderJobsResult> | null;
+};
+
 async function* iterateDiscoveryTargetsByReadiness(input: {
   targets: readonly JobDiscoveryTarget[];
   publicApiTargetIds: ReadonlySet<string>;
@@ -261,10 +283,7 @@ async function* iterateDiscoveryTargetsByReadiness(input: {
     target: JobDiscoveryTarget,
   ) => Promise<SettledPublicProviderJobsResult>;
   signal: AbortSignal;
-}): AsyncGenerator<{
-  target: JobDiscoveryTarget;
-  prefetchedPublicApiResult: Promise<SettledPublicProviderJobsResult> | null;
-}> {
+}): AsyncGenerator<ReadyDiscoveryTarget> {
   const apiTargets: JobDiscoveryTarget[] = [];
   const serialTargets: JobDiscoveryTarget[] = [];
   const readyApiTargets: Array<{
@@ -703,11 +722,16 @@ function selectTargets(
 ): JobDiscoveryTarget[] {
   const activeTargets = getActiveDiscoveryTargets(searchPreferences);
 
-  if (options.scope !== "single_target") {
+  if (options.scope === "single_target") {
+    return activeTargets.filter((target) => target.id === options.targetId);
+  }
+
+  if (!options.searchRequest || options.searchRequest.sourceIds === "all") {
     return activeTargets;
   }
 
-  return activeTargets.filter((target) => target.id === options.targetId);
+  const requestedSourceIds = new Set(options.searchRequest.sourceIds);
+  return activeTargets.filter((target) => requestedSourceIds.has(target.id));
 }
 
 function getDiscoveryCollectionMethodPriority(method: string): number {
@@ -935,6 +959,9 @@ async function collectTargetJobs(input: {
   >;
   searchPreferences: JobSearchPreferences;
   searchMode: "precision" | "scale";
+  searchRequest?: JobFinderSearchRequest;
+  /** The saved AI search behavior (Settings), handed to the agent's prompt. */
+  searchGuidance: AiJobSearchBehavior;
   targetJobCount: number;
   maxSteps: number;
   activeRun: DiscoveryRunRecord;
@@ -947,6 +974,12 @@ async function collectTargetJobs(input: {
   ) => Promise<void>;
   signal?: AbortSignal;
   openedSessionSources: Set<JobSource>;
+  /**
+   * The session open in flight per source, so sources searched at the same
+   * time wait for one open instead of each starting their own and aborting
+   * one another's navigation.
+   */
+  sessionOpenings: Map<JobSource, Promise<void>>;
   protectedPages: Map<string, ParkedBrowserTabReference>;
   useAgentRuntime: boolean;
   prefetchedPublicApiResult?: Promise<SettledPublicProviderJobsResult>;
@@ -1051,7 +1084,10 @@ async function collectTargetJobs(input: {
     };
   }
 
-  if (!input.openedSessionSources.has(adapterKind)) {
+  const sessionOpening = input.sessionOpenings.get(adapterKind);
+  if (sessionOpening) {
+    await sessionOpening;
+  } else if (!input.openedSessionSources.has(adapterKind)) {
     input.emitActivity(
       createDiscoveryEvent({
         runId: input.activeRun.id,
@@ -1073,12 +1109,20 @@ async function collectTargetJobs(input: {
         invalidSkipped: input.activeRun.summary.invalidSkipped,
       }),
     );
-    await ctx.openRunBrowserSession(adapterKind, {
-      purpose: "automation",
-      targetUrl: target.startingUrl,
-      targetId: target.id,
-    });
-    input.openedSessionSources.add(adapterKind);
+    const opening = ctx
+      .openRunBrowserSession(adapterKind, {
+        purpose: "automation",
+        targetUrl: target.startingUrl,
+        targetId: target.id,
+      })
+      .then(() => {
+        input.openedSessionSources.add(adapterKind);
+      })
+      .finally(() => {
+        input.sessionOpenings.delete(adapterKind);
+      });
+    input.sessionOpenings.set(adapterKind, opening);
+    await opening;
   }
 
   const targetUrl = (() => {
@@ -1096,6 +1140,8 @@ async function collectTargetJobs(input: {
       (execution) => execution.targetId === target.id,
     )?.agentCheckpoint;
     const result = await ctx.browserRuntime.runAgentDiscovery(adapterKind, {
+      // Each source searches in its own tab so several can run at once.
+      dedicatedPage: true,
       userProfile: input.profile,
       searchPreferences: {
         targetRoles:
@@ -1106,6 +1152,8 @@ async function collectTargetJobs(input: {
         workModes: input.searchPreferences.workModes,
       },
       searchMode: input.searchMode,
+      ...(input.searchRequest ? { searchRequest: input.searchRequest } : {}),
+      searchGuidance: input.searchGuidance,
       targetJobCount: input.targetJobCount,
       maxSteps: input.maxSteps,
       runControl: {
@@ -1321,6 +1369,9 @@ export function createWorkspaceDiscoveryMethods(
       options.campaign?.searchPreferences ?? searchPreferences,
       profile,
     );
+    const searchGuidance = AiBehaviorPreferenceSchema.parse(
+      settings.aiBehavior ?? {},
+    ).jobSearch;
     // Explicit run budget resolution order: campaign limit first (the
     // campaign-scoped control), then the discovery preferences field, then the
     // interactive precision default handled inside the budget resolver.
@@ -1461,6 +1512,7 @@ export function createWorkspaceDiscoveryMethods(
       }
     };
     const openedSessionSources = new Set<JobSource>();
+    const sessionOpenings = new Map<JobSource, Promise<void>>();
     const parkedSessionSources = new Set<JobSource>();
     const protectedPages = new Map(
       startingUserActionRequests.flatMap((request) => {
@@ -1506,7 +1558,11 @@ export function createWorkspaceDiscoveryMethods(
     // record is persisted and before any API or browser work starts.
     let discoveryBudgets: ReadonlyMap<
       string,
-      { targetJobCount: number; maxSteps: number }
+      {
+        targetJobCount: number;
+        retentionJobCount: number;
+        maxSteps: number;
+      }
     >;
     try {
       discoveryBudgets = resolveDiscoveryBudgetPlan({
@@ -1592,13 +1648,11 @@ export function createWorkspaceDiscoveryMethods(
     // at once can starve Electron's main process and retain every response until
     // the run ends. The readiness iterator keeps a small rolling window and
     // releases each response after its durable target batch is processed.
-    // Zero-budget targets never enter the prefetch set, so their provider
-    // requests are not started at all.
+    // Every selected source enters the collection set. Sampling and retained
+    // result limits are separate, so a request for fewer jobs than sources
+    // still checks every selected source.
     const publicApiTargetIds = new Set<string>();
     for (const target of targets) {
-      if (discoveryBudgets.get(target.id)?.targetJobCount === 0) {
-        continue;
-      }
       const artifact = resolveActiveSourceInstructionArtifact(
         target,
         sourceInstructionArtifacts,
@@ -1611,7 +1665,7 @@ export function createWorkspaceDiscoveryMethods(
 
     try {
       let executionIndex = 0;
-      for await (const readyTarget of iterateDiscoveryTargetsByReadiness({
+      const readyTargets = iterateDiscoveryTargetsByReadiness({
         targets,
         publicApiTargetIds,
         createPublicApiRequest: (target) => {
@@ -1640,7 +1694,13 @@ export function createWorkspaceDiscoveryMethods(
           );
         },
         signal: executionSignal,
-      })) {
+      })[Symbol.asyncIterator]();
+      // Sources are searched a few at a time, each in its own browser tab.
+      // Every update below reads the current run state, so interleaving is
+      // safe; one source waiting on its model never holds the others.
+      const runOneTarget = async (
+        readyTarget: ReadyDiscoveryTarget,
+      ): Promise<void> => {
         const { target, prefetchedPublicApiResult } = readyTarget;
         const index = executionIndex;
         executionIndex += 1;
@@ -1667,57 +1727,6 @@ export function createWorkspaceDiscoveryMethods(
           throw new Error(
             `Missing planned discovery budget for target ${target.label}.`,
           );
-        }
-
-        // Zero-allocation targets are resolved up front so they never open a
-        // browser session or join an API prefetch; record the budget-exhausted
-        // skip truthfully instead of treating it as a source failure.
-        if (plannedBudget.targetJobCount === 0) {
-          const skippedAt = new Date().toISOString();
-          const skipWarning = `Skipped ${target.label} without collection: the run job budget was fully allocated to earlier sources.`;
-          activeRun = completeTargetExecution(activeRun, target.id, skippedAt, {
-            state: "skipped",
-            // Nothing was requested from this source, so the execution
-            // records "no budget" rather than a positive job count.
-            requestedJobBudget: null,
-            jobsReviewed: 0,
-            jobsFound: 0,
-            jobsPersisted: 0,
-            jobsStaged: 0,
-            jobsSkippedByLedger: 0,
-            jobsSkippedByTitleTriage: 0,
-            duplicatesMerged: 0,
-            invalidSkipped: 0,
-            warning: skipWarning,
-            // A skipped target never collects, so any inherited checkpoint
-            // loses resume rights here instead of leaking into later runs.
-            agentCheckpoint: null,
-          });
-          emitActivity(
-            createDiscoveryEvent({
-              runId,
-              timestamp: skippedAt,
-              kind: "info",
-              stage: "target",
-              targetId: target.id,
-              adapterKind: target.adapterKind,
-              resolvedAdapterKind: resolveAdapterKind(target),
-              collectionMethod: targetCollectionMethod,
-              sourceIntelligenceProvider: getDiscoveryProviderKey({
-                target,
-                intelligence: targetIntelligence,
-              }),
-              terminalState: "skipped",
-              message: skipWarning,
-              url: target.startingUrl,
-              jobsFound: 0,
-              jobsPersisted: activeRun.summary.jobsPersisted,
-              jobsStaged: activeRun.summary.jobsStaged,
-              duplicatesMerged: activeRun.summary.duplicatesMerged,
-              invalidSkipped: activeRun.summary.invalidSkipped,
-            }),
-          );
-          continue;
         }
 
         activeRun = updateTargetExecution(activeRun, target.id, (entry) => ({
@@ -2005,7 +2014,7 @@ export function createWorkspaceDiscoveryMethods(
           // no slot, so they stay eligible even when the budget is exhausted.
           const remainingBudget = Math.max(
             0,
-            discoveryBudget.targetJobCount - checkpointState.budgetedCount,
+            discoveryBudget.retentionJobCount - checkpointState.budgetedCount,
           );
           const budgetedNewPostings = selectDiscoveryBudgetPostings({
             postings: newCandidates,
@@ -2397,7 +2406,23 @@ export function createWorkspaceDiscoveryMethods(
             sourceInstructionArtifacts,
             profile,
             searchPreferences: enrichedPreferences,
-            searchMode: options.campaign?.mode ?? "precision",
+            // A run-scoped breadth (evaluation lanes) wins; otherwise the
+            // saved AI search behavior decides, and only its middle setting
+            // defers to the plan's own precision-or-scale mode.
+            searchMode:
+              options.searchRequest?.breadth === "wide"
+                ? "scale"
+                : options.searchRequest?.breadth === "best_only"
+                  ? "precision"
+                  : searchGuidance.selectivity === "wide_net"
+                    ? "scale"
+                    : searchGuidance.selectivity === "best_matches"
+                      ? "precision"
+                      : (options.campaign?.mode ?? "precision"),
+            searchGuidance,
+            ...(options.searchRequest
+              ? { searchRequest: options.searchRequest }
+              : {}),
             targetJobCount: discoveryBudget.targetJobCount,
             maxSteps: discoveryBudget.maxSteps,
             activeRun,
@@ -2410,6 +2435,7 @@ export function createWorkspaceDiscoveryMethods(
             },
             signal: executionSignal,
             openedSessionSources,
+            sessionOpenings,
             protectedPages,
             useAgentRuntime: options.useAgentRuntime ?? false,
             ...(prefetchedPublicApiResult ? { prefetchedPublicApiResult } : {}),
@@ -2470,7 +2496,7 @@ export function createWorkspaceDiscoveryMethods(
               invalidSkipped: activeRun.summary.invalidSkipped,
             }),
           );
-          continue;
+          return;
         }
         const collectedJobs = collected.result.jobs;
         // Freshness classification runs against the ledger captured before
@@ -2843,7 +2869,18 @@ export function createWorkspaceDiscoveryMethods(
         // microtasks for fast API sources. Give Electron a real event-loop turn
         // so window messages and IPC remain responsive during large catalogs.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      }
+      };
+      const workers = Array.from(
+        { length: Math.max(1, Math.min(DISCOVERY_SOURCE_CONCURRENCY, targets.length)) },
+        async () => {
+          for (;;) {
+            const next = await readyTargets.next();
+            if (next.done) return;
+            await runOneTarget(next.value);
+          }
+        },
+      );
+      await Promise.all(workers);
 
       // Read the listing bodies the compact scan did not. Current-run jobs go
       // first, followed by older uncaptured jobs, so the per-run count cap is
@@ -3239,7 +3276,7 @@ export function createWorkspaceDiscoveryMethods(
         }),
       );
     },
-    async runAgentDiscovery(onActivity, signal, targetId) {
+    async runAgentDiscovery(onActivity, signal, targetId, searchRequest) {
       if (targetId) {
         return trackDiscoveryPromise(
           executeDiscoveryPipeline({
@@ -3247,6 +3284,7 @@ export function createWorkspaceDiscoveryMethods(
             targetId,
             ...(onActivity ? { onActivity } : {}),
             ...(signal ? { signal } : {}),
+            ...(searchRequest ? { searchRequest } : {}),
             allowInactiveMarking: false,
             useAgentRuntime: true,
           }),
@@ -3258,6 +3296,7 @@ export function createWorkspaceDiscoveryMethods(
           scope: "run_all",
           ...(onActivity ? { onActivity } : {}),
           ...(signal ? { signal } : {}),
+          ...(searchRequest ? { searchRequest } : {}),
           allowInactiveMarking: true,
           useAgentRuntime: true,
         }),

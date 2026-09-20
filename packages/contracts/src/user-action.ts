@@ -435,6 +435,21 @@ export const SubmitUserActionManualAnswerCommandSchema =
   UserActionCommandBaseSchema.extend({
     action: z.literal("submit_manual_answer"),
     answer: z.string().trim().min(1).max(4_000),
+    /**
+     * Every answer of a multi-question step in one command, each tied to the
+     * question it answers. `answer` alone still serves a single-question
+     * step. One command means one revision, one rerun, and no answer lost
+     * between calls.
+     */
+    answers: z
+      .array(
+        z.object({
+          questionId: z.string().trim().min(1),
+          answer: z.string().trim().min(1).max(4_000),
+        }),
+      )
+      .max(50)
+      .optional(),
     saveForFuture: z.boolean().default(false),
   });
 export type SubmitUserActionManualAnswerCommand = z.infer<

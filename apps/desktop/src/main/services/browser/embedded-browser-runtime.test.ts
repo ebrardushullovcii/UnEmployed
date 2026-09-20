@@ -8,8 +8,44 @@ import { describe, expect, test, vi } from "vitest";
 
 import type { EmbeddedBrowser } from "./embedded-browser";
 import { withEmbeddedBrowserActivity } from "./embedded-browser-runtime";
+import { describeApplicationPreparationProgress } from "@unemployed/job-finder";
 
 describe("withEmbeddedBrowserActivity", () => {
+  test("keeps form values out of the visible progress label", () => {
+    expect(
+      describeApplicationPreparationProgress(
+        'suggest_answer → "Phone": +1 555 0100 from your profile',
+      ),
+    ).toBe("Checking a form answer");
+    expect(
+      describeApplicationPreparationProgress('fill_text → filled "Full name"'),
+    ).toBe("Filling a text field");
+  });
+
+  test("opens the browser for passive viewing without taking global control", async () => {
+    const baseRuntime = createStubBrowserSessionRuntime({
+      sessions: [],
+      catalog: [],
+    });
+    const command = vi.fn().mockResolvedValue(undefined);
+    const takeControl = vi.fn().mockResolvedValue(undefined);
+    const browser = {
+      command,
+      takeControl,
+    } as unknown as EmbeddedBrowser;
+    const wrapped = withEmbeddedBrowserActivity(baseRuntime, browser);
+
+    await wrapped.openSession("target_site", {
+      targetUrl: "https://jobs.example.com/parked",
+    });
+
+    expect(command).toHaveBeenCalledWith({
+      type: "open",
+      url: "https://jobs.example.com/parked",
+    });
+    expect(takeControl).not.toHaveBeenCalled();
+  });
+
   test("closes an exact parked tab without closing the shared runtime session", async () => {
     const baseRuntime = createStubBrowserSessionRuntime({
       sessions: [],
@@ -180,6 +216,12 @@ describe("withEmbeddedBrowserActivity", () => {
     });
 
     expect(closeSession).not.toHaveBeenCalled();
-    expect(requestAttention).toHaveBeenCalledOnce();
+    expect(requestAttention).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "challenge",
+        title: "This page needs a human",
+      }),
+      "tab_verification",
+    );
   });
 });

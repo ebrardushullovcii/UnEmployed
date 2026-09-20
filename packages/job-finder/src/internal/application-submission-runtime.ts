@@ -68,6 +68,8 @@ export interface ApplicationSubmissionRuntimeInput {
   readonly currentPolicyFacts: CurrentApplicationSubmissionPolicyFacts;
   readonly now: SubmissionPreflightRecord["createdAt"];
   readonly executionGrantId?: string | null;
+  /** The person pressed Send on an "Ask before sending" application. */
+  readonly personConfirmation?: { grantedAt: string; expiresAt: string } | null;
   readonly signal?: AbortSignal;
 }
 
@@ -114,7 +116,32 @@ function mapNotSubmittedRetry(input: {
 function mapBrowserActionResult(input: {
   result: ApplicationFinalActionResult;
   authorityVetoed: boolean;
+  preflightId: string;
 }): SyntheticSubmissionExecutorResult {
+  if (input.result.outcome === "submitted") {
+    const { destination, observedAt, summary } = input.result.confirmation;
+    if (destination.origin && destination.safePath) {
+      return {
+        outcome: "submitted",
+        verifiedAt: observedAt,
+        evidence: [
+          {
+            id: `evidence_${input.preflightId}_employer_confirmation`,
+            kind: "employer_site_state",
+            observedAt,
+            destination: {
+              origin: destination.origin,
+              safePath: destination.safePath,
+            },
+            artifactRefId: null,
+            summary,
+          },
+        ],
+      };
+    }
+    return { outcome: "outcome_uncertain", evidence: [] };
+  }
+
   if (input.result.outcome === "not_submitted") {
     return {
       outcome: "not_submitted",
@@ -125,8 +152,7 @@ function mapBrowserActionResult(input: {
     };
   }
 
-  // Browser-local click, URL, and request facts never establish a submitted
-  // outcome. The synthetic orchestrator accepts only these two safe values.
+  // Click, URL, and request facts alone never establish a submitted outcome.
   return { outcome: "outcome_uncertain", evidence: [] };
 }
 
@@ -343,6 +369,7 @@ export async function runApplicationSubmissionRuntime(
       return mapBrowserActionResult({
         result: browserResult,
         authorityVetoed,
+        preflightId: executorInput.preflight.id,
       });
     } catch {
       // Once the durable marker is armed, a browser hand failure is always
@@ -371,6 +398,9 @@ export async function runApplicationSubmissionRuntime(
     now: input.now,
     ...(input.executionGrantId !== undefined
       ? { executionGrantId: input.executionGrantId }
+      : {}),
+    ...(input.personConfirmation
+      ? { personConfirmation: input.personConfirmation }
       : {}),
     executor: {
       execute: async () => execute({ preflight }),

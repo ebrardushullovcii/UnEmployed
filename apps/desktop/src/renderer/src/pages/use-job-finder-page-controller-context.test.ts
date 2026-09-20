@@ -212,7 +212,7 @@ describe("buildJobFinderPageContext campaign schedule and notifications", () => 
     await context.onRunCampaignNow("campaign_b");
 
     expect(getDiscoveryRunFeedback()?.headline).toContain(
-      "5 looked at · 0 new · 15 kept · 5 already here",
+      "5 found · 0 new · 15 kept · 5 already here",
     );
   });
 
@@ -461,7 +461,7 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
       "job_3",
     ]);
     const batchMessages = getActionMessages().filter(
-      (message) => message !== null && /tailored draft/i.test(message),
+      (message) => message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message),
     );
     expect(batchMessages).toHaveLength(1);
     expect(getTailoredDraftPreparation()).toMatchObject({
@@ -472,7 +472,7 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
       totalCount: 3,
     });
     expect(getPendingActionState()).toEqual({});
-    expect(batchMessages[0]).toMatch(/nothing was approved/i);
+    expect(batchMessages[0]).toMatch(/nothing was sent/i);
   });
 
   it("keeps per-job pending scopes active without touching review selection", async () => {
@@ -604,11 +604,11 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
       totalCount: 3,
     });
     const batchMessage = getActionMessages().find(
-      (message) => message !== null && /tailored draft/i.test(message),
+      (message) => message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message),
     );
-    expect(batchMessage).toMatch(/2 tailored drafts/);
+    expect(batchMessage).toMatch(/Wrote 2 resumes/);
     expect(batchMessage).toMatch(/1 failed/);
-    expect(batchMessage).toMatch(/rerun to target only remaining eligible/i);
+    expect(batchMessage).toMatch(/run it again to retry the failed job/i);
   });
 
   it("stops after the current item finishes and schedules no next item", async () => {
@@ -650,7 +650,7 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
     const batchMessage = getActionMessages().find(
       (message) => message !== null && /stopped after/i.test(message),
     );
-    expect(batchMessage).toMatch(/Stopped after 1 completed draft/);
+    expect(batchMessage).toMatch(/Stopped after 1 resume/);
   });
 
   it("accepts Stop from a remounted controller whose refs are fresh", async () => {
@@ -764,7 +764,7 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
     const batchMessage = reviewQueueRoute
       .getActionMessages()
       .find((message) => message !== null && /stopped after/i.test(message));
-    expect(batchMessage).toMatch(/Stopped after 1 completed draft/);
+    expect(batchMessage).toMatch(/Stopped after 1 resume/);
     const settledTaskModel = buildJobFinderTaskCenterModel({
       isDiscoveryPending: false,
       isResumeImportPending: false,
@@ -852,10 +852,10 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
       totalCount: 10,
     });
     const batchMessage = getActionMessages().find(
-      (message) => message !== null && /tailored draft/i.test(message),
+      (message) => message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message),
     );
-    expect(batchMessage).toMatch(/10 tailored drafts/);
-    expect(batchMessage).toMatch(/2 eligible jobs remain/);
+    expect(batchMessage).toMatch(/Wrote 10 resumes/);
+    expect(batchMessage).toMatch(/2 more jobs still need a resume/);
   });
 
   it("treats a start with no eligible jobs as a deterministic no-op", () => {
@@ -1077,9 +1077,9 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
     });
     const batchMessage = run
       .getActionMessages()
-      .find((message) => message !== null && /tailored draft/i.test(message));
-    expect(batchMessage).toMatch(/3 tailored drafts/);
-    expect(batchMessage).toMatch(/1 eligible job remains/);
+      .find((message) => message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message));
+    expect(batchMessage).toMatch(/Wrote 3 resumes/);
+    expect(batchMessage).toMatch(/1 more job still needs a resume/);
   });
 });
 

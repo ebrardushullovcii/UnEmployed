@@ -28,7 +28,7 @@ The primary journey is:
 Profile -> Find jobs -> Shortlisted -> resume policy and review -> Apply ->
 Applications must feel like one continuous journey. The next useful action should
 be obvious without reading long explanations or learning terms such as campaign,
-strategy, lineage, or runtime. Needs you, Task center, search plans, resume
+strategy, lineage, or runtime. Needs you, Activity, search plans, resume
 approaches, Companies, Outcomes, Documents, diagnostics, and Settings support
 this journey; they must not compete with it.
 

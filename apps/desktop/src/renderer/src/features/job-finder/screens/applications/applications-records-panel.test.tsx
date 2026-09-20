@@ -46,12 +46,14 @@ describe("ApplicationsRecordsPanel", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", { name: "Preparation" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "All applications" }),
+    ).toBeTruthy();
     expect(screen.queryByText("Application tracker")).toBeNull();
-    expect(screen.getByText("No application started yet")).toBeTruthy();
+    expect(screen.getByText("Nothing applied to yet")).toBeTruthy();
     expect(
       screen.getByText(
-        /Shortlisting a job or tailoring its resume does not create an application record.*choose Fill it in/i,
+        /Press Apply on a shortlisted job and it shows up here/i,
       ),
     ).toBeTruthy();
     expect(
@@ -67,7 +69,7 @@ describe("ApplicationsRecordsPanel", () => {
       company: "Acme",
       status: "ready_for_review",
       lastActionLabel: "Resume approved",
-      nextActionLabel: "Fill it in",
+      nextActionLabel: "Apply",
       lastUpdatedAt: "2026-08-09T08:00:00.000Z",
       lastAttemptState: "paused",
       questionSummary: {
@@ -125,7 +127,7 @@ describe("ApplicationsRecordsPanel", () => {
           company: "Acme",
           status: "ready_for_review",
           lastActionLabel: "Resume approved",
-          nextActionLabel: "Fill it in",
+          nextActionLabel: "Apply",
           lastUpdatedAt: "2026-08-09T08:00:00.000Z",
           lastAttemptState: "paused",
           questionSummary: {
@@ -215,7 +217,7 @@ describe("ApplicationsRecordsPanel", () => {
       company: "Acme International Technology Group",
       status: "ready_for_review",
       lastActionLabel: "A detailed resume was approved for this application",
-      nextActionLabel: "Fill it in",
+      nextActionLabel: "Apply",
       lastUpdatedAt: "2026-08-09T08:00:00.000Z",
       lastAttemptState: "paused",
       questionSummary: {
@@ -314,7 +316,7 @@ describe("ApplicationsRecordsPanel", () => {
       company: "Acme",
       status: "ready_for_review",
       lastActionLabel: "Resume approved",
-      nextActionLabel: "Fill it in",
+      nextActionLabel: "Apply",
       lastUpdatedAt: "2026-08-09T08:00:00.000Z",
       lastAttemptState: "paused",
       questionSummary: {
@@ -496,7 +498,7 @@ describe("ApplicationsRecordsPanel", () => {
           company: "Acme",
           status: "ready_for_review",
           lastActionLabel: "Resume approved",
-          nextActionLabel: "Fill it in",
+          nextActionLabel: "Apply",
           lastUpdatedAt: "2026-08-09T08:00:00.000Z",
           lastAttemptState: "paused",
           questionSummary: {
@@ -556,7 +558,7 @@ describe("ApplicationsRecordsPanel", () => {
       company: "Acme",
       status: "ready_for_review",
       lastActionLabel: "Resume approved",
-      nextActionLabel: "Fill it in",
+      nextActionLabel: "Apply",
       lastUpdatedAt: "2026-08-09T08:00:00.000Z",
       lastAttemptState: "paused",
       questionSummary: {

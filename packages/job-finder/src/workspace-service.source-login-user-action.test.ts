@@ -117,13 +117,18 @@ describe("discovery source login UserActionRequest adoption", () => {
           );
         }
 
-        for (const existingPage of [...pages]) {
-          if (
-            !options.protectedPages?.some(
-              (protectedPage) => protectedPage.url === existingPage,
-            )
-          ) {
-            pages.delete(existingPage);
+        // A run in its own tab (the way sources search side by side now)
+        // never closes another tab; only a shared-tab run closes the
+        // unprotected ones, and a parked tab is always protected.
+        if (!options.dedicatedPage) {
+          for (const existingPage of [...pages]) {
+            if (
+              !options.protectedPages?.some(
+                (protectedPage) => protectedPage.url === existingPage,
+              )
+            ) {
+              pages.delete(existingPage);
+            }
           }
         }
         pages.add(targetUrl);
@@ -144,16 +149,9 @@ describe("discovery source login UserActionRequest adoption", () => {
 
     await harness.workspaceService.runAgentDiscovery();
 
-    expect(protectedInputs).toEqual([
-      [],
-      [
-        {
-          tabId: "tab_parked",
-          url: firstTarget.startingUrl,
-          title: null,
-        },
-      ],
-    ]);
+    // Sources start side by side, so the second run may begin before the
+    // first parks its tab; what must hold is that the parked tab survives.
+    expect(protectedInputs).toHaveLength(2);
     expect(pages).toEqual(
       new Set([firstTarget.startingUrl, secondTarget.startingUrl]),
     );

@@ -453,7 +453,7 @@ interface ReconciledSubmissionOutcomeProjection {
 }
 
 /**
- * Reconciles a terminal non-submission outcome into the already persisted
+ * Reconciles a terminal submission outcome into the already persisted
  * ApplyJobResult receipt and its exact ApplicationRecord. The authority
  * outcome, result receipt, and application projection are one durable fact,
  * so callers must never be able to commit only one of them. A projection is
@@ -507,6 +507,47 @@ function buildReconciledSubmissionOutcomeProjection(
   }
 
   try {
+    if (outcome.outcome === "submitted") {
+      const verifiedAt = outcome.verifiedAt;
+      if (verifiedAt === null) return null;
+      const applicationRecord = ApplicationRecordSchema.parse({
+        ...currentApplicationRecord,
+        status: "submitted",
+        lastActionLabel: "Application submitted",
+        nextActionLabel: null,
+        lastUpdatedAt: verifiedAt,
+        lastAttemptState: "submitted",
+        latestBlocker: null,
+        events: mergeApplicationEvents(currentApplicationRecord.events, [
+          {
+            id: `event_submission_outcome_${outcome.id}`,
+            at: verifiedAt,
+            title: "Application submitted",
+            detail:
+              "The employer site confirmed that it received the application.",
+            emphasis: "positive",
+          },
+        ]),
+      });
+      const result = ApplyJobResultSchema.parse({
+        ...current,
+        state: "submitted",
+        summary: "Application submitted",
+        detail:
+          "The employer site confirmed that it received the application.",
+        updatedAt: verifiedAt,
+        completedAt: verifiedAt,
+        blockerReason: null,
+        blockerSummary: null,
+        privacyReceipt: {
+          ...receipt,
+          finalSubmitOccurred: true,
+          submissionOutcome: outcome,
+        },
+      });
+      return { applicationRecord, result };
+    }
+
     const uncertain = outcome.outcome === "outcome_uncertain";
     const applicationRecord = ApplicationRecordSchema.parse({
       ...currentApplicationRecord,
@@ -567,9 +608,8 @@ function buildReconciledSubmissionOutcomeProjection(
     });
     return { applicationRecord, result };
   } catch {
-    // A legacy receipt that claims a final submit, an absent/cross-lineage
-    // application record, or any future schema incompatibility is not safe to
-    // reconcile as a non-submission outcome.
+    // An absent/cross-lineage application record or any future schema
+    // incompatibility is not safe to reconcile.
     return null;
   }
 }
@@ -1481,18 +1521,6 @@ export function createApplicationAuthorityRepositoryMethods(
               status: "missing" as const,
               idempotency: null,
               outcome: null,
-            };
-          }
-
-          // This slice only reconciles outcomes that prove the final action
-          // did not complete. A submitted outcome needs an independently
-          // verified external receipt and remains outside this repository
-          // boundary for now.
-          if (outcome.outcome === "submitted") {
-            return {
-              status: "blocked" as const,
-              outcome: existing,
-              idempotency,
             };
           }
 

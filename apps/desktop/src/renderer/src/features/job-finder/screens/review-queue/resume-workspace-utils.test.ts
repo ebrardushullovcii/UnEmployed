@@ -346,30 +346,7 @@ describe("findLatestAssistantEditRevisionId", () => {
 });
 
 describe("describeResumeExportClaimBlock", () => {
-  it("tells the person to confirm lines when every blocker is confirm_needed", () => {
-    expect(
-      describeResumeExportClaimBlock({
-        blockingAssessments: [
-          { status: "confirm_needed" },
-          { status: "confirm_needed" },
-        ],
-      }),
-    ).toBe(
-      "2 lines still need your confirmation before this resume can be exported.",
-    );
-    expect(
-      resumeExportClaimBlockActionLabel({
-        blockingAssessments: [{ status: "confirm_needed" }],
-      }),
-    ).toBe("Review confirmations");
-  });
-
-  it("keeps rewrite copy for unsupported claims and mixes both when needed", () => {
-    expect(
-      describeResumeExportClaimBlock({
-        blockingAssessments: [{ status: "unsupported" }],
-      }),
-    ).toBe("1 claim must be rewritten or approved before this resume can be exported.");
+  it("counts the lines that need a decision, whatever kind of block each is", () => {
     expect(
       describeResumeExportClaimBlock({
         blockingAssessments: [
@@ -377,13 +354,31 @@ describe("describeResumeExportClaimBlock", () => {
           { status: "unsupported" },
         ],
       }),
-    ).toBe(
-      "1 line still needs your confirmation, and 1 claim must be rewritten or approved, before this resume can be exported.",
+    ).toBe("2 lines need your decision before this resume can be approved.");
+    expect(
+      describeResumeExportClaimBlock({
+        blockingAssessments: [{ status: "confirm_needed" }],
+      }),
+    ).toBe("1 line needs your decision before this resume can be approved.");
+    expect(describeResumeExportClaimBlock({ blockingAssessments: [] })).toBe(
+      null,
     );
+  });
+
+  it("names the count on the action", () => {
     expect(
       resumeExportClaimBlockActionLabel({
-        blockingAssessments: [{ status: "unsupported" }],
+        blockingAssessments: [{ status: "confirm_needed" }],
       }),
-    ).toBe("Review blocked claims");
+    ).toBe("Review 1 line");
+    expect(
+      resumeExportClaimBlockActionLabel({
+        blockingAssessments: [
+          { status: "confirm_needed" },
+          { status: "unsupported" },
+          { status: "review" },
+        ],
+      }),
+    ).toBe("Review 3 lines");
   });
 });

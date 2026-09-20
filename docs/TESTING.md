@@ -47,3 +47,21 @@ Other entry points: `pnpm test:correctness`, `pnpm test:performance` (serial, no
 - Resume quality: `pnpm --filter @unemployed/desktop benchmark:resume-quality` (`-- --canary-only` for the canary)
 - AI capabilities: `pnpm ai:benchmark plan | full <lane> | canary luna_high | full-report`. Keep each lane serial. Deterministic fallbacks are reported separately and never credited to the model.
 - Live discovery audit: `pnpm --filter @unemployed/desktop audit:job-finder-live` needs network access and must never execute application actions.
+
+## Local replica job sites
+
+From the repo root, run `node apps/desktop/test-fixtures/job-sites/serve.mjs` with Node 22 or newer. Open `http://127.0.0.1:47950/` for the index; set `PORT` to override the port. Each listing URL below is a Job Finder source with eight fictional software jobs.
+
+`http://127.0.0.1:47950/board/` exercises age badges, job details, the `/employer-a/apply/<id>` handoff, hidden resume upload, cover letter and required certification.
+
+`http://127.0.0.1:47950/lever/` exercises location selection and autocomplete, opacity-zero resume upload, background-check consent and a fake CAPTCHA with an inline error.
+
+`http://127.0.0.1:47950/greenhouse/` exercises attachment buttons and a drop zone, optional cover-letter upload, custom questions, yes/no radios and optional EEO selects.
+
+`http://127.0.0.1:47950/workday/` exercises application choices, account creation/sign-in, four steps, repeatable work experience, simulated resume autofill, review and required terms. Use made-up credentials; accounts and saved steps live in server memory until restart. Saved steps do not restore after reload.
+
+`http://127.0.0.1:47950/gatekeeper/` exercises a cookie overlay, chat bubble, eight-second security interstitial, new-tab application, per-field autosaves and in-page confirmation after fetch submission.
+
+Run `node apps/desktop/test-fixtures/job-sites/check.mjs` for the HTTP self-check. It starts its own server on a random port, visits every job/application, submits one synthetic application per site, checks confirmations and POST logs, then stops that server. It does not execute browser JavaScript.
+
+Every POST is logged as JSON to stdout and the gitignored `apps/desktop/test-fixtures/job-sites/submissions.log`; passwords are redacted and uploads record metadata only. All content is local and synthetic. Agent runs retain prepare-only boundaries; direct submissions in the self-check reach only these fixtures. See the fixture folder's `README.md` for details.

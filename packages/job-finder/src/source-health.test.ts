@@ -90,18 +90,18 @@ describe("source health classification", () => {
     expect(isEnabledSourceNeedingAttention(target)).toBe(false);
   });
 
-  test("an enabled never-run source needs attention", () => {
+  test("an enabled never-run source is healthy: checks are optional", () => {
     const target = source();
 
-    expect(listSourceAttentionReasons(target)).toEqual(["never_verified"]);
-    expect(classifyEnabledSourceHealth(target)).toBe("needs_attention");
+    expect(listSourceAttentionReasons(target)).toEqual([]);
+    expect(classifyEnabledSourceHealth(target)).toBe("healthy");
   });
 
-  test("draft guidance is unverified and therefore needs attention", () => {
+  test("draft guidance alone is not a problem", () => {
     const target = source({ instructionStatus: "draft" });
 
-    expect(listSourceAttentionReasons(target)).toEqual(["never_verified"]);
-    expect(classifyEnabledSourceHealth(target)).toBe("needs_attention");
+    expect(listSourceAttentionReasons(target)).toEqual([]);
+    expect(classifyEnabledSourceHealth(target)).toBe("healthy");
   });
 
   test("failing verification marks the source for attention", () => {
@@ -260,19 +260,19 @@ describe("source health classification", () => {
     );
 
     expect(counts).toEqual({
-      healthy: 1,
-      needsAttention: 4,
+      healthy: 2,
+      needsAttention: 3,
       running: 0,
       total: 5,
     });
   });
 
-  test("first-run workspace with a single never-run source reports it as attention", () => {
+  test("first-run workspace with a single never-run source is healthy", () => {
     const counts = deriveEnabledSourceHealthCounts([source()]);
 
     expect(counts).toEqual({
-      healthy: 0,
-      needsAttention: 1,
+      healthy: 1,
+      needsAttention: 0,
       running: 0,
       total: 1,
     });
@@ -296,10 +296,8 @@ describe("source health classification", () => {
       running: 0,
       total: 1,
     });
-    // Without the success signal the same source still needs attention.
-    expect(classifyEnabledSourceHealth(target, succeeded)).toBe(
-      "needs_attention",
-    );
+    // Without the success signal the same source is still fine to search.
+    expect(classifyEnabledSourceHealth(target, succeeded)).toBe("healthy");
   });
 
   test("a successful run does not hide failing, stale, or login-blocked sources", () => {
@@ -442,7 +440,7 @@ describe("describeEnabledSourceHealth", () => {
       describeEnabledSourceHealth(source(), deriveSourceHealthSignals({}))
         .reason,
     ).toBe(
-      "Earlier search usage is unknown. This source has not been verified yet.",
+      "Not checked yet. Searches can still use it.",
     );
   });
   test("a source proven by a completed run is healthy with a reason", () => {
@@ -471,7 +469,7 @@ describe("describeEnabledSourceHealth", () => {
       state: "healthy",
     });
 
-    expect(describeEnabledSourceHealth(target).state).toBe("needs_attention");
+    expect(describeEnabledSourceHealth(target).state).toBe("healthy");
   });
 
   test("attention states name their first concrete reason", () => {

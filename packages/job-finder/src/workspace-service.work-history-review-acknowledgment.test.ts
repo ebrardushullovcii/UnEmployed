@@ -691,7 +691,7 @@ describe("work-history review acknowledgment commands", () => {
       ...baseRuntime,
       executeApplicationFlow(source, input, options) {
         preparedResumeSource = input.resumeArtifact.source;
-        return baseRuntime.executeApplicationFlow!(source, input, options);
+        return baseRuntime.executeApplicationFlow(source, input, options);
       },
     };
     const { workspaceService } = createHiddenRoleHarness({ browserRuntime });

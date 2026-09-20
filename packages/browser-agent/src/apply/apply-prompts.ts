@@ -15,6 +15,32 @@ export function createApplySystemPrompt(config: ApplyAgentConfig): string {
       : config.authority.mode === "confirm_before_submit"
         ? "Fill everything in and say so with submit_application when it is complete. You do not send it — the person reads it and presses send."
         : "Fill everything in and stop. This application is set to fill in only.";
+  // The saved AI applying behavior (Settings). Absent means the defaults.
+  const coverLetterPolicy = config.writing?.coverLetterPolicy ?? "when_required";
+  const coverLetterSentence =
+    coverLetterPolicy === "never"
+      ? "- The person has asked you not to write cover letters, motivation letters, or supporting statements. If the form asks for one, leave that field and say so at the end."
+      : coverLetterPolicy === "when_possible"
+        ? "- When the form has any place for a cover letter, motivation letter, or supporting statement — required or optional — and none is already available, use create_application_document. Inspect the result with list_application_documents, then attach it with upload. Creating a local draft does not authorize uploading or submitting anything beyond the saved application authority."
+        : "- When the form requests a cover letter, motivation letter, or supporting statement file that is not already available, use create_application_document. Inspect the result with list_application_documents, then attach it with upload. Creating a local draft does not authorize uploading or submitting anything beyond the saved application authority.";
+  const writtenAnswerSentence =
+    (config.writing?.writtenAnswerLength ?? "short") === "full"
+      ? "- When you write an answer yourself, write it fully: a short paragraph or two that answers the question with specifics from the resume and profile."
+      : "- When you write an answer yourself, keep it short: a few sentences that answer the question directly, with one specific from the resume or profile.";
+
+  const declarationNames: Record<string, string> = {
+    truthfulness_certification: "certifying that the answers are true",
+    privacy_notice_acknowledgement: "acknowledging the privacy notice",
+    terms_acceptance: "accepting the site's terms",
+    background_check_consent: "consenting to a background check",
+    equal_opportunity_self_identification:
+      "voluntary self-identification (gender, ethnicity, veteran, disability)",
+    marketing_contact_consent: "being contacted about other roles",
+  };
+  const approvedDeclarations = config.authority.preApprovedAttestationKinds
+    .map((kind) => declarationNames[kind] ?? kind)
+    .join("; ");
+  const declarationSentence = `- Declarations the person makes about themselves are ticked by Job Finder, not by you: always call set_checkbox on a required declaration box and let Job Finder decide. It ticks the kinds the person allowed in advance (${approvedDeclarations || "none yet"}) and any box they answered Yes to before; anything else it leaves for them and tells you so. Never skip a required declaration box without trying it.`;
 
   return [
     "You are applying for a job on this person's behalf, in their browser, with the ordinary powers a person has: you can look at the page, read it, click anything, follow links, type, go back, wait, and scroll.",
@@ -25,9 +51,14 @@ export function createApplySystemPrompt(config: ApplyAgentConfig): string {
     "",
     "What is not yours to decide:",
     "- Answers about this person come from their own profile, resume and saved answers. Call suggest_answer and use what it gives you. If it has nothing and the question wants prose, write it from the resume, the profile and the posting — and never state a fact none of those support.",
-    "- When the form requests a cover letter, motivation letter, or supporting statement file that is not already available, use create_application_document. Inspect the result with list_application_documents, then attach it with upload. Creating a local draft does not authorize uploading or submitting anything beyond the saved application authority.",
-    "- Anything the person declares themselves — certifying answers are true, consenting to a background check, equal-opportunity questions, accepting terms — is only ticked when they approved that exact kind in advance. Otherwise leave it and say so at the end.",
+    "- A choice question the resume plainly answers (years of experience from the dated roles, highest education from the education section, a language the profile lists) is yours to pick: choose the option the evidence supports and say what you based it on. Hand a question back only when nothing on file answers it.",
+    writtenAnswerSentence,
+    coverLetterSentence,
+    declarationSentence,
+    "- If set_checkbox tells you a box was left for the person, do not try it again: carry on with every other field, attach the files, and finish; the box goes back to them with the finished form.",
+    "- A form that wants a file you do not have (a letter, a statement) is not a reason to stop: create_application_document makes one as PDF, Word, or plain text, and upload attaches it.",
     "- Never sign in, never create an account, never type a password, never work around a security check or a code sent to their phone. If the site needs one of those, finish and say so.",
+    "- A page that says it is checking the browser (\"Just a moment\", \"Performing security verification\") is not one of those: it finishes by itself. Wait 20 to 30 seconds and look again, for up to two minutes, before you report it. Only a box to tick or a puzzle to solve is the person's.",
     `- ${modeSentence}`,
     "",
     "Pacing: there is no step budget. A short form takes a few steps; a listing that leads through a redirect to a five-screen form takes many more, and that is fine. Finish when the form is complete, when only the person can go further, or when you are genuinely stuck — and say which, in your own words, because the person reads exactly what you write.",
@@ -55,6 +86,7 @@ export function createApplyUserPrompt(config: ApplyAgentConfig): string {
       : "Job Finder has no files for this application yet.",
     "",
     "Start by inspecting the form. Work through the fields that still need an answer, move between steps when the form has several, and finish when there is nothing left to fill in.",
+    "Each turn costs time: fill every field you can already answer in that turn by calling the fill tools one after another, and look at the page again only after the batch. A field that already shows the right value is done; do not type it again.",
   ].join("\n");
 }
 
@@ -88,7 +120,9 @@ function describeControl(
     parts.push("needs text you write: send it in freeTextAnswer");
   }
   if (control.attestationKind) {
-    parts.push("this is something the person declares themselves");
+    parts.push(
+      "a declaration: call set_checkbox and Job Finder decides whether it may be ticked",
+    );
   }
   if (control.invalid && control.validationMessage) {
     parts.push(`the page says: ${control.validationMessage}`);

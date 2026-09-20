@@ -240,7 +240,7 @@ export function getApplyToolDefinitions(): ApplyToolDefinition[] {
         parameters: {
           type: "object",
           properties: {
-            milliseconds: { type: "number", description: "Up to 10000." },
+            milliseconds: { type: "number", description: "Up to 30000. A page checking the browser by itself can take a minute or two: wait 20000 to 30000 at a time." },
           },
           required: ["milliseconds"],
         },

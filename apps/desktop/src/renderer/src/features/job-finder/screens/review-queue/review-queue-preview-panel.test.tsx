@@ -91,7 +91,7 @@ describe("ReviewQueuePreviewPanel", () => {
 
     expect(screen.getByText("Original resume · unchanged")).toBeTruthy();
     expect(screen.getAllByText("alex-original.pdf")).toHaveLength(2);
-    expect(screen.getByText(/will not rewrite it, remove roles/i)).toBeTruthy();
+    expect(screen.getByText(/does not rewrite it, remove roles/i)).toBeTruthy();
     expect(screen.getByText("File selected for attachment")).toBeTruthy();
     expect(screen.getByText("Read-only extracted text preview")).toBeTruthy();
     expect(
@@ -162,7 +162,7 @@ describe("ReviewQueuePreviewPanel", () => {
     expect(
       screen.getByText("Usually 40-70 seconds for a tailored draft."),
     ).toBeTruthy();
-    expect(screen.getByText(/The draft keeps running/i)).toBeTruthy();
+    expect(screen.getByText(/The resume keeps writing/i)).toBeTruthy();
   });
 });
 

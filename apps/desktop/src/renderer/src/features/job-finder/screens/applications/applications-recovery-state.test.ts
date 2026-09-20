@@ -267,11 +267,11 @@ describe("resolveApplicationRecoveryPresentation", () => {
     expect(presentation.reasonSentence).toBe(
       "The form asks: Are you subject to any employment agreements?",
     );
-    expect(presentation.primaryActionLabel).toBe("Answer in Needs you");
+    expect(presentation.primaryActionLabel).toBe("Answer the questions");
     expect(presentation.primaryAction).not.toBe("try_again");
   });
 
-  it("offers the saving permission, not a retry, when the site saves as you type", () => {
+  it("offers a plain retry when an older run stopped because the site saves as you type", () => {
     const presentation = resolveApplicationRecoveryPresentation({
       canOpenSafeguards: true,
       destinationUrl: "https://www.boards.example.com/apply/123",
@@ -285,12 +285,10 @@ describe("resolveApplicationRecoveryPresentation", () => {
 
     expect(presentation.state).toBe("site_saves_as_you_go");
     expect(presentation.reasonSentence).toBe(
-      "This site saves your answers as you type, and Job Finder is not allowed to let it.",
+      "This site saves your answers as you type. Job Finder now lets sites do that, so run it again.",
     );
-    expect(presentation.primaryActionLabel).toBe(
-      "Allow saving on boards.example.com and try again",
-    );
-    expect(presentation.primaryAction).not.toBe("try_again");
+    expect(presentation.primaryActionLabel).toBe("Try again");
+    expect(presentation.primaryAction).toBe("try_again");
   });
 
   it("prints a field description only when it differs from the label", () => {
@@ -325,7 +323,7 @@ describe("resolveApplicationRecoveryPresentation", () => {
     });
 
     expect(presentation.reasonSentence).toBe("The form asks 3 questions.");
-    expect(presentation.primaryActionLabel).toBe("Answer in Needs you");
+    expect(presentation.primaryActionLabel).toBe("Answer the questions");
   });
 
   it("offers a same-record retry after the current resume-review blocker clears", () => {

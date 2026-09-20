@@ -37,6 +37,7 @@ import {
   getReviewItemEditHint,
   getProfileSetupReviewItemCopy,
   isFinishBlockingReviewItem,
+  isProfileSetupMissingFieldReviewItem,
   isProfileSetupPathStepComplete,
   type ProfileSetupPathStepReadiness,
   type ProfileSetupReviewItemDisplay,
@@ -455,6 +456,12 @@ export function ProfileSetupReviewQueueCard(props: {
     props.onApplyReviewAction(reviewItemId, action, options);
   };
 
+  // A card whose only content is "nothing to confirm" is a box that says
+  // nothing; the step editor already has the room.
+  if (props.items.length === 0) {
+    return null;
+  }
+
   return (
     <Card
       className="min-h-0 flex-1 overflow-hidden rounded-(--radius-panel) border-border/40 scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:!scroll-mt-[4.5rem]"
@@ -464,17 +471,10 @@ export function ProfileSetupReviewQueueCard(props: {
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
         {/* The stepper chip above owns the count for this step; this card
             owns the items themselves and never restates the number. */}
-        <CardTitle>
-          {props.compact
-            ? "Suggested search targets"
-            : "Still to confirm on this step"}
-        </CardTitle>
+        <CardTitle>Still to confirm on this step</CardTitle>
         <CardDescription>
-          {props.items.length === 0
-            ? "Nothing to confirm on this step."
-            : props.compact
-              ? "Confirm the targets you want to search for, or edit them in the form below."
-              : "Imported suggestions stay here until you confirm, dismiss, or clear them. Required details stay here until you fill them in."}
+          Imported suggestions stay here until you confirm, dismiss, or clear
+          them. Required details stay here until you fill them in.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-6">
@@ -679,7 +679,11 @@ export function ProfileSetupReviewQueueCard(props: {
                             Confirm
                           </Button>
                         ) : null}
-                        {canClearReviewItem(item) ? (
+                        {/* A field that was never set has nothing to clear;
+                            offering "Clear current value" there reads as a
+                            third mystery button. */}
+                        {canClearReviewItem(item) &&
+                        !isProfileSetupMissingFieldReviewItem(item) ? (
                           <Button
                             disabled={
                               Boolean(props.actionsDisabledReason) ||

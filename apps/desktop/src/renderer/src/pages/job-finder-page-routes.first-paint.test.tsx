@@ -405,13 +405,12 @@ describe("canonical route first paint", () => {
       context,
     );
 
-    // One owner for the unavailable-search fact: the setup panel status badge
-    // plus its sentence. The slim search bar drops its browser link entirely
-    // instead of repeating the badge beside it.
-    expect(screen.getAllByText("Search unavailable").length).toBeGreaterThan(0);
+    // Find jobs lands on Results; the results panel owns the unavailable-
+    // search fact in one sentence. The slim search bar drops its browser
+    // link entirely instead of repeating it.
     expect(
-      screen.getByText("Job Finder cannot search right now; try again in a moment."),
-    ).toBeTruthy();
+      screen.getAllByText(/Job Finder cannot search right now/u).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByTestId("discovery-search-bar-browser")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Open the Job Finder browser" }),
@@ -471,7 +470,7 @@ describe("canonical route first paint", () => {
     );
 
     expect(
-      screen.getByRole("heading", { level: 1, name: "Shortlisted jobs" }),
+      screen.getByRole("heading", { level: 1, name: "Shortlisted" }),
     ).toBeTruthy();
     expect(screen.queryByText("Loading screen")).toBeNull();
     expect(screen.queryByText("Opening your saved shortlist.")).toBeNull();

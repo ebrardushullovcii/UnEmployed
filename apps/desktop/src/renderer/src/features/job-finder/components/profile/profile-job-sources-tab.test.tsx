@@ -28,6 +28,7 @@ import {
 } from "@unemployed/job-finder/source-health";
 import {
   JOB_SOURCES_PAGE_SIZE,
+  parseJobSourceUrls,
   ProfileJobSourcesTab,
 } from "./profile-job-sources-tab";
 import { resetSourceCheckQueueForTests } from "../../lib/source-check-queue";
@@ -127,6 +128,20 @@ function JobSourcesHarness(props: {
 }
 
 describe("ProfileJobSourcesTab", () => {
+  it("normalizes newline and comma separated source URLs", () => {
+    expect(
+      parseJobSourceUrls(
+        "jobs.example.com, https://company.example/careers\nnot a url\njobs.example.com",
+      ),
+    ).toEqual({
+      urls: [
+        "https://jobs.example.com/",
+        "https://company.example/careers",
+      ],
+      invalid: ["not a url"],
+    });
+  });
+
   beforeAll(() => {
     Element.prototype.scrollIntoView = function scrollIntoViewTrackingStub(
       this: Element,
@@ -328,10 +343,10 @@ describe("ProfileJobSourcesTab", () => {
     expect(screen.getByText("5 of 507 sources")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Needs attention" }));
-    // Every enabled source that has never been verified needs attention, so
-    // Companies 001–004 plus the prompted Company 010 appear here.
+    // Never-checked sources are fine to search; only the prompted Company 010
+    // has something to look at.
     expect(container.querySelectorAll("[data-compact-source-id]")).toHaveLength(
-      5,
+      1,
     );
     expect(screen.getByText("Company 010")).toBeTruthy();
   });
@@ -405,8 +420,8 @@ describe("ProfileJobSourcesTab", () => {
       deriveSourceHealthSignals({ sourceAccessPrompts: [loginPrompt] }),
     );
     expect(expectedCounts).toEqual({
-      healthy: 1,
-      needsAttention: 4,
+      healthy: 2,
+      needsAttention: 3,
       running: 0,
       total: 5,
     });
@@ -423,7 +438,6 @@ describe("ProfileJobSourcesTab", () => {
       container.querySelectorAll("[data-compact-source-id]"),
     ).map((node) => node.getAttribute("data-compact-source-id"));
     expect(visibleRows).toEqual([
-      "target_never_run",
       "target_failing",
       "target_unsupported",
       "target_login",
@@ -443,15 +457,6 @@ describe("ProfileJobSourcesTab", () => {
           '[data-compact-source-id="target_login"]',
         ) as HTMLElement,
       ).getByText("Blocked: waiting for you to sign in."),
-    ).toBeTruthy();
-    expect(
-      within(
-        container.querySelector(
-          '[data-compact-source-id="target_never_run"]',
-        ) as HTMLElement,
-      ).getByText(
-        "Earlier search usage is unknown. This source has not been verified yet.",
-      ),
     ).toBeTruthy();
 
     // Back on the full library view, disabled problem sources stay explicitly
@@ -638,7 +643,12 @@ describe("ProfileJobSourcesTab", () => {
   it("turns a newly added source on, and still offers a way to turn it off", () => {
     render(<JobSourcesHarness targets={[]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add and turn on" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add sources" }));
+    fireEvent.change(screen.getByLabelText("Add sources"), {
+      target: { value: "https://gamma.example/careers" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 source" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit gamma.example" }));
 
     const includeToggle = screen.getByRole("checkbox", {
       name: "Include this source in searches",
@@ -652,6 +662,24 @@ describe("ProfileJobSourcesTab", () => {
         .getByRole("checkbox", { name: "Include this source in searches" })
         .getAttribute("aria-checked"),
     ).toBe("false");
+  });
+
+  it("adds many sources in one form update and turns them on", () => {
+    render(<JobSourcesHarness targets={[createTarget(1)]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add sources" }));
+    fireEvent.change(screen.getByLabelText("Add sources"), {
+      target: {
+        value:
+          "https://alpha.example/careers\nbeta.example/jobs, https://jobs-1.example.com/openings",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 sources" }));
+
+    expect(screen.getByText("Added and turned on 2 sources.")).toBeTruthy();
+    expect(screen.getByText("3 sources")).toBeTruthy();
+    expect(screen.getAllByText("alpha.example")).toHaveLength(2);
+    expect(screen.getAllByText("beta.example")).toHaveLength(2);
   });
 
   it("checks every listed source one at a time and stops on request", () => {
@@ -681,7 +709,7 @@ describe("ProfileJobSourcesTab", () => {
 
     // Only sources that are on can be checked, so the off one is not counted.
     fireEvent.click(
-      screen.getByRole("button", { name: "Check these 3 sources" }),
+      screen.getByRole("button", { name: "Check all 3 sources" }),
     );
     expect(onRunSourceDebug).toHaveBeenCalledTimes(1);
     expect(onRunSourceDebug).toHaveBeenLastCalledWith("target_001");
@@ -710,7 +738,7 @@ describe("ProfileJobSourcesTab", () => {
     rerender();
     expect(onRunSourceDebug).toHaveBeenCalledTimes(2);
     expect(
-      screen.getByRole("button", { name: "Check these 3 sources" }),
+      screen.getByRole("button", { name: "Check all 3 sources" }),
     ).toBeTruthy();
   });
 

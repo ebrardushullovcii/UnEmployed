@@ -2,43 +2,39 @@ import { useEffect, useId, useState } from "react";
 import { Button } from "@renderer/components/ui/button";
 import { Field, FieldLabel } from "@renderer/components/ui/field";
 import { Input } from "@renderer/components/ui/input";
-import { ToggleField } from "@renderer/features/job-finder/components/toggle-field";
-import type { ApplyMode } from "../../lib/apply-mode-contracts-stub";
+import {
+  APPLY_MODE_OPTIONS,
+  ChoiceCards,
+} from "@renderer/features/job-finder/components/choice-cards";
+import type { ApplicationAutomationMode } from "@unemployed/contracts";
 
 /**
- * One switch, two sentences, one number (ADR 0022).
- *
- * This replaced a screen of authority envelopes, approval snapshots, resume
- * fingerprints, per-site permissions and a revoke confirmation. None of that
- * was a decision a job seeker wanted to make; the only decision is whether
- * Job Finder sends the application or leaves it for them to send. The
- * envelope underneath is still created and updated (ADR 0012) — by this
- * switch, never by hand.
+ * The three useful application defaults. The task-specific permission is
+ * assembled when an application starts; Settings stores only the person's
+ * ordinary choice, never an empty authority envelope.
  */
 export function SettingsApplyModeSection(props: {
   headingId?: string;
   /** The saved mode; the switch is off until the person turns it on. */
-  mode: ApplyMode;
+  mode: ApplicationAutomationMode;
   /** The existing daily cap on applications, kept from ADR 0012. */
   maxApplicationsPerLocalDay: number;
   onSave: (input: {
-    mode: ApplyMode;
+    mode: ApplicationAutomationMode;
     maxApplicationsPerLocalDay: number;
   }) => void | Promise<void>;
   isSaving?: boolean;
 }) {
   const { headingId, isSaving = false, mode, onSave } = props;
   const dailyCapId = useId();
-  const [sendsApplications, setSendsApplications] = useState(
-    mode === "apply_for_me",
-  );
+  const [selectedMode, setSelectedMode] = useState(mode);
   const [dailyCap, setDailyCap] = useState(
     String(props.maxApplicationsPerLocalDay),
   );
   const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
-    setSendsApplications(mode === "apply_for_me");
+    setSelectedMode(mode);
   }, [mode]);
   useEffect(() => {
     setDailyCap(String(props.maxApplicationsPerLocalDay));
@@ -46,9 +42,8 @@ export function SettingsApplyModeSection(props: {
 
   const parsedCap = Number.parseInt(dailyCap, 10);
   const capIsValid = Number.isFinite(parsedCap) && parsedCap > 0;
-  const nextMode: ApplyMode = sendsApplications ? "apply_for_me" : "fill_only";
   const isDirty =
-    nextMode !== mode || parsedCap !== props.maxApplicationsPerLocalDay;
+    selectedMode !== mode || parsedCap !== props.maxApplicationsPerLocalDay;
 
   return (
     <section className="surface-panel-shell grid min-w-0 content-start gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
@@ -61,41 +56,21 @@ export function SettingsApplyModeSection(props: {
         </h3>
       </div>
 
-      <ToggleField
-        checked={sendsApplications}
-        description="Job Finder never creates an account, enters a password, or answers a security check. Those always stay yours."
-        label="Let Job Finder send applications for me"
-        onCheckedChange={(checked) => {
-          setSendsApplications(checked);
+      <ChoiceCards
+        aria-label="Default application mode"
+        disabled={isSaving}
+        onChange={(value) => {
+          setSelectedMode(value);
           setFailure(null);
         }}
+        options={APPLY_MODE_OPTIONS}
+        value={selectedMode}
       />
 
-      {/* Both halves are always on screen, so the person can read what they
-          are switching away from as well as what they are switching to. */}
-      <dl
-        className="m-0 grid min-w-0 gap-2"
-        data-testid="apply-mode-explanations"
-      >
-        <div className="grid min-w-0 gap-0.5">
-          <dt className="text-sm font-semibold text-foreground">
-            Off — Fill it in, I send it
-          </dt>
-          <dd className="m-0 text-sm leading-5 text-foreground-soft">
-            Job Finder fills the form and leaves the browser open; you click
-            Apply.
-          </dd>
-        </div>
-        <div className="grid min-w-0 gap-0.5">
-          <dt className="text-sm font-semibold text-foreground">
-            On — Apply for me
-          </dt>
-          <dd className="m-0 text-sm leading-5 text-foreground-soft">
-            Job Finder fills and sends; it stops for anything it cannot answer
-            honestly.
-          </dd>
-        </div>
-      </dl>
+      <p className="text-sm leading-5 text-foreground-soft">
+        Sign-in, security checks, and account creation pause for you. Job Finder
+        never stores a password you provide for one task.
+      </p>
 
       <Field>
         <FieldLabel htmlFor={dailyCapId}>
@@ -121,7 +96,7 @@ export function SettingsApplyModeSection(props: {
             setFailure(null);
             void Promise.resolve(
               onSave({
-                mode: nextMode,
+                mode: selectedMode,
                 maxApplicationsPerLocalDay: parsedCap,
               }),
             ).catch(() => {

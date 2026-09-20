@@ -20,6 +20,7 @@ import {
   type ResumeGenerationStrategyPolicy,
   type StringMap,
   type TailorResumeInput,
+  describeProfileAssistantBehavior,
 } from "./shared";
 import {
   buildDeterministicResumeProfileExtraction,
@@ -49,6 +50,7 @@ import {
   extractModelJsonFromPayload,
   parseModelApiMode,
   parseModelReasoningEffort,
+  type ModelReasoningEffort,
 } from "./openai-compatible-transport";
 import {
   type ModelRequestResilienceOptions,
@@ -99,6 +101,8 @@ const DEFAULT_RESUME_DRAFT_TIMEOUT_MS = 600_000;
  * collapsed into the safe fallback.
  */
 const DEFAULT_AGENT_TURN_TIMEOUT_MS = 300_000;
+/** Browser-agent turns and page reads think briefly; see `agentReasoningEffort`. */
+const DEFAULT_AGENT_TURN_REASONING_EFFORT: ModelReasoningEffort = "low";
 const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 600_000;
 const DEFAULT_RESUME_IMPORT_STAGE_TIMEOUT_MS: Record<
   Exclude<ResumeImportExtractionStage, "shared_memory">,
@@ -228,6 +232,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
   const validatedOptions = configuredOptions.success
     ? configuredOptions.data
     : null;
+  const agentReasoningEffort =
+    validatedOptions?.agentReasoningEffort ??
+    validatedOptions?.reasoningEffort;
   const status = AgentProviderStatusSchema.parse({
     kind: "openai_compatible",
     ready: configuredOptions.success,
@@ -266,6 +273,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
       signal?: AbortSignal;
       /** Which conversation this request continues; see model-request-identity. */
       conversationKey?: string;
+      /** Overrides the client's effort for this one request. */
+      reasoningEffort?: ModelReasoningEffort | undefined;
     },
   ): Promise<unknown> {
     if (!validatedOptions) {
@@ -305,7 +314,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
         body: buildModelRequestBody({
           apiMode,
           model: validatedOptions.model,
-          reasoningEffort: validatedOptions.reasoningEffort,
+          reasoningEffort:
+            options?.reasoningEffort ?? validatedOptions.reasoningEffort,
           reasoningSummary: resilience.streaming !== false,
           jsonOutput: true,
           messages: [
@@ -507,6 +517,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
         "reviseCandidateProfile",
         [
           "You are a profile editing assistant.",
+          ...describeProfileAssistantBehavior(input.assistantBehavior),
           "Return JSON only with content and typed patchGroups.",
           "Patch groups must use the provided bounded profile copilot operations only.",
           "Answer grounded factual questions directly when the request is asking what is already in the profile, even if no edit is needed.",
@@ -610,6 +621,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           timeoutMs,
           ...(input.signal ? { signal: input.signal } : {}),
           conversationKey: modelConversationKeys.pageExtraction(input.pageUrl),
+          reasoningEffort: agentReasoningEffort,
         },
       );
 
@@ -648,7 +660,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           body: buildModelRequestBody({
             apiMode,
             model: validatedOptions.model,
-            reasoningEffort: validatedOptions.reasoningEffort,
+            reasoningEffort: agentReasoningEffort,
             reasoningSummary: resilience.streaming !== false,
             messages: messages.map((msg) => {
               const base = { role: msg.role, content: msg.content };
@@ -881,6 +893,9 @@ export function createJobFinderAiClientFromEnvironment(
     reasoningEffort:
       parseModelReasoningEffort(env.UNEMPLOYED_AI_REASONING_EFFORT) ??
       DEFAULT_TEXT_MODEL_REASONING_EFFORT,
+    agentReasoningEffort:
+      parseModelReasoningEffort(env.UNEMPLOYED_AI_AGENT_REASONING_EFFORT) ??
+      DEFAULT_AGENT_TURN_REASONING_EFFORT,
     label: "AI resume agent",
     requestTimeoutMs: parsedRequestTimeoutMs,
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
@@ -1154,10 +1169,13 @@ export function createJobFinderAiClientFromEnvironment(
         const model = modelClient.getStatus().model;
         return {
           ...generated,
-          notes: uniqueStrings([
-            ...generated.notes,
-            `Generated with ${providerLabel}${model ? ` (${model})` : ""}.`,
-          ]),
+          notes:
+            generated.generationProvenance?.method === "ai"
+              ? uniqueStrings([
+                  ...generated.notes,
+                  `Generated with ${providerLabel}${model ? ` (${model})` : ""}.`,
+                ])
+              : generated.notes,
         };
       } catch (error) {
         logFallbackError("createResumeDraft", error);

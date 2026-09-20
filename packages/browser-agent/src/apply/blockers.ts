@@ -30,6 +30,24 @@ const ACCOUNT_SIGNALS = [
   "create profile to continue",
 ];
 
+/**
+ * Interstitials a site shows while it checks the browser on its own. Nothing
+ * on them is for a person to do; they finish by themselves, often after a
+ * minute. Telling the model these were "a security check it never answers"
+ * made it give up on a page that would have loaded had it waited.
+ */
+const AUTOMATIC_CHECK_SIGNALS = [
+  "just a moment",
+  "checking your browser",
+  "checking if the site connection is secure",
+  "performing security verification",
+  "verification successful",
+  "waiting for",
+  "please wait while we verify",
+  "ddos protection",
+  "needs to review the security of your connection",
+];
+
 const CHALLENGE_SIGNALS = [
   "verify you are human",
   "verify you are a human",
@@ -157,6 +175,16 @@ export function detectApplyBlocker(input: {
   actions: readonly ApplyFormAction[];
 }): ApplyBlocker | null {
   const text = normalizeSignal(input.bodyText);
+
+  if (contains(text, AUTOMATIC_CHECK_SIGNALS) && !contains(text, ["captcha", "i am not a robot", "verify you are human"])) {
+    return {
+      code: "security_challenge",
+      summary: "The site is checking the browser by itself.",
+      detail:
+        "This kind of page usually finishes on its own. Wait 20 to 30 seconds and look again, and keep doing that for up to two minutes, before reporting it. Only a page that asks you to tick a box or solve a puzzle needs the person.",
+      nextActionLabel: "Open the page and let the check finish",
+    };
+  }
 
   if (contains(text, CHALLENGE_SIGNALS)) {
     return {

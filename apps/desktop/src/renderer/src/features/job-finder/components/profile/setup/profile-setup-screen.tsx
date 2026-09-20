@@ -27,6 +27,10 @@ import {
   buildProfileSetupReadinessPresentation,
   buildSetupCopilotPlaceholder,
   getProfileSetupReadinessBlockerLabel,
+  getProfileSetupReadinessBlockerStep,
+  getProfileSetupReviewItemCopy,
+  isFinishBlockingReviewItem,
+  isProfileSetupMissingFieldReviewItem,
   buildStepEditorContext,
 } from "./profile-setup-screen-helpers";
 import {
@@ -336,18 +340,28 @@ export function ProfileSetupScreen(props: {
   );
   const canFinishSetup = readinessPresentation.remainingBlockerCount === 0;
   // Named, not counted: the stepper chips already carry the per-step review
-  // counts, so the footer states what is missing in words.
-  const remainingBlockerLabels = useMemo(
-    () => [
-      ...readinessPresentation.blockers.map((blocker) =>
-        getProfileSetupReadinessBlockerLabel(blocker.id),
+  // counts, so the footer states what is missing in words, and says which
+  // step to open when it is not the one on screen.
+  const remainingBlockerLabels = useMemo(() => {
+    const currentStep = profileSetupState.currentStep;
+    const whereToGo = (step: ProfileSetupStep) =>
+      step === currentStep ? "" : ` (${formatProfileSetupStepLabel(step)} step)`;
+    return [
+      ...readinessPresentation.blockers.map(
+        (blocker) =>
+          `${getProfileSetupReadinessBlockerLabel(blocker.id)}${whereToGo(
+            getProfileSetupReadinessBlockerStep(blocker.id),
+          )}`,
       ),
-      ...(readinessPresentation.blockingPendingReviewItemCount > 0
-        ? ["the required details marked on the steps above"]
-        : []),
-    ],
-    [readinessPresentation],
-  );
+      ...draftAwareReviewItems.filter(isFinishBlockingReviewItem).map((item) => {
+        const label = getProfileSetupReviewItemCopy(item).label;
+        const verb = isProfileSetupMissingFieldReviewItem(item)
+          ? "Fill in"
+          : "Confirm";
+        return `${verb} ${label.charAt(0).toLowerCase()}${label.slice(1)}${whereToGo(item.step)}`;
+      }),
+    ];
+  }, [draftAwareReviewItems, profileSetupState.currentStep, readinessPresentation]);
 
   const reviewQueue = (
     <ProfileSetupReviewQueueCard

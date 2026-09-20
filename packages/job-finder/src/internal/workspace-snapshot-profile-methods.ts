@@ -11,6 +11,7 @@ import {
   ResumeDocumentBundleSchema,
   ResumeSourceDocumentSchema,
   SourceDebugRunRecordSchema,
+  UpdateAiBehaviorInputSchema,
   UpdateApplicationDefaultsInputSchema,
   UpdateWorkspaceBehaviorInputSchema,
   type AppearanceTheme,
@@ -30,6 +31,7 @@ import {
   type ResumeApplicationMode,
   type ResumeTimelineRepairAction,
   type SavedJob,
+  type UpdateAiBehaviorInput,
   type UpdateApplicationDefaultsInput,
   type UpdateWorkspaceBehaviorInput,
   type UserActionRequest,
@@ -310,6 +312,7 @@ export function createWorkspaceSnapshotProfileMethods(
   | "saveSettings"
   | "updateApplicationDefaults"
   | "updateWorkspaceBehavior"
+  | "updateAiBehavior"
   | "updateTrackerCrm"
   | "updateAppearanceTheme"
 > {
@@ -1329,6 +1332,74 @@ export function createWorkspaceSnapshotProfileMethods(
     getWorkspaceSnapshot,
   });
 
+  async function saveSearchPreferences(searchPreferences: JobSearchPreferences) {
+    const currentProfile = await ctx.repository.getProfile();
+    const currentProfileSetupState =
+      await ctx.repository.getProfileSetupState();
+    const currentSearchPreferences = normalizeSearchPreferences(
+      await ctx.repository.getSearchPreferences(),
+    );
+    const nextSearchPreferences = invalidateChangedSourceGuidance(
+      currentSearchPreferences,
+      normalizeSearchPreferences(
+        JobSearchPreferencesSchema.parse(searchPreferences),
+      ),
+    );
+    await ctx.repository.saveSearchPreferences(nextSearchPreferences);
+    await syncActiveCampaignPreferences(nextSearchPreferences);
+    await deriveAndPersistProfileSetupState(ctx, {
+      persistedState: currentProfileSetupState,
+      profile: currentProfile,
+      searchPreferences: nextSearchPreferences,
+      latestResumeImportRunId:
+        (await ctx.repository.getLatestResumeImportRun())?.id ?? null,
+    });
+    return getWorkspaceSnapshot();
+  }
+
+  /**
+   * Merges the given application-default fields into the transaction-current
+   * settings. A resume-affecting change stales approved drafts first, and a
+   * change of the default resume mode pins the previous default onto active
+   * null-mode jobs in the same repository commit.
+   */
+  async function commitApplicationDefaultFields(
+    defaultsFields: Partial<JobFinderSettings>,
+  ): Promise<void> {
+    const availableResumeTemplates = ctx.documentManager.listResumeTemplates();
+    const mergeApplicationDefaults = (current: JobFinderSettings) =>
+      normalizeJobFinderSettings(
+        { ...current, ...defaultsFields },
+        availableResumeTemplates,
+      );
+
+    const currentSettings = normalizeJobFinderSettings(
+      await ctx.repository.getSettings(),
+      availableResumeTemplates,
+    );
+    const nextSettings = mergeApplicationDefaults(currentSettings);
+
+    if (hasResumeAffectingSettingsChange(currentSettings, nextSettings)) {
+      await ctx.staleApprovedResumeDrafts(RESUME_SETTINGS_STALE_REASON);
+    }
+
+    const previousResumeApplicationMode =
+      currentSettings.resumeApplicationMode ?? "tailored_per_job";
+    const nextResumeApplicationMode =
+      nextSettings.resumeApplicationMode ?? "tailored_per_job";
+
+    if (previousResumeApplicationMode === nextResumeApplicationMode) {
+      await ctx.repository.commitSettingsUpdate(mergeApplicationDefaults);
+    } else {
+      await ctx.repository.commitSavedJobDelta({
+        update: capturePreviousResumeApplicationMode(
+          previousResumeApplicationMode,
+        ),
+        updateSettings: mergeApplicationDefaults,
+      });
+    }
+  }
+
   return {
     getWorkspaceSnapshot,
     getWorkspaceBootstrap,
@@ -1618,30 +1689,7 @@ export function createWorkspaceSnapshotProfileMethods(
 
       return getWorkspaceSnapshot();
     },
-    async saveSearchPreferences(searchPreferences: JobSearchPreferences) {
-      const currentProfile = await ctx.repository.getProfile();
-      const currentProfileSetupState =
-        await ctx.repository.getProfileSetupState();
-      const currentSearchPreferences = normalizeSearchPreferences(
-        await ctx.repository.getSearchPreferences(),
-      );
-      const nextSearchPreferences = invalidateChangedSourceGuidance(
-        currentSearchPreferences,
-        normalizeSearchPreferences(
-          JobSearchPreferencesSchema.parse(searchPreferences),
-        ),
-      );
-      await ctx.repository.saveSearchPreferences(nextSearchPreferences);
-      await syncActiveCampaignPreferences(nextSearchPreferences);
-      await deriveAndPersistProfileSetupState(ctx, {
-        persistedState: currentProfileSetupState,
-        profile: currentProfile,
-        searchPreferences: nextSearchPreferences,
-        latestResumeImportRunId:
-          (await ctx.repository.getLatestResumeImportRun())?.id ?? null,
-      });
-      return getWorkspaceSnapshot();
-    },
+    saveSearchPreferences,
     async saveProfileSetupState(profileSetupState: ProfileSetupState) {
       const [profile, searchPreferences] = await Promise.all([
         ctx.repository.getProfile(),
@@ -1727,44 +1775,81 @@ export function createWorkspaceSnapshotProfileMethods(
     },
     async updateApplicationDefaults(input: UpdateApplicationDefaultsInput) {
       const parsedInput = UpdateApplicationDefaultsInputSchema.parse(input);
-      const availableResumeTemplates =
-        ctx.documentManager.listResumeTemplates();
-      const defaultsFields = pickDefined({
-        resumeApplicationMode: parsedInput.resumeApplicationMode,
-        resumeTemplateId: parsedInput.resumeTemplateId,
-        fontPreset: parsedInput.fontPreset,
-        coverLetter: parsedInput.coverLetter,
-      });
-      const mergeApplicationDefaults = (current: JobFinderSettings) =>
-        normalizeJobFinderSettings(
-          { ...current, ...defaultsFields },
-          availableResumeTemplates,
-        );
-
-      const currentSettings = normalizeJobFinderSettings(
-        await ctx.repository.getSettings(),
-        availableResumeTemplates,
+      await commitApplicationDefaultFields(
+        pickDefined({
+          resumeApplicationMode: parsedInput.resumeApplicationMode,
+          resumeTemplateId: parsedInput.resumeTemplateId,
+          fontPreset: parsedInput.fontPreset,
+          coverLetter: parsedInput.coverLetter,
+          applicationAutomationMode: parsedInput.applicationAutomationMode,
+          maxApplicationsPerLocalDay: parsedInput.maxApplicationsPerLocalDay,
+        }),
       );
-      const nextSettings = mergeApplicationDefaults(currentSettings);
+      return getWorkspaceSnapshot();
+    },
+    async updateAiBehavior(input: UpdateAiBehaviorInput) {
+      const parsedInput = UpdateAiBehaviorInputSchema.parse(input);
+      const resumeApproach = parsedInput.resumeApproach;
 
-      if (hasResumeAffectingSettingsChange(currentSettings, nextSettings)) {
-        await ctx.staleApprovedResumeDrafts(RESUME_SETTINGS_STALE_REASON);
-      }
+      // Settings first: the behavior preference, the letter preference, and
+      // the original-versus-tailored half of the resume approach. A change of
+      // that default pins the previous default onto active null-mode jobs in
+      // the same commit, exactly as the older application-defaults save did.
+      await commitApplicationDefaultFields(
+        pickDefined({
+          aiBehavior: parsedInput.aiBehavior,
+          coverLetter: parsedInput.coverLetter,
+          resumeApplicationMode:
+            resumeApproach === undefined
+              ? undefined
+              : resumeApproach === "original_resume"
+                ? ("original_resume" as const)
+                : ("tailored_per_job" as const),
+        }),
+      );
 
-      const previousResumeApplicationMode =
-        currentSettings.resumeApplicationMode ?? "tailored_per_job";
-      const nextResumeApplicationMode =
-        nextSettings.resumeApplicationMode ?? "tailored_per_job";
-
-      if (previousResumeApplicationMode === nextResumeApplicationMode) {
-        await ctx.repository.commitSettingsUpdate(mergeApplicationDefaults);
-      } else {
-        await ctx.repository.commitSavedJobDelta({
-          update: capturePreviousResumeApplicationMode(
-            previousResumeApplicationMode,
-          ),
-          updateSettings: mergeApplicationDefaults,
-        });
+      // Then the two search-preference fields this section owns. They go
+      // through the ordinary preferences save so the active plan's copy of
+      // the preferences (which a search actually reads) stays in step.
+      const nextTailoringMode =
+        resumeApproach !== undefined && resumeApproach !== "original_resume"
+          ? resumeApproach
+          : undefined;
+      const nextCollectOnlyHardCriteriaMatches =
+        parsedInput.aiBehavior === undefined
+          ? undefined
+          : parsedInput.aiBehavior.jobSearch.selectivity === "best_matches";
+      if (
+        nextTailoringMode !== undefined ||
+        nextCollectOnlyHardCriteriaMatches !== undefined
+      ) {
+        const currentSearchPreferences = normalizeSearchPreferences(
+          await ctx.repository.getSearchPreferences(),
+        );
+        const changed =
+          (nextTailoringMode !== undefined &&
+            nextTailoringMode !== currentSearchPreferences.tailoringMode) ||
+          (nextCollectOnlyHardCriteriaMatches !== undefined &&
+            nextCollectOnlyHardCriteriaMatches !==
+              (currentSearchPreferences.discovery
+                .collectOnlyHardCriteriaMatches ?? false));
+        if (changed) {
+          await saveSearchPreferences({
+            ...currentSearchPreferences,
+            ...(nextTailoringMode !== undefined
+              ? { tailoringMode: nextTailoringMode }
+              : {}),
+            discovery: {
+              ...currentSearchPreferences.discovery,
+              ...(nextCollectOnlyHardCriteriaMatches !== undefined
+                ? {
+                    collectOnlyHardCriteriaMatches:
+                      nextCollectOnlyHardCriteriaMatches,
+                  }
+                : {}),
+            },
+          });
+        }
       }
       return getWorkspaceSnapshot();
     },

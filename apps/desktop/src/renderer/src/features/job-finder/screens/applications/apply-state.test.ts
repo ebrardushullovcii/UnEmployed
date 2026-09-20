@@ -155,7 +155,7 @@ describe("the five apply states (ADR 0022)", () => {
   });
 
   it("names the one control after the mode", () => {
-    expect(applyActionLabel("fill_only")).toBe("Fill it in");
+    expect(applyActionLabel("fill_only")).toBe("Apply");
     expect(applyActionLabel("apply_for_me")).toBe("Apply");
     expect(applyAllActionLabel("fill_only")).toBe("Fill in all shortlisted");
     expect(applyAllActionLabel("apply_for_me")).toBe("Apply to all shortlisted");

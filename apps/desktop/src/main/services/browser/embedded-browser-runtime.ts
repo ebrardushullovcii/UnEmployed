@@ -8,6 +8,7 @@ import type {
   DiscoveryRunResult,
   JobSource,
 } from "@unemployed/contracts";
+import { describeApplicationPreparationProgress } from "@unemployed/job-finder";
 import type { EmbeddedBrowser } from "./embedded-browser";
 
 /**
@@ -53,19 +54,22 @@ export function withEmbeddedBrowserActivity(
     const tab = browser
       .getState()
       .tabs.find((candidate) => candidate.url === parked.url);
-    browser.requestAttention({
-      kind:
-        result.agentMetadata?.accessBlockerReason === "auth_required"
-          ? "sign_in"
-          : "challenge",
-      title:
-        result.agentMetadata?.accessBlockerReason === "auth_required"
-          ? "Sign in to continue"
-          : "This page needs a human",
-      detail:
-        result.warning?.slice(0, 500) ??
-        "Finish the step in this browser tab, then search this source again.",
-    });
+    browser.requestAttention(
+      {
+        kind:
+          result.agentMetadata?.accessBlockerReason === "auth_required"
+            ? "sign_in"
+            : "challenge",
+        title:
+          result.agentMetadata?.accessBlockerReason === "auth_required"
+            ? "Sign in to continue"
+            : "This page needs a human",
+        detail:
+          result.warning?.slice(0, 500) ??
+          "Finish the step in this browser tab, then search this source again.",
+      },
+      tab?.id,
+    );
     return {
       ...result,
       agentMetadata: result.agentMetadata
@@ -114,7 +118,9 @@ export function withEmbeddedBrowserActivity(
           runtime.openSession(source, options).then(flagSession),
         );
       }
-      await browser.takeControl();
+      // Opening the shared browser is observation or task-local help, not a
+      // request to stop every other discovery or preparation. Explicit
+      // takeover remains available for the page an active worker owns.
       await browser.command({
         type: "open",
         ...(options?.targetUrl ? { url: options.targetUrl } : {}),
@@ -147,9 +153,23 @@ export function withEmbeddedBrowserActivity(
       browser.runAutomation(
         "Preparing application",
         options?.signal,
-        (signal) =>
+        (signal, updateActivity) =>
           runtime
-            .executeApplicationFlow(source, input, { ...options, signal })
+            .executeApplicationFlow(
+              source,
+              {
+                ...input,
+                prepareApplicationForm: (formInput) =>
+                  input.prepareApplicationForm({
+                    ...formInput,
+                    onProgress: (progress) =>
+                      updateActivity(
+                        `Preparing application · Step ${progress.step}: ${describeApplicationPreparationProgress(progress.note)}`,
+                      ),
+                  }),
+              },
+              { ...options, signal },
+            )
             .then(flagResult),
       ),
     ...(runtime.runAgentDiscovery
@@ -178,13 +198,11 @@ export function withEmbeddedBrowserActivity(
                 );
                 return flagAfter(
                   source,
-                  runtime
-                    .runAgentDiscovery!(source, {
-                      ...options,
-                      protectedPages,
-                      signal,
-                    })
-                    .then(attachParkedTab),
+                  runtime.runAgentDiscovery!(source, {
+                    ...options,
+                    protectedPages,
+                    signal,
+                  }).then(attachParkedTab),
                 );
               },
             ),

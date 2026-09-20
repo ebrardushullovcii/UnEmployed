@@ -56,10 +56,12 @@ export function getProfileSetupStepFooterPrimary(input: {
   onPrimary: (() => void) | null;
 } {
   const currentStep = normalizeProfileSetupStep(input.currentStep);
-  const canOfferFinish =
-    currentStep === "targeting" || currentStep === "extras";
 
-  if (canOfferFinish && input.canFinishSetup) {
+  // Once nothing required is missing, finishing is the primary action on
+  // whichever step the person is on. A good import fills everything; walking
+  // Work history and Extras to reach a Finish button was three saves for
+  // nothing.
+  if (input.canFinishSetup) {
     return {
       disabled: false,
       label: PROFILE_SETUP_FINISH_LABEL,

@@ -1,5 +1,6 @@
 import type { ApplyAuthority } from "@unemployed/browser-agent";
 import {
+  ApplicationAuthorityEnvelopeSchema,
   isActiveApplicationAuthorityEnvelope,
   type ApplicationAuthorityEnvelope,
 } from "@unemployed/contracts";
@@ -183,4 +184,66 @@ export async function resolveApplyAuthorityForJob(input: {
     ...resolution,
     envelope: resolution.authority.mode === "prepare_only" ? null : envelope,
   };
+}
+
+/**
+ * Adds one independently reviewed ATS origin to the active task permission.
+ * The CAS update happens before a final-submit preflight can use the origin.
+ */
+export async function authorizeReviewedApplicationOrigin(input: {
+  repository: {
+    getApplicationAuthorityEnvelope: (
+      id: string,
+    ) => Promise<ApplicationAuthorityEnvelope | null>;
+    commitApplicationAuthorityEnvelope: (input: {
+      envelope: ApplicationAuthorityEnvelope;
+      expectedRevision: number | null;
+    }) => Promise<
+      | { status: "applied"; envelope: ApplicationAuthorityEnvelope }
+      | {
+          status: "stale" | "missing";
+          current: ApplicationAuthorityEnvelope | null;
+        }
+    >;
+  };
+  envelope: ApplicationAuthorityEnvelope;
+  jobId: string;
+  origin: string;
+  now: string;
+}): Promise<ApplicationAuthorityEnvelope | null> {
+  const origin = canonicalOriginOf(input.origin);
+  if (!origin) return null;
+
+  let current = await input.repository.getApplicationAuthorityEnvelope(
+    input.envelope.id,
+  );
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (
+      !current ||
+      current.mode === "prepare_only" ||
+      !isActiveApplicationAuthorityEnvelope(current, input.now) ||
+      (!current.scope.jobIds.includes(input.jobId) &&
+        current.scope.campaignId === null)
+    ) {
+      return null;
+    }
+    if (canonicalOrigins(current.allowedOrigins).includes(origin)) {
+      return current;
+    }
+
+    const envelope = ApplicationAuthorityEnvelopeSchema.parse({
+      ...current,
+      revision: current.revision + 1,
+      allowedOrigins: [...current.allowedOrigins, origin],
+    });
+    const committed = await input.repository.commitApplicationAuthorityEnvelope(
+      {
+        envelope,
+        expectedRevision: current.revision,
+      },
+    );
+    if (committed.status === "applied") return committed.envelope;
+    current = committed.current;
+  }
+  return null;
 }

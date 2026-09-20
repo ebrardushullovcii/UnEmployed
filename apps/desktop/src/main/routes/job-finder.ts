@@ -117,11 +117,15 @@ import {
   SnoozeGroupedDecisionInputSchema,
   SetCompanyPreferenceInputSchema,
   SetOutcomeSuggestionEnabledInputSchema,
+  UpdateAiBehaviorInputSchema,
   UpdateApplicationDefaultsInputSchema,
   UpdateWorkspaceBehaviorInputSchema,
   UserActionCommandSchema,
 } from "@unemployed/contracts";
-import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
+import type {
+  JobFinderApplyQueueActionInput,
+  JobFinderWorkspaceSnapshot,
+} from "@unemployed/contracts";
 import {
   createJobFinderProductActionToolRegistry,
   resolveTailoredAssetLabel,
@@ -133,6 +137,8 @@ import { publishJobFinderWorkspaceUpdate } from "../services/job-finder/workspac
 import { runBoundedNewSourceReadabilityCheck } from "../services/job-finder/new-source-readability-check";
 import {
   getDesktopTestDelayMs,
+  getJobFinderApplicationAuthorityService,
+  getJobFinderRepositoryForWorkspaceService,
   getJobFinderWorkspaceService,
   importResumeFromSourcePath,
   isDesktopTestApiEnabled,
@@ -159,6 +165,191 @@ import { registerJobFinderBootstrapDesktopRoutes } from "../setup/register-job-f
 
 function parseAgentDiscoveryRequest(payload: unknown) {
   return JobFinderAgentDiscoveryActionInputSchema.parse(payload);
+}
+
+function canonicalOrigin(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Turns the saved plain-language apply mode into one current, task-scoped
+ * authority. Settings never stores an empty envelope: the exact jobs,
+ * resumes, and known application origins only exist when the task starts.
+ */
+async function syncApplicationAuthorityForSavedMode(
+  workspaceService: Awaited<ReturnType<typeof getJobFinderWorkspaceService>>,
+  jobIds: readonly string[],
+  modeOverride?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
+): Promise<void> {
+  const repository = getJobFinderRepositoryForWorkspaceService(workspaceService);
+  if (!repository) return;
+
+  const settings = await repository.getSettings();
+  const mode =
+    modeOverride ?? settings.applicationAutomationMode ?? "prepare_only";
+  const authorityService = getJobFinderApplicationAuthorityService();
+  const active = (await authorityService.list({ status: "active" }))[0] ?? null;
+
+  if (mode === "prepare_only") {
+    if (active) {
+      await authorityService.revoke({
+        id: active.id,
+        expectedRevision: active.revision,
+      });
+    }
+    return;
+  }
+
+  const [profileState, jobs] = await Promise.all([
+    repository.getProfileWithRevision(),
+    repository.listSavedJobs(),
+  ]);
+  const selectedJobs = jobs.filter((job) => jobIds.includes(job.id));
+  const resumeDigests: string[] = [];
+  const scopedJobIds: string[] = [];
+  const origins: string[] = [];
+
+  for (const job of selectedJobs) {
+    const usesOriginalResume =
+      (job.resumeApplicationMode ??
+        settings.resumeApplicationMode ??
+        "tailored_per_job") === "original_resume";
+    const exports = usesOriginalResume
+      ? []
+      : await repository.listResumeExportArtifacts({ jobId: job.id });
+    const latestApproved = exports
+      .filter((artifact) => artifact.isApproved && Boolean(artifact.sha256))
+      .sort((left, right) => right.exportedAt.localeCompare(left.exportedAt))[0];
+    const resumeSha256 = (
+      usesOriginalResume
+        ? profileState.profile.baseResume.sha256
+        : latestApproved?.sha256
+    )
+      ?.trim()
+      .toLowerCase();
+    if (!resumeSha256) continue;
+
+    scopedJobIds.push(job.id);
+    resumeDigests.push(resumeSha256);
+    for (const value of [job.applicationUrl, job.canonicalUrl]) {
+      const origin = canonicalOrigin(value);
+      if (origin) origins.push(origin);
+    }
+  }
+
+  const uniqueJobIds = [...new Set(scopedJobIds)];
+  const uniqueDigests = [...new Set(resumeDigests)];
+  const uniqueOrigins = [...new Set(origins)];
+  if (
+    uniqueJobIds.length === 0 ||
+    uniqueDigests.length === 0 ||
+    uniqueOrigins.length === 0
+  ) {
+    return;
+  }
+
+  // The switch in Settings is the approval of the person's current answers
+  // (ADR 0022). A profile write that lands between the read and the approval
+  // makes it stale once; a second attempt reads the fresh revision. Anything
+  // else is said plainly: this used to return silently, and Send for me then
+  // ran as Fill-in without a word.
+  let answerApproval = await authorityService.approveCurrentAnswers({
+    expectedProfileRevision: profileState.revision,
+    confirmedCurrentAnswers: true,
+  });
+  if (answerApproval.status === "stale") {
+    const fresh = await repository.getProfileWithRevision();
+    answerApproval = await authorityService.approveCurrentAnswers({
+      expectedProfileRevision: fresh.revision,
+      confirmedCurrentAnswers: true,
+    });
+  }
+  if (
+    answerApproval.status !== "created" &&
+    answerApproval.status !== "duplicate"
+  ) {
+    throw new Error(
+      "Job Finder could not confirm your saved answers, so it did not start. Try again in a moment.",
+    );
+  }
+
+  const dailyCap = settings.maxApplicationsPerLocalDay ?? 20;
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000).toISOString();
+  const combinedJobIds = [...new Set([...(active?.scope.jobIds ?? []), ...uniqueJobIds])];
+  const combinedDigests = [
+    ...new Set([...(active?.allowedResumeSha256 ?? []), ...uniqueDigests]),
+  ];
+  const combinedOrigins = [
+    ...new Set([...(active?.allowedOrigins ?? []), ...uniqueOrigins]),
+  ];
+  const policyInput = {
+    mode,
+    scope: {
+      campaignId: null,
+      jobIds: combinedJobIds.slice(-1000),
+    },
+    maxApplicationsPerRun: Math.max(
+      active?.maxApplicationsPerRun ?? 0,
+      Math.min(dailyCap, Math.max(1, jobIds.length)),
+    ),
+    maxApplicationsPerLocalDay: dailyCap,
+    intermediateMutationsAuthorized: true,
+    preApprovedAttestationKinds:
+      active?.decisionPolicy?.answerPolicy.preApprovedAttestationKinds ?? [],
+    salaryDisclosure:
+      active?.decisionPolicy?.answerPolicy.salaryDisclosure ?? "pause_for_user",
+    allowedResumeSha256: combinedDigests.slice(-1000),
+    allowedOrigins: combinedOrigins.slice(-1000),
+    expiresAt,
+  } as const;
+
+  // Approving the answers above can move the envelope's revision, so the
+  // update reads it again just before writing. A stale update used to be
+  // ignored: the person switched to Ask before sending, or applied to a new
+  // job, and the envelope silently kept its old mode and scope, so the run
+  // narrowed itself to fill-in without a word.
+  const current =
+    (await authorityService.list({ status: "active" }))[0] ?? active;
+  const mutation = current
+    ? await authorityService.update({
+        ...policyInput,
+        id: current.id,
+        expectedRevision: current.revision,
+      })
+    : await authorityService.create(policyInput);
+  if (mutation.status === "stale" || mutation.status === "missing") {
+    // An envelope a submission has already used cannot be edited in place
+    // (the repository refuses it, so a sent application always points at
+    // the exact permission it was sent under). The switch's permission is
+    // one growing grant per person (ADR 0024), so it is replaced: revoke the
+    // used one and create the next with the combined scope.
+    const fresh = (await authorityService.list({ status: "active" }))[0];
+    if (fresh) {
+      const revoked = await authorityService.revoke({
+        id: fresh.id,
+        expectedRevision: fresh.revision,
+      });
+      if (revoked.status === "stale" || revoked.status === "missing") {
+        throw new Error(
+          "Job Finder could not record your applying permission for this job, so it did not start. Try again in a moment.",
+        );
+      }
+    }
+    const created = await authorityService.create(policyInput);
+    if (created.status === "stale" || created.status === "missing") {
+      throw new Error(
+        "Job Finder could not record your applying permission for this job, so it did not start. Try again in a moment.",
+      );
+    }
+  }
 }
 
 function parseOptionalRequestId(payload: unknown): string | null {
@@ -354,6 +545,7 @@ export function registerJobFinderRouteHandlers(
             return jobFinderWorkspaceService.setJobResumeApplicationMode(
               input.mutation.jobId,
               input.mutation.resumeApplicationMode,
+              input.mutation.resumeTailoringMode,
             );
           case "remove_job_from_review":
             return jobFinderWorkspaceService.removeJobFromReview(
@@ -873,6 +1065,17 @@ export function registerJobFinderRouteHandlers(
   );
 
   handleJobFinderSaveRoute(
+    "job-finder:update-ai-behavior",
+    async (_event, payload: unknown) => {
+      const input = UpdateAiBehaviorInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.updateAiBehavior(input);
+
+      return workspaceMutationResponse(snapshot);
+    },
+  );
+
+  handleJobFinderSaveRoute(
     "job-finder:update-appearance-theme",
     async (_event, payload: unknown) => {
       const appearanceTheme = AppearanceThemeSchema.parse(payload);
@@ -1132,6 +1335,13 @@ export function registerJobFinderRouteHandlers(
       const parsed = {
         sourceUrl: new URL(candidate.sourceUrl).href,
         applicationUrl: new URL(candidate.applicationUrl).href,
+        ...(typeof candidate.secondaryApplicationUrl === "string"
+          ? {
+              secondaryApplicationUrl: new URL(
+                candidate.secondaryApplicationUrl,
+              ).href,
+            }
+          : {}),
       };
       return loadAgentOwnedBrowserDriveState(parsed);
     },
@@ -1321,7 +1531,8 @@ export function registerJobFinderRouteHandlers(
     async (event, payload: unknown) => {
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const window = event.sender;
-      const { requestId, targetId } = parseAgentDiscoveryRequest(payload);
+      const { requestId, targetId, searchRequest } =
+        parseAgentDiscoveryRequest(payload);
 
       try {
         const snapshot = await jobFinderWorkspaceService.runAgentDiscovery(
@@ -1334,6 +1545,7 @@ export function registerJobFinderRouteHandlers(
           },
           undefined,
           targetId ?? undefined,
+          searchRequest,
         );
 
         // The service resolves cancelled runs (it finalizes the run record as
@@ -1548,13 +1760,14 @@ export function registerJobFinderRouteHandlers(
   ipcMain.handle(
     "job-finder:set-job-resume-application-mode",
     async (_event, payload: unknown) => {
-      const { jobId, resumeApplicationMode } =
+      const { jobId, resumeApplicationMode, resumeTailoringMode } =
         JobFinderJobResumeApplicationModeInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot =
         await jobFinderWorkspaceService.setJobResumeApplicationMode(
           jobId,
           resumeApplicationMode,
+          resumeTailoringMode,
         );
 
       return workspaceMutationResponse(snapshot);
@@ -2249,6 +2462,9 @@ export function registerJobFinderRouteHandlers(
         visualCheckpointsEnabled,
       } = JobFinderApplyCopilotActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      await syncApplicationAuthorityForSavedMode(jobFinderWorkspaceService, [
+        jobId,
+      ]);
       const snapshot = await jobFinderWorkspaceService.startApplyCopilotRun(
         jobId,
         {
@@ -2267,6 +2483,9 @@ export function registerJobFinderRouteHandlers(
       const { jobId, applicationRecordId, startNewApplication } =
         JobFinderApplicationStartTargetSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      await syncApplicationAuthorityForSavedMode(jobFinderWorkspaceService, [
+        jobId,
+      ]);
       const snapshot = await jobFinderWorkspaceService.startAutoApplyRun(
         jobId,
         startNewApplication ? null : applicationRecordId,
@@ -2279,12 +2498,45 @@ export function registerJobFinderRouteHandlers(
   ipcMain.handle(
     "job-finder:start-auto-apply-queue-run",
     async (_event, payload: unknown) => {
-      const { jobIds } = JobFinderApplyQueueActionInputSchema.parse(payload);
+      const { jobIds, applicationAutomationMode } =
+        JobFinderApplyQueueActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot =
+      await syncApplicationAuthorityForSavedMode(
+        jobFinderWorkspaceService,
+        jobIds,
+        applicationAutomationMode,
+      );
+      const staged =
         await jobFinderWorkspaceService.startAutoApplyQueueRun(jobIds);
 
-      return workspaceMutationResponse(snapshot);
+      // "Apply to all" is one press (ADR 0022, ADR 0026): the mode chosen in
+      // Settings is the permission, so the batch starts at once instead of
+      // waiting for a second "Start preparing N jobs" click on Applications.
+      // Approval runs the whole batch, so it is not awaited here.
+      const requested = new Set(jobIds);
+      const stagedRun = [...staged.applyRuns]
+        .filter(
+          (run) =>
+            run.mode === "queue_auto" &&
+            run.state === "awaiting_submit_approval" &&
+            run.jobIds.length === requested.size &&
+            run.jobIds.every((jobId) => requested.has(jobId)),
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+      if (stagedRun) {
+        void jobFinderWorkspaceService
+          .approveApplyRun(stagedRun.id)
+          .catch((error: unknown) => {
+            console.error("Apply to all could not start.", error);
+          });
+        // Give the approval a moment to mark the run as running so the
+        // Applications rows the person lands on say Filling in, not Waiting.
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+
+      return workspaceMutationResponse(
+        await jobFinderWorkspaceService.getWorkspaceSnapshot(),
+      );
     },
   );
 

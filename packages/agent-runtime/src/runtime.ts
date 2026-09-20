@@ -90,6 +90,8 @@ export interface AgentTaskRunOptions<TState, TDraft> {
   }) => unknown;
   readonly signal?: AbortSignal;
   readonly timeBudgetMs?: number;
+  /** Maximum time for one provider turn; also capped by the task time left. */
+  readonly modelTurnTimeoutMs?: number;
   /** A provider-call ceiling used as the deterministic cost guard. */
   readonly providerCallBudget?: number;
   readonly noProgressLimit?: number;
@@ -192,6 +194,10 @@ export async function runAgentTask<TState, TDraft>(
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
   const timeBudgetMs = Math.max(1_000, options.timeBudgetMs ?? 90_000);
+  const modelTurnTimeoutMs = Math.max(
+    10,
+    options.modelTurnTimeoutMs ?? timeBudgetMs,
+  );
   const noProgressLimit = Math.max(1, options.noProgressLimit ?? 4);
   const providerCallBudget = Math.max(1, options.providerCallBudget ?? 24);
   const emergencyCeiling = Math.max(4, options.emergencyCeiling ?? 32);
@@ -286,29 +292,71 @@ export async function runAgentTask<TState, TDraft>(
         stopReason = "cost_budget";
         break;
       }
+      let turnTimeout: AbortController | null = null;
       try {
         providerCalls += 1;
-        response = await options.model.chat({
-          messages,
-          tools: options.tools.map((tool) => ({
-            type: "function",
-            function: {
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.parameters,
-            },
-          })),
-          ...(options.signal ? { signal: options.signal } : {}),
-        });
+        const turnController = new AbortController();
+        turnTimeout = turnController;
+        const remainingMs = Math.max(
+          1,
+          timeBudgetMs - (Date.now() - startedAtMs),
+        );
+        const turnTimer = setTimeout(
+          () => turnController.abort(),
+          Math.min(modelTurnTimeoutMs, remainingMs),
+        );
+        const turnSignal = options.signal
+          ? AbortSignal.any([options.signal, turnController.signal])
+          : turnController.signal;
+        try {
+          response = await Promise.race([
+            options.model.chat({
+              messages,
+              tools: options.tools.map((tool) => ({
+                type: "function",
+                function: {
+                  name: tool.name,
+                  description: tool.description,
+                  parameters: tool.parameters,
+                },
+              })),
+              signal: turnSignal,
+            }),
+            new Promise<never>((_resolve, reject) => {
+              turnController.signal.addEventListener(
+                "abort",
+                () => reject(new DOMException("Timed out", "AbortError")),
+                { once: true },
+              );
+            }),
+          ]);
+        } finally {
+          clearTimeout(turnTimer);
+        }
         break;
       } catch (error) {
+        if (options.signal?.aborted) throw error;
+        if (turnTimeout?.signal.aborted) {
+          emitProgress(
+            "timed_out",
+            "The assistant did not answer before this turn's time limit",
+          );
+          stopReason = "time_budget";
+          break;
+        }
+        if (Date.now() - startedAtMs >= timeBudgetMs) {
+          stopReason = "time_budget";
+          break;
+        }
         const failureKind = classifyAgentTaskFailure(error);
         if (!shouldRetry(failureKind) || attempt === 2) throw error;
         await waitForBackoff(attempt, options.signal);
       }
     }
     if (!response) {
-      if (stopReason !== "cost_budget") stopReason = "permanent_failure";
+      if (stopReason !== "cost_budget" && stopReason !== "time_budget") {
+        stopReason = "permanent_failure";
+      }
       break;
     }
     recentMessages.push({

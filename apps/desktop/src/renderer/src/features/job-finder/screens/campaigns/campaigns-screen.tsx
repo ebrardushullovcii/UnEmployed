@@ -25,7 +25,7 @@ import {
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
 import { EmptyState } from "../../components/empty-state";
-import { PageHeader } from "../../components/page-header";
+import { PageHeaderStack } from "../../components/page-header";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import { CampaignConfirmDialog } from "./campaign-confirm-dialog";
 import { CampaignRuleBuilder } from "./campaign-rule-builder";
@@ -1671,7 +1671,7 @@ export function CampaignsScreen(props: {
 
   return (
     <section className="grid gap-5 pb-8">
-      <PageHeader
+      <PageHeaderStack
         actions={
           // The banner below says most people should stay on the default
           // plan, so creating one is a secondary action, not the only filled

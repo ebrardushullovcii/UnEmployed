@@ -155,6 +155,7 @@ function createInput(
       RunSyntheticApplicationSubmissionInput["observation"]
     >;
     executionGrantId?: string | null;
+    personConfirmation?: { grantedAt: string; expiresAt: string } | null;
   } = {},
 ): RunSyntheticApplicationSubmissionInput {
   const mode = options.mode ?? "autonomous_submit";
@@ -187,9 +188,15 @@ function createInput(
     executor: options.executor ?? createNotSubmittedExecutor(),
   };
 
-  return options.executionGrantId === undefined
-    ? input
-    : { ...input, executionGrantId: options.executionGrantId };
+  return {
+    ...input,
+    ...(options.executionGrantId === undefined
+      ? {}
+      : { executionGrantId: options.executionGrantId }),
+    ...(options.personConfirmation
+      ? { personConfirmation: options.personConfirmation }
+      : {}),
+  };
 }
 
 async function commitEnvelope(
@@ -315,6 +322,28 @@ describe("synthetic application submission orchestrator", () => {
       await repository.getSubmissionIdempotencyRecord("submit_once_1"),
     ).toMatchObject({ status: "resolved", outcome: "not_submitted" });
     expect(await repository.listSubmissionArmedMarkers()).toHaveLength(1);
+  });
+
+  test("the person's press on Send becomes the confirm grant, issued after the preflight", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    await commitEnvelope(repository, "confirm_before_submit");
+    const executor = createNotSubmittedExecutor();
+
+    const result = await runSyntheticApplicationSubmission(
+      createInput(repository, {
+        mode: "confirm_before_submit",
+        executor,
+        personConfirmation: { grantedAt: NOW, expiresAt: EXPIRES_AT },
+      }),
+    );
+
+    expect(result.status).toBe("recorded_not_submitted");
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+    const grants = await repository.listSubmissionExecutionGrants({
+      preflightId: "preflight_1",
+    });
+    expect(grants).toHaveLength(1);
+    expect(grants[0]).toMatchObject({ grantedBy: "user", status: "consumed" });
   });
 
   test("keeps prepare-only mode blocked and never arms or executes", async () => {
@@ -522,7 +551,7 @@ describe("synthetic application submission orchestrator", () => {
     expect(retryExecutor.execute).not.toHaveBeenCalled();
   });
 
-  test("rejects a fabricated submitted-like executor result as uncertainty", async () => {
+  test("records submitted when the executor provides employer-site evidence", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
     await commitEnvelope(repository);
     const fabricatedSubmittedResult = {
@@ -535,7 +564,7 @@ describe("synthetic application submission orchestrator", () => {
           observedAt: NOW,
           destination: { origin: ORIGIN, safePath: "/confirmation" },
           artifactRefId: null,
-          summary: "A synthetic executor must not claim external submission.",
+          summary: "The employer site confirmed receipt.",
         },
       ],
     } as unknown as SyntheticSubmissionExecutorResult;
@@ -547,18 +576,13 @@ describe("synthetic application submission orchestrator", () => {
       createInput(repository, { executor }),
     );
 
-    expect(result).toMatchObject({
-      status: "outcome_uncertain",
-      cause: "invalid_executor_result",
-    });
-    if (result.status !== "outcome_uncertain") {
-      throw new Error(
-        "Expected malformed executor evidence to become uncertain",
-      );
+    expect(result.status).toBe("submitted");
+    if (result.status !== "submitted") {
+      throw new Error("Expected employer confirmation to count as submitted");
     }
     expect(result.outcome).toMatchObject({
-      outcome: "outcome_uncertain",
-      retry: { eligible: false, blockReason: "outcome_uncertain" },
+      outcome: "submitted",
+      retry: { eligible: false, blockReason: "submission_confirmed" },
     });
   });
 

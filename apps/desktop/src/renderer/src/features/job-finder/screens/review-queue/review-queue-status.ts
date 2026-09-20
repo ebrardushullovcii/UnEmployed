@@ -1,5 +1,6 @@
 import {
   isPreparedApplicationStatus,
+  type ApplicationAttemptState,
   type ApplicationStatus,
   type BrowserSessionState,
   type ReviewQueueItem,
@@ -78,52 +79,61 @@ export function getReviewQueueWorkflowStatus(
 
   if (hasResumeGenerationFailure(item, asset)) {
     return {
-      label: "Resume issue",
+      label: "Resume failed",
       tone: "critical",
     };
   }
 
   if (isPending) {
     return {
-      label: "Preparing resume",
+      label: "Writing resume",
       tone: "active",
     };
   }
 
   if (applicationPreparingJobIds?.has(item.jobId)) {
     return {
-      label: "Preparing application",
+      label: "Applying",
       tone: "active",
     };
   }
 
   if (item.assetStatus === "not_started") {
     return {
-      label: "Needs resume",
-      tone: "muted",
+      label:
+        item.resumeApplicationMode === "original_resume"
+          ? "Ready to apply"
+          : "No resume yet",
+      tone: item.resumeApplicationMode === "original_resume" ? "positive" : "muted",
     };
   }
 
   if (item.assetStatus === "generating" || item.assetStatus === "queued") {
     return {
-      label: "Preparing resume",
+      label: "Writing resume",
       tone: "active",
     };
   }
 
   if (preparedJobIds?.has(item.jobId)) {
     return {
-      label: "Application prepared",
+      label: "In Applications",
       tone: "positive",
+    };
+  }
+
+  // An Aggressive draft is read by the person before it is used (ADR 0018),
+  // so the row says so instead of promising Apply.
+  if (needsPersonResumeReview(item)) {
+    return {
+      label: "Review resume",
+      tone: "active",
     };
   }
 
   if (isQueueStageReady(item)) {
     return {
-      label:
-        item.resumeReview.status === "original_resume"
-          ? "Original resume ready"
-          : "Ready to prepare",
+      label: "Ready to apply",
       tone: "positive",
     };
   }
@@ -146,9 +156,23 @@ export function getReviewQueueWorkflowStatus(
   }
 
   return {
-    label: "Needs approval",
+    label: "Review resume",
     tone: "active",
   };
+}
+
+/**
+ * True when the draft has to be read by the person before it is used: an
+ * Aggressive draft that is not yet approved (ADR 0018). Light and Tailored
+ * keep every fact, so pressing Apply is their approval.
+ */
+export function needsPersonResumeReview(item: ReviewQueueItem | null): boolean {
+  return (
+    item !== null &&
+    item.resumeApplicationMode !== "original_resume" &&
+    item.resumeTailoringMode === "aggressive" &&
+    item.resumeReview.status !== "approved"
+  );
 }
 
 export function isResumeGenerationInProgress(
@@ -211,7 +235,7 @@ export function collectInProgressApplicationJobIds(
   applicationRecords:
     | readonly {
         jobId: string;
-        lastAttemptState?: "in_progress" | string | null | undefined;
+        lastAttemptState?: ApplicationAttemptState | null | undefined;
       }[]
     | undefined,
 ): ReadonlySet<string> {
@@ -239,6 +263,10 @@ export function isQueueStageReady(
     return true;
   }
 
+  if (needsPersonResumeReview(item)) {
+    return false;
+  }
+
   return Boolean(
     item.assetStatus === "ready" &&
     item.resumeAssetId &&
@@ -250,39 +278,9 @@ export function isQueueStageReady(
 }
 
 /**
- * The one sentence that says a shortlisted job cannot join a preparation
- * batch. The row's disabled reason and the batch card read it from here, so
- * the row can never name a resume state the batch does not accept.
- */
-export const QUEUE_STAGE_RESUME_REQUIREMENT =
-  "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original resume.";
-
-/**
- * Why no shortlisted job can be prepared right now, in the words of what
- * would change it; null when at least one job can.
- */
-export function describeQueueStagePreparationBlocker(
-  queue: readonly ReviewQueueItem[],
-  preparedJobIds?: ReadonlySet<string>,
-): string | null {
-  if (countQueueStageReady(queue, preparedJobIds) > 0) {
-    return null;
-  }
-
-  if (queue.length === 0) {
-    return "Shortlist a job first — preparation runs on the jobs you shortlisted.";
-  }
-
-  if (queue.every((item) => preparedJobIds?.has(item.jobId))) {
-    return "An application is already prepared for every shortlisted job. Open them from Applications to continue.";
-  }
-
-  return QUEUE_STAGE_RESUME_REQUIREMENT;
-}
-
-/**
- * Shortlisted list-card caption for the resume policy. Must match readiness:
- * never say a tailored resume "will be created" when an approved PDF is ready.
+ * Shortlisted row caption: what the resume for this job is right now, in
+ * one short line. Must match readiness: never say a resume "will be created"
+ * when one is ready.
  */
 export function getReviewQueueResumePolicyCaption(
   item: ReviewQueueItem,
@@ -296,18 +294,12 @@ export function getReviewQueueResumePolicyCaption(
 
   if (item.resumeApplicationMode === "original_resume") {
     return item.resumeReview.status === "original_resume"
-      ? "Original resume ready"
-      : "Original resume will be used unchanged";
-  }
-
-  if (isQueueStageReady(item)) {
-    return item.resumeReview.status === "approved"
-      ? "Approved resume ready"
-      : "Tailored draft ready for your review";
+      ? "Original resume, unchanged"
+      : "Original resume, unchanged (import it in Profile)";
   }
 
   if (item.assetStatus === "generating" || item.assetStatus === "queued") {
-    return "Creating a tailored resume…";
+    return "Writing the resume…";
   }
 
   if (item.resumeReview.status === "stale") {
@@ -315,20 +307,27 @@ export function getReviewQueueResumePolicyCaption(
   }
 
   if (hasResumeGenerationFailure(item)) {
-    return "Tailored resume needs another try";
+    return "Resume failed — try again";
+  }
+
+  if (item.resumeReview.status === "approved") {
+    return "Resume approved";
+  }
+
+  if (needsPersonResumeReview(item)) {
+    return "Resume ready — review it before applying";
   }
 
   if (
     item.assetStatus === "ready" ||
     item.resumeReview.status === "needs_review" ||
-    item.resumeReview.status === "draft" ||
-    item.resumeReview.status === "approved"
+    item.resumeReview.status === "draft"
   ) {
-    return "Tailored draft ready for your review";
+    return "Resume ready — Apply approves it";
   }
 
   // Nothing has been requested yet; name the need, not a promised action.
-  return "Needs a tailored resume";
+  return "No resume yet";
 }
 
 /**
@@ -372,17 +371,17 @@ export function describeTailoredDraftPreparationBlocker(
   }
 
   if (queue.length === 0) {
-    return "Shortlist a job first — this writes the first draft for jobs that have none.";
+    return "Shortlist a job first.";
   }
 
   const allOriginalResume = queue.every(
     (item) => item.resumeApplicationMode === "original_resume",
   );
   if (allOriginalResume) {
-    return "Every shortlisted job is set to use your original resume, so there is no draft to write. Switch a job to a tailored resume to use this.";
+    return "Every job here uses your original resume, so there is nothing to write.";
   }
 
-  return "Every shortlisted job already has a draft. This only writes first drafts for jobs that have none.";
+  return "Every job here already has a resume.";
 }
 
 export function getTailoredDraftPreparationCandidates(
@@ -519,8 +518,8 @@ export async function prepareTailoredDraftsSequentially(
 function formatEligibleRemainderSentence(count: number): string {
   const safeCount = Math.max(0, count);
   return safeCount === 1
-    ? "1 eligible job remains for another run."
-    : `${safeCount} eligible jobs remain for another run.`;
+    ? "1 more job still needs a resume; run it again."
+    : `${safeCount} more jobs still need a resume; run it again.`;
 }
 
 /**
@@ -542,26 +541,26 @@ export function getTailoredDraftPreparationResultMessage(
   const completedCount = Math.max(0, state.completedCount);
   const failedCount = Math.max(0, state.failedCount);
   const eligibleRemainingCount = Math.max(0, state.eligibleRemainingCount);
-  const completedDrafts = `${completedCount} tailored draft${completedCount === 1 ? "" : "s"}`;
+  const completedDrafts = `${completedCount} resume${completedCount === 1 ? "" : "s"}`;
   const remainderSentence =
     eligibleRemainingCount > 0
       ? ` ${formatEligibleRemainderSentence(eligibleRemainingCount)}`
       : "";
 
   if (state.status === "completed") {
-    return `Prepared ${completedDrafts}.${remainderSentence} Each draft still needs your review and approval. Nothing was approved, queued, submitted, or sent.`;
+    return `Wrote ${completedDrafts}.${remainderSentence} Nothing was sent.`;
   }
 
   if (state.status === "stopped") {
-    return `Stopped after ${completedCount} completed draft${completedCount === 1 ? "" : "s"}. Nothing was approved, queued, submitted, or sent.`;
+    return `Stopped after ${completedDrafts}. Nothing was sent.`;
   }
 
   const ranToCompletion = state.attemptedCount >= state.totalCount;
   const leadSentence = ranToCompletion
-    ? `Prepared ${completedDrafts}; ${failedCount} failed.`
-    : `Stopped after ${completedCount} completed draft${completedCount === 1 ? "" : "s"}; ${failedCount} failed.`;
+    ? `Wrote ${completedDrafts}; ${failedCount} failed.`
+    : `Stopped after ${completedDrafts}; ${failedCount} failed.`;
 
-  return `${leadSentence}${remainderSentence} Fix the failed job${failedCount === 1 ? "" : "s"} and rerun to target only remaining eligible jobs. Nothing was approved, queued, submitted, or sent.`;
+  return `${leadSentence}${remainderSentence} Run it again to retry the failed job${failedCount === 1 ? "" : "s"}. Nothing was sent.`;
 }
 
 export function getApplyReadinessStatus(params: {
@@ -594,31 +593,31 @@ export function getApplyReadinessStatus(params: {
 
   if (hasGenerationFailure) {
     return {
-      label: "Resume issue",
+      label: "Resume failed",
       tone: "critical",
     };
   }
 
-  // An in-flight run wins over "Needs resume": both flags are true while a
+  // An in-flight run wins over "No resume yet": both flags are true while a
   // draft is being written, and the readiness description already orders
   // them this way.
   if (isGenerating) {
     return {
-      label: "Preparing resume",
+      label: "Writing resume",
       tone: "active",
     };
   }
 
   if (needsGeneration) {
     return {
-      label: "Needs resume",
+      label: "No resume yet",
       tone: "muted",
     };
   }
 
   if (!hasReadyApprovedAsset) {
     return {
-      label: resumeReviewStatus === "stale" ? "Out of date" : "Needs approval",
+      label: resumeReviewStatus === "stale" ? "Out of date" : "Review resume",
       tone: "critical",
     };
   }
@@ -656,7 +655,7 @@ export function getApplyReadinessStatus(params: {
 
   if (browserSession.status === "ready") {
     return {
-      label: "Ready to prepare",
+      label: "Ready to apply",
       tone: "positive",
     };
   }

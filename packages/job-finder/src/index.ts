@@ -57,6 +57,7 @@ export {
 } from "./internal/listing-detail-enrichment";
 
 export { DiscoveryRunAlreadyActiveError } from "./internal/workspace-discovery-methods";
+export { describeApplicationPreparationProgress } from "./internal/application-preparation-progress";
 
 // One rule for what a tailored document is called, so the Electron layer's
 // exported file name cannot disagree with the name the screens print.

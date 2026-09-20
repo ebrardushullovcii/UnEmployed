@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Owns profile, resume import, discovery, source-debug, resume workspace, review queue, applications, and apply orchestration. The user flow is Profile -> Find jobs -> Shortlisted -> Applications; Needs you, Task center, and Settings support that flow without adding steps.
+Owns profile, resume import, discovery, source-debug, resume workspace, review queue, applications, and apply orchestration. The user flow is Profile -> Find jobs -> Shortlisted -> Applications; Needs you, Activity, and Settings support that flow without adding steps.
 
 ## Hard Rules
 

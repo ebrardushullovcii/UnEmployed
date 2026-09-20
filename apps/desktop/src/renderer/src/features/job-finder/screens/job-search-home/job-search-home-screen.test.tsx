@@ -916,7 +916,7 @@ describe("JobSearchHomeScreen", () => {
     // to stop background work could not find one when it only appeared while
     // work was in flight.
     expect(
-      screen.getByRole("button", { name: "Pause background work" }),
+      screen.getByRole("button", { name: "Pause" }),
     ).toBeTruthy();
     expect(
       screen.getByText(/No browser or application work is running/),
@@ -946,10 +946,10 @@ describe("JobSearchHomeScreen", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "Pause background work" }),
+      screen.getByRole("button", { name: "Pause" }),
     ).toBeTruthy();
     fireEvent.click(
-      screen.getByRole("button", { name: "Pause background work" }),
+      screen.getByRole("button", { name: "Pause" }),
     );
     expect(onPauseActivity).toHaveBeenCalledOnce();
     expect(screen.getByText(/1 unread/)).toBeTruthy();
@@ -978,7 +978,7 @@ describe("JobSearchHomeScreen", () => {
       />,
     );
     expect(
-      screen.getByRole("button", { name: "Resume background work" }),
+      screen.getByRole("button", { name: "Resume" }),
     ).toBeTruthy();
 
     rerender(
@@ -998,7 +998,7 @@ describe("JobSearchHomeScreen", () => {
     // An idle returning dashboard still states what is true and still offers
     // the switch.
     expect(
-      screen.getByRole("button", { name: "Pause background work" }),
+      screen.getByRole("button", { name: "Pause" }),
     ).toBeTruthy();
     expect(
       screen.getByText(/No browser or application work is running/),
@@ -1480,7 +1480,7 @@ describe("JobSearchHomeScreen", () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Pause background work" }),
+      screen.getByRole("button", { name: "Pause" }),
     );
     expect(onPauseActivity).toHaveBeenCalledOnce();
   });

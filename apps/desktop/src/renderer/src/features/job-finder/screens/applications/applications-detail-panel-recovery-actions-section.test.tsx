@@ -348,7 +348,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     });
   });
 
-  it("offers only Answer in Needs you when the form is waiting on an answer", () => {
+  it("offers only Answer the questions when the form is waiting on an answer", () => {
     const onOpenNeedsYou = vi.fn();
     const { container, getByRole, getByTestId, queryByRole } = renderSection({
       onOpenNeedsYou,
@@ -360,12 +360,12 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
       }),
     });
 
-    expect(primaryButtonLabels(container)).toEqual(["Answer in Needs you"]);
+    expect(primaryButtonLabels(container)).toEqual(["Answer the questions"]);
     expect(getByTestId("applications-recovery-reason").textContent).toBe(
       "The form asks: How many years of Kubernetes do you have?",
     );
     expect(queryByRole("button", { name: "Try again" })).toBeNull();
-    fireEvent.click(getByRole("button", { name: "Answer in Needs you" }));
+    fireEvent.click(getByRole("button", { name: "Answer the questions" }));
     expect(onOpenNeedsYou).toHaveBeenCalled();
   });
 

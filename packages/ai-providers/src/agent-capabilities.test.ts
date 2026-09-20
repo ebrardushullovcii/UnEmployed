@@ -193,6 +193,56 @@ describe("tool-using AI capabilities", () => {
     expect(result.fullText).toContain("Builds reliable automation");
   });
 
+  test("resume generation renders legacy JSON content before finishing", async () => {
+    const client = createToolClient([
+      {
+        content: JSON.stringify({
+          summary: {
+            text: "Builds reliable automation.",
+            evidenceRefs: ["profile:summary"],
+          },
+        }),
+      },
+    ]);
+
+    const result = await runResumeGenerationAgentTask({
+      client,
+      substantivePrompt: "Balanced mode substantive resume instructions.",
+      request: {
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Saved base resume text",
+      },
+    });
+
+    expect(result.summary).toContain("Builds reliable automation");
+    expect(result.fullText).toContain("Builds reliable automation");
+  });
+
+  test("resume generation rejects an incomplete agent task instead of grading an empty draft", async () => {
+    const client = createToolClient(
+      Array.from({ length: 8 }, () => ({ toolCalls: [] })),
+    );
+
+    await expect(
+      runResumeGenerationAgentTask({
+        client,
+        substantivePrompt: "Balanced mode substantive resume instructions.",
+        request: {
+          profile: createProfile(),
+          searchPreferences: createPreferences(),
+          settings: createSettings(),
+          job: createJobPosting(),
+          resumeText: "Saved base resume text",
+        },
+      }),
+    ).rejects.toThrow(
+      "Resume generation agent stopped before completing (no_progress).",
+    );
+  });
+
   test("resume generation can choose an unlocked template and inspects the real rendered artifact", async () => {
     const renderPreview = vi.fn(() =>
       Promise.resolve({

@@ -6,6 +6,7 @@ import type {
   ApplicationCrmSettings,
   BrowserSessionState,
   JobFinderSettings,
+  UpdateAiBehaviorInput,
   UpdateApplicationDefaultsInput,
   UpdateWorkspaceBehaviorInput,
 } from "@unemployed/contracts";
@@ -82,6 +83,9 @@ function createCallbacks() {
     onUpdateWorkspaceBehavior: vi.fn<
       (input: UpdateWorkspaceBehaviorInput) => Promise<boolean>
     >(() => Promise.resolve(true)),
+    onUpdateAiBehavior: vi.fn<
+      (input: UpdateAiBehaviorInput) => Promise<boolean>
+    >(() => Promise.resolve(true)),
   };
 }
 
@@ -96,6 +100,7 @@ function renderScreen(settings: JobFinderSettings, callbacks: Callbacks) {
         isWorkspaceResetPending={false}
         onResetWorkspace={callbacks.onResetWorkspace}
         onSettingsDraftEdited={callbacks.onSettingsDraftEdited}
+        onUpdateAiBehavior={(input) => callbacks.onUpdateAiBehavior(input)}
         onUpdateAppearanceTheme={(theme) =>
           callbacks.onUpdateAppearanceTheme(theme)
         }
@@ -106,6 +111,7 @@ function renderScreen(settings: JobFinderSettings, callbacks: Callbacks) {
         onUpdateWorkspaceBehavior={(input) =>
           callbacks.onUpdateWorkspaceBehavior(input)
         }
+        searchPreferences={{ tailoringMode: "balanced" }}
         settings={settings}
       />
     </MemoryRouter>,
@@ -168,7 +174,7 @@ describe("Settings section nav is real navigation", () => {
     }
   });
 
-  it("names the sections in plain language without changing the prepare-only boundary", () => {
+  it("names the sections in plain language and keeps account access person-owned", () => {
     renderScreen(parseSettings(), createCallbacks());
 
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
@@ -182,9 +188,11 @@ describe("Settings section nav is real navigation", () => {
     const authority = screen.getByRole("region", {
       name: APPLICATION_AUTHORITY_LABEL,
     });
-    // The renamed tab still describes exactly the same boundary.
     expect(
-      within(authority).getByText(/never creates an account/i),
+      within(authority).getByText(/account creation pause for you/i),
+    ).toBeTruthy();
+    expect(
+      within(authority).getByText(/never stores a password/i),
     ).toBeTruthy();
     expect(
       within(authority).queryByRole("button", { name: /submit/i }),
@@ -203,7 +211,8 @@ describe("Settings save ownership", () => {
 
     for (const label of [
       "App & device",
-      "Application defaults",
+      "AI behavior",
+      "Resume look",
       WORKSPACE_BEHAVIOR_LABEL,
     ]) {
       const region = screen.getByRole("region", { name: label });

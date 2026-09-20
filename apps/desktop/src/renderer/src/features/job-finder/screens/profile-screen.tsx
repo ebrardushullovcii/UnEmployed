@@ -9,7 +9,6 @@ import type {
   ProfileCopilotContext,
   ProfileSetupState,
   ProfileSetupStep,
-  ResumeApplicationMode,
   ResumeImportFieldCandidateSummary,
   ResumeImportProgressEvent,
   ResumeImportRun,
@@ -47,7 +46,7 @@ import { ProfileSaveFooter } from "../components/profile/profile-save-footer";
 import { ResumeIdentityChoiceNotice } from "../components/profile/resume-identity-choice-notice";
 import { ProfileSectionTabs } from "../components/profile/profile-section-tabs";
 import { ProfileSetupReminder } from "../components/profile/profile-setup-reminder";
-import { PageHeader } from "../components/page-header";
+import { PageHeaderStack } from "../components/page-header";
 import {
   buildProfilePayload,
   buildSearchPreferencesPayload,
@@ -148,12 +147,6 @@ export function ProfileScreen(props: {
   discoveryRuns?: readonly DiscoveryRunRecord[];
   recentSourceDebugRuns: readonly SourceDebugRunRecord[];
   searchPreferences: JobSearchPreferences;
-  /**
-   * The saved application default. Preferences edits the same stored choice
-   * Settings does, so "Use original resume unchanged" is reachable from both.
-   */
-  resumeApplicationMode?: ResumeApplicationMode;
-  onSelectResumeApplicationMode?: (mode: ResumeApplicationMode) => void;
   sourceAccessPrompts: JobFinderWorkspaceSnapshot["sourceAccessPrompts"];
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[];
 }) {
@@ -203,10 +196,6 @@ export function ProfileScreen(props: {
   const pendingImportSuggestionRef =
     useRef<ResumeImportFieldCandidateSummary | null>(null);
   const [importSuggestionFocusRequest, setImportSuggestionFocusRequest] =
-    useState(0);
-  // Width the field column gives up while the assistant panel is open on a
-  // window too narrow to hold both side by side.
-  const [copilotReservedColumnWidth, setCopilotReservedColumnWidth] =
     useState(0);
   const {
     backgroundArrays,
@@ -549,10 +538,9 @@ export function ProfileScreen(props: {
       topClassName="grid gap-2 pb-1"
       topContent={
         <>
-          <PageHeader
-            eyebrow="Profile"
+          <PageHeaderStack
             title="Your profile"
-            description="Import your resume and confirm the details that matter."
+            description="Everything Job Finder knows about you. Edit any field, or ask the Assistant to change it for you."
           />
 
           {profileSetupState.status !== "completed" ? (
@@ -583,15 +571,6 @@ export function ProfileScreen(props: {
     >
       <section
         className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0"
-        // Room held open for the assistant panel. Sizing the panel into the
-        // space that happens to be free left it covering the very fields it
-        // names on a window with no space to spare; the column gives up the
-        // pixels instead, so the panel always docks beside the form.
-        style={
-          copilotReservedColumnWidth > 0
-            ? { paddingRight: `${copilotReservedColumnWidth}px` }
-            : undefined
-        }
       >
         <div className="grid min-h-0 min-w-0 gap-2 xl:grid-rows-[auto_minmax(0,1fr)]">
           <div className="sticky top-0 z-20 bg-(--surface-canvas)">
@@ -698,6 +677,7 @@ export function ProfileScreen(props: {
                   <ProfileActiveSectionContent
                     activeSection={activeSection}
                     activeDiscoveryRun={activeDiscoveryRun}
+                    onSaveNow={handleSaveAll}
                     backgroundArrays={backgroundArrays}
                     discoveryRuns={discoveryRuns}
                     experienceArray={experienceArray}
@@ -725,15 +705,6 @@ export function ProfileScreen(props: {
                     onVerifySourceInstructions={onVerifySourceInstructions}
                     preferencesForm={preferencesForm}
                     profileForm={profileForm}
-                    {...(props.resumeApplicationMode
-                      ? { resumeApplicationMode: props.resumeApplicationMode }
-                      : {})}
-                    {...(props.onSelectResumeApplicationMode
-                      ? {
-                          onSelectResumeApplicationMode:
-                            props.onSelectResumeApplicationMode,
-                        }
-                      : {})}
                     recentSourceDebugRuns={recentSourceDebugRuns}
                     sourceAccessPrompts={sourceAccessPrompts}
                     sourceInstructionArtifacts={sourceInstructionArtifacts}
@@ -801,7 +772,6 @@ export function ProfileScreen(props: {
           starterQuestion={starterQuestion}
           showProactivePrompt={false}
           minBottomOffset={COPILOT_BOTTOM_OFFSET}
-          onReserveColumnWidth={setCopilotReservedColumnWidth}
         />
       ) : null}
     </LockedScreenLayout>

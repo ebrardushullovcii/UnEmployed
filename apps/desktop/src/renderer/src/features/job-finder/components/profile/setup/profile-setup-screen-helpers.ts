@@ -118,8 +118,9 @@ export function getProfileSetupReviewItemCopy(
 ): { label: string; reason: string } {
   if (item.target.domain === "work_eligibility") {
     return {
-      label: "Check legal work details",
-      reason: `${item.reason} If no legal work-authorization fact is available, leave this Not set; Job Finder will not guess.`,
+      label: "Work details",
+      reason:
+        "Optional. Countries where you can work, visa needs, relocation, or remote eligibility help matching and applications. Leave anything you do not know as Not set; nothing here is guessed.",
     };
   }
 
@@ -165,17 +166,11 @@ export function isFinishBlockingReviewItem(
     return true;
   }
 
-  return (
-    item.severity !== "optional" &&
-    item.target !== undefined &&
-    isProfileSetupMissingFieldReviewItem({
-      proposedValue: item.proposedValue ?? null,
-      sourceCandidateId: item.sourceCandidateId ?? null,
-      sourceRunId: item.sourceRunId ?? null,
-      sourceSnippet: item.sourceSnippet ?? null,
-      target: item.target,
-    })
-  );
+  // Finishing needs a name, a way to be contacted, and a job source (ADR
+  // 0024). A recommended field that the resume did not fill (location, years
+  // of experience, work eligibility) is a hint, not a gate: it must not stand
+  // between a person with a resume and their first search.
+  return false;
 }
 
 /** Pending items that do not gate finishing: recommended imports and optional hints. */
@@ -196,7 +191,7 @@ const PROFILE_SETUP_READINESS_BLOCKER_LABELS: Record<
   string
 > = {
   background: "Add work history",
-  discovery_source: "Enable a job source (on the Job targets step)",
+  discovery_source: "Add a job source",
   // Any one work or location answer satisfies this gate, so the label must
   // not promise that a location was saved.
   eligibility_preferences: "Answer one work or location detail",
@@ -209,6 +204,24 @@ export function getProfileSetupReadinessBlockerLabel(
   blockerId: ProfileSetupReadinessBlockerId,
 ): string {
   return PROFILE_SETUP_READINESS_BLOCKER_LABELS[blockerId];
+}
+
+/** The step whose editor fills each blocker, so the footer can say where to go. */
+const PROFILE_SETUP_READINESS_BLOCKER_STEPS: Record<
+  ProfileSetupReadinessBlockerId,
+  ProfileSetupStep
+> = {
+  background: "background",
+  discovery_source: "targeting",
+  eligibility_preferences: "targeting",
+  identity_contact: "essentials",
+  work_mode_preference: "targeting",
+};
+
+export function getProfileSetupReadinessBlockerStep(
+  blockerId: ProfileSetupReadinessBlockerId,
+): ProfileSetupStep {
+  return PROFILE_SETUP_READINESS_BLOCKER_STEPS[blockerId];
 }
 
 /**

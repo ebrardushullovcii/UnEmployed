@@ -27,6 +27,7 @@ import type {
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
   JobFinderAgentDiscoveryResult,
+  JobFinderSearchRequest,
   JobFinderDiscoveryCancellationInput,
   JobFinderOpenBrowserSessionInput,
   JobFinderResumePreview,
@@ -58,6 +59,7 @@ import type {
   ProjectGroupedManualAnswerCommand,
   ResumeAssistantMessage,
   ResumeApplicationMode,
+  TailoringMode,
   JobFinderResumePdfExportResult,
   ResumePdfExportIntent,
   RemoveEmployerExclusionInput,
@@ -72,6 +74,7 @@ import type {
   SourceInstructionStatus,
   UpdateApplicationDefaultsInput,
   UpdateWorkspaceBehaviorInput,
+  UpdateAiBehaviorInput,
   WorkMode,
   UserActionCommandInput,
 } from "@unemployed/contracts";
@@ -125,6 +128,7 @@ export interface JobFinderShellActions {
   runAgentDiscovery: (
     onActivity?: (event: DiscoveryActivityEvent) => void,
     targetId?: string,
+    searchRequest?: JobFinderSearchRequest,
   ) => Promise<JobFinderAgentDiscoveryResult>;
   cancelAgentDiscovery: (
     input: JobFinderDiscoveryCancellationInput,
@@ -259,6 +263,9 @@ export interface JobFinderShellActions {
   updateWorkspaceBehavior: (
     input: UpdateWorkspaceBehaviorInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
+  updateAiBehavior: (
+    input: UpdateAiBehaviorInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   updateAppearanceTheme: (
     appearanceTheme: AppearanceTheme,
   ) => Promise<JobFinderWorkspaceSnapshot>;
@@ -295,6 +302,7 @@ export interface JobFinderShellActions {
   setJobResumeApplicationMode: (
     jobId: string,
     resumeApplicationMode: ResumeApplicationMode,
+    resumeTailoringMode?: TailoringMode | null,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   removeJobFromReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   dismissDiscoveryJob: (
@@ -374,6 +382,7 @@ export interface JobFinderShellActions {
   ) => Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyQueueRun: (
     jobIds: JobFinderApplyQueueActionInput["jobIds"],
+    applicationAutomationMode?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
   ) => Promise<JobFinderWorkspaceSnapshot>;
   approveApplyRun: (
     input: JobFinderApplyRunActionInput,
@@ -545,6 +554,8 @@ export interface ActionState {
    * path is an action rather than something to retype.
    */
   savedFilePath?: string | null;
+  /** Where the message's natural next step lives, offered beside it. */
+  actionLink?: { label: string; route: string } | null;
 }
 
 /**

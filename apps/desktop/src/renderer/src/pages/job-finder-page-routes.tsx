@@ -37,7 +37,10 @@ import type {
   UserActionCommandInput,
   UserActionRequestState,
 } from "@unemployed/contracts";
-import { ApplicationCrmSettingsSchema } from "@unemployed/contracts";
+import {
+  AiBehaviorPreferenceSchema,
+  ApplicationCrmSettingsSchema,
+} from "@unemployed/contracts";
 import { isListableCompanyName } from "@unemployed/contracts";
 import { countActiveSafeguardBlockers } from "@renderer/features/job-finder/lib/safeguards-blocker-count";
 import { ApplicationsScreen } from "@renderer/features/job-finder/screens/applications/applications-screen";
@@ -897,12 +900,6 @@ export function JobFinderProfileRoute() {
       discoveryRuns={context.workspace.recentDiscoveryRuns}
       recentSourceDebugRuns={context.workspace.recentSourceDebugRuns}
       searchPreferences={context.workspace.searchPreferences}
-      resumeApplicationMode={
-        context.workspace.settings.resumeApplicationMode ?? "tailored_per_job"
-      }
-      onSelectResumeApplicationMode={(resumeApplicationMode) => {
-        void context.onUpdateApplicationDefaults({ resumeApplicationMode });
-      }}
       sourceAccessPrompts={context.workspace.sourceAccessPrompts}
       sourceInstructionArtifacts={context.workspace.sourceInstructionArtifacts}
     />
@@ -1067,24 +1064,17 @@ export function JobFinderDiscoveryRoute() {
     );
     return (
       <WorkspaceStateScreen
-        action={
-          savedOutsidePlan
-            ? {
-                label: "Open Search plans",
-                onClick: () => context.onNavigateSafely("/job-finder/campaigns"),
-              }
-            : {
-                label: "Show all jobs",
-                onClick: () => context.onNavigateSafely("/job-finder/discovery"),
-              }
-        }
+        action={{
+          label: "Show all jobs",
+          onClick: () => context.onNavigateSafely("/job-finder/discovery"),
+        }}
         kicker="Find jobs"
         message={
           savedOutsidePlan
-            ? "This job is saved on this device, but the active search plan keeps only its newest jobs (its \"Jobs to retain\" limit), so Find jobs cannot show it. Raise that limit in Search plans and search again to bring it back."
-            : "The requested job is no longer available in the active search plan, so no other job was selected."
+            ? "This job is saved on this device, but Find jobs keeps only its newest results, so it is not shown here. Search again to bring it back."
+            : "The requested job is no longer in Find jobs, so no other job was selected."
         }
-        title={savedOutsidePlan ? "Job outside this search plan" : "Job unavailable"}
+        title={savedOutsidePlan ? "Job not shown" : "Job unavailable"}
       />
     );
   }
@@ -1190,8 +1180,20 @@ export function JobFinderDiscoveryRoute() {
           context.onSelectApplicationRecord(recordId);
           context.onNavigateSafely("/job-finder/applications");
         }}
+        // The listing opens in the app's own browser (ADR 0017): the same
+        // window the search used, so a sign-in it holds carries over.
+        onOpenListing={(url) => {
+          void window.unemployed.browser.command({ type: "open", url });
+        }}
         onQueueJob={context.onQueueJob}
         onRunAgentDiscovery={context.onRunAgentDiscovery}
+        // Parsed through the schema so a workspace that never saved AI
+        // behavior still shows the default the next search will actually use.
+        searchSelectivity={
+          AiBehaviorPreferenceSchema.parse(
+            context.workspace.settings?.aiBehavior ?? {},
+          ).jobSearch.selectivity
+        }
         {...(context.onCancelDiscovery
           ? { onCancelDiscovery: context.onCancelDiscovery }
           : {})}
@@ -1353,12 +1355,12 @@ function JobFinderReviewQueueRouteContent() {
     >
       <ReviewQueueScreen
         actionState={context.actionState}
+        applicationAutomationMode={
+          context.workspace.settings.applicationAutomationMode ?? "prepare_only"
+        }
         applicationRecords={context.workspace.applicationRecords}
         browserSession={context.workspace.browserSession}
         campaignId={activeCampaign?.id ?? ""}
-        campaignDefaultResumeStrategyId={
-          activeCampaign?.applicationPolicy.defaultResumeStrategyId ?? null
-        }
         resumeOperationStarts={context.resumeOperationStarts}
         draftPreparation={context.tailoredDraftPreparation}
         globalDailyApplicationPreparationCapacity={
@@ -1370,22 +1372,12 @@ function JobFinderReviewQueueRouteContent() {
         isJobPending={(jobId) =>
           context.isPending(jobFinderPendingActions.resumeJob(jobId))
         }
-        isResumeStrategyPending={(jobId) =>
-          context.isAnyPending([
-            jobFinderPendingActions.resumeStrategyRecommend(jobId),
-            jobFinderPendingActions.resumeStrategySelect(jobId),
-          ])
-        }
         onPrepareTailoredDrafts={context.onPrepareTailoredDrafts}
         onStopTailoredDraftPreparation={context.onStopTailoredDraftPreparation}
-        onRecommendResumeStrategy={context.onRecommendResumeStrategy}
-        onSelectResumeStrategy={context.onSelectResumeStrategy}
-        onSetCampaignResumeStrategyDefault={
-          context.onSetCampaignResumeStrategyDefault
-        }
         onStartAutoApplyQueue={context.onStartAutoApplyQueue}
         onStartApplyCopilot={context.onStartApplyCopilot}
         onEditResumeWorkspace={context.onEditResumeWorkspace}
+        onApproveResumeAndApply={context.onApproveResumeAndApply}
         onGenerateResume={context.onGenerateResume}
         onOpenBrowserSession={() => {
           void context.onOpenBrowserSession();
@@ -1424,10 +1416,6 @@ function JobFinderReviewQueueRouteContent() {
         originalResume={context.workspace.profile.baseResume}
         profile={context.workspace.profile}
         queue={queue}
-        resumeStrategies={context.workspace.intelligence.resumeStrategies}
-        resumeStrategySelections={
-          context.workspace.intelligence.resumeStrategySelections
-        }
         selectedAsset={selectedAsset}
         selectedItem={selectedItem}
         selectedJob={selectedJob}
@@ -1495,6 +1483,7 @@ export function JobFinderResumeWorkspaceRoute() {
         isExportPending={context.isPending(
           jobFinderPendingActions.resumeExport(jobId),
         )}
+        isApplyPending={context.isPending(jobFinderPendingActions.apply())}
         isWorkspacePending={context.isPending(
           jobFinderPendingActions.resumeJob(jobId),
         )}
@@ -1716,10 +1705,17 @@ export function JobFinderApplicationsRoute() {
     }
 
     if (navigationContext.jobId) {
-      const matchingRecords = applicationRecords.filter(
-        (record) => record.jobId === navigationContext.jobId,
-      );
-      return matchingRecords.length === 1 ? (matchingRecords[0] ?? null) : null;
+      // A job can carry more than one record (a retry, a second attempt).
+      // The newest one is the one the person just acted on; refusing to
+      // pick left Apply parked on a "Starting…" screen for the whole run.
+      const matchingRecords = applicationRecords
+        .filter((record) => record.jobId === navigationContext.jobId)
+        .sort(
+          (left, right) =>
+            new Date(right.lastUpdatedAt).getTime() -
+            new Date(left.lastUpdatedAt).getTime(),
+        );
+      return matchingRecords[0] ?? null;
     }
 
     return null;
@@ -1783,7 +1779,41 @@ export function JobFinderApplicationsRoute() {
     );
   }
 
-  if (hasRequestedApplicationContext && !requestedApplicationRecord) {
+  // Apply on Shortlisted lands here the moment it is pressed, before the run
+  // has written its application record. That is a run starting, not a
+  // missing application: the list stays usable and says so in one line, and
+  // the effect above selects the record as soon as it exists. A full-page
+  // "Starting…" state here parked one tester for minutes with nothing to do.
+  const isStartingRequestedJob =
+    hasRequestedApplicationContext &&
+    !requestedApplicationRecord &&
+    navigationContext.jobId !== null &&
+    !navigationContext.applicationRecordId &&
+    (context.isPending(jobFinderPendingActions.apply()) ||
+      applyJobResults.some(
+        (result) =>
+          result.jobId === navigationContext.jobId &&
+          (result.state === "planned" ||
+            result.state === "filling" ||
+            result.state === "question_capture" ||
+            result.state === "submitting"),
+      ));
+  const startingApplicationNote = isStartingRequestedJob
+    ? (() => {
+        const startingJob = discoveryJobs.find(
+          (job) => job.id === navigationContext.jobId,
+        );
+        return startingJob
+          ? `Starting the application for ${startingJob.title} at ${startingJob.company}. It will appear in this list in a moment.`
+          : "Starting the application. It will appear in this list in a moment.";
+      })()
+    : null;
+
+  if (
+    hasRequestedApplicationContext &&
+    !requestedApplicationRecord &&
+    !isStartingRequestedJob
+  ) {
     return (
       <WorkspaceStateScreen
         action={{
@@ -1850,7 +1880,7 @@ export function JobFinderApplicationsRoute() {
     >
       <ApplicationsScreen
         userActionRequests={context.workspace.userActionRequests}
-        actionMessage={context.actionState.message}
+        actionMessage={startingApplicationNote ?? context.actionState.message}
         applicationAttempts={applicationAttempts}
         applicationRecords={applicationRecords}
         applyRuns={applyRuns}
@@ -1921,6 +1951,12 @@ export function JobFinderApplicationsRoute() {
           context.onNavigateSafely("/job-finder/safeguards")
         }
         onOpenNeedsYou={() => context.onNavigateSafely("/job-finder/actions")}
+        onPerformUserAction={(command) => {
+          void context.onPerformUserAction(command);
+        }}
+        isUserActionPending={(requestId) =>
+          context.isPending(jobFinderPendingActions.userAction(requestId))
+        }
         onAllowSiteSaves={(host) => {
           // The same saved-automation update Settings makes when you add a
           // website and allow saving as it goes, then the retry. Without both
@@ -1990,6 +2026,12 @@ export function JobFinderApplicationsRoute() {
             accountCreationAuthorized: false,
           });
         }}
+        applyMode={
+          context.workspace.settings.applicationAutomationMode ===
+          "autonomous_submit"
+            ? "apply_for_me"
+            : "fill_only"
+        }
         {...(trackerView ? { workspaceView: trackerView } : {})}
         onWorkspaceViewChange={(view) =>
           setSearchParams(
@@ -2144,6 +2186,8 @@ export function JobFinderSettingsRoute() {
       onUpdateApplicationDefaults={context.onUpdateApplicationDefaults}
       onUpdateTrackerCrm={context.onUpdateTrackerCrm}
       onUpdateWorkspaceBehavior={context.onUpdateWorkspaceBehavior}
+      onUpdateAiBehavior={context.onUpdateAiBehavior}
+      searchPreferences={context.workspace.searchPreferences}
       settings={context.workspace.settings}
     />
   );

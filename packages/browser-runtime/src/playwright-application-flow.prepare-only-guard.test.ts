@@ -288,6 +288,47 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
   );
 
   test(
+    "a field save fired from a later document, to the form's own origin, gets through the default window",
+    { timeout: 60_000 },
+    async () => {
+      // The apply form lives in a document opened after the guard was
+      // installed, and it saves each answer to an ATS origin that is not the
+      // page's. Both were blocked before: the init script started the new
+      // document unauthorized, and the window was pinned to the page origin.
+      const site = await startTrackedServer();
+      const ats = await startTrackedServer();
+      site.registerHtml("/listing", `<a id="apply" href="/apply">Apply</a>`);
+      site.registerHtml(
+        "/apply",
+        `<label for="school">School</label>
+         <select id="school"><option value="">Choose</option><option value="u">University</option></select>
+         <script>
+         document.getElementById('school').addEventListener('change', function () {
+           fetch('${ats.baseUrl}/v1/candidate/8112037', {
+             method: 'POST',
+             mode: 'no-cors',
+             body: 'school=' + encodeURIComponent(this.value)
+           });
+         });
+         </script>`,
+      );
+      const { page } = await newGuardedPage();
+      await page.goto(`${site.baseUrl}/listing`);
+      await ensurePrepareOnlyMutationGuard(page, true, []);
+      await page.goto(`${site.baseUrl}/apply`);
+
+      await openPrepareOnlyIntermediateMutationWindow(page);
+      await page.selectOption("#school", "u");
+      await page.waitForTimeout(600);
+
+      expect(requestHitsFor(ats.hits, "/v1/candidate/8112037")).toHaveLength(
+        1,
+      );
+      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toBeNull();
+    },
+  );
+
+  test(
     "denies a GET image query beacon while allowing a queryless static image",
     { timeout: 60_000 },
     async () => {

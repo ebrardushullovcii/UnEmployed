@@ -4,6 +4,10 @@ import type {
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
 import { useId, useState } from "react";
+import {
+  ApplicationAnswerStepCard,
+  type ApplicationAnswerStep,
+} from "./applications-answer-step";
 import { Button } from "@renderer/components/ui";
 import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
@@ -141,6 +145,8 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   onOpenSafeguards?: () => void;
   /** Takes the person to the Needs you step that holds the answer control. */
   onOpenNeedsYou?: () => void;
+  /** The question step, answerable here instead of only on Needs you. */
+  answerStep?: ApplicationAnswerStep | null;
   /**
    * Adds this host to the saved automation setting with saving-as-you-go
    * allowed, then starts the retry. Without it the state has nothing that can
@@ -195,6 +201,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     onStartAutoApplyQueue,
     onOpenSafeguards,
     onOpenNeedsYou,
+    answerStep = null,
     onAllowSiteSaves,
     onFinishInBrowser,
     onConfirmFinishedInBrowser,
@@ -327,6 +334,10 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     const reportOutcome = (outcome: FinishInBrowserOutcome | void) => {
       setFinishInBrowserReport(outcome ? { resultId, outcome } : null);
     };
+    // The person asked to see the browser: show it, whatever the hand-off
+    // then reports. A hidden tab doing the right thing still reads as
+    // "nothing happened".
+    void window.unemployed?.browser?.command({ type: "open" });
     const outcome = onFinishInBrowser({
       jobId: visibleApplyResult.jobId,
       resultId,
@@ -522,7 +533,9 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                   {presentation.primaryActionLabel}
                 </Button>
               ) : null}
-              {primaryAction === "answer_in_needs_you" ? (
+              {primaryAction === "answer_in_needs_you" && answerStep ? (
+                <ApplicationAnswerStepCard step={answerStep} />
+              ) : primaryAction === "answer_in_needs_you" ? (
                 <Button
                   className={RECOVERY_PRIMARY_ACTION_CLASS_NAME}
                   data-testid="applications-recovery-primary-action-button"

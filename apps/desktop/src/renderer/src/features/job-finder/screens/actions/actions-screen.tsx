@@ -226,7 +226,7 @@ export function toActionableInstructions(
 /** Below this many open actions the list is scannable without a search field. */
 const ACTION_SEARCH_MIN_ITEMS = 5;
 
-function createCommand(
+export function createCommand(
   request: UserActionRequest,
   action: "open_page" | "confirm_done" | "skip" | "cancel",
 ): UserActionCommandInput {
@@ -332,9 +332,16 @@ function ActionCard(props: {
             {request.kind === "other" ? null : (
               <Badge variant="status">{presentation.label}</Badge>
             )}
-            <Badge variant="outline">
-              {request.state.replaceAll("_", " ")}
-            </Badge>
+            {/* Everything on Needs you is awaiting the user, so that state
+                is the page, not a chip. Only a step in another state (being
+                verified after you confirmed it) says so. */}
+            {request.state === "awaiting_user" ? null : (
+              <Badge variant="outline">
+                {request.state === "verifying"
+                  ? "Checking"
+                  : request.state.replaceAll("_", " ")}
+              </Badge>
+            )}
           </div>
           <h3 className="font-semibold text-(--text-headline)">
             {stripScrapedGlyphs(request.title)}
@@ -394,21 +401,33 @@ function ActionCard(props: {
         </details>
       ) : null}
 
-      {isQuestionStep ? (
+      {isQuestionStep && isVerifying ? (
+        <p
+          aria-live="polite"
+          className="text-(length:--text-small) leading-6 text-foreground-soft"
+          data-testid="needs-you-answered-status"
+          role="status"
+        >
+          Answered. Job Finder is putting your answers in and carrying on;
+          this step closes on its own when the form moves forward.
+        </p>
+      ) : isQuestionStep ? (
         <QuestionAnswerForm
           isPending={isPending || isVerifying}
           onAnswer={async (answers, saveForFuture) => {
-            // One submit per question, in order. The last one carries the
-            // confirm base, which is exactly the single-question call this
-            // step has always made, so the retry still starts once.
-            for (const answer of answers) {
-              await onCommand({
-                ...createCommand(request, "confirm_done"),
-                action: "submit_manual_answer",
-                answer,
-                saveForFuture,
-              });
-            }
+            // Every answer in one command, each tied to its question, so one
+            // revision moves the step on and no answer is lost between calls.
+            const first = answers[0];
+            if (!first) return;
+            await onCommand({
+              ...createCommand(request, "confirm_done"),
+              action: "submit_manual_answer",
+              answer: first.answer,
+              ...(answers.length > 1 || questions.length > 1
+                ? { answers: answers.map((entry) => ({ ...entry })) }
+                : {}),
+              saveForFuture,
+            });
           }}
           questions={questions}
           requestId={request.id}
@@ -735,6 +754,58 @@ function GroupedDecisionCard(props: {
   );
 }
 
+/**
+ * An application paused on a site step with no live browser-step request
+ * behind it. It sits in the same Applications group as the live steps: the
+ * distinction between the two is how the runtime recorded the pause, not
+ * anything the person can act on differently.
+ */
+function AwaitingApplicationCard(props: {
+  onNavigate: (path: string) => void;
+  record: JobFinderWorkspaceSnapshot["applicationRecords"][number];
+}) {
+  const { record } = props;
+  const opensResumeStudio = getApplicationNextStepLabel(record)
+    .toLowerCase()
+    .includes("resume studio");
+  return (
+    <article className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5">
+      <div className="grid gap-1">
+        <h3 className="font-semibold text-(--text-headline)">
+          {stripScrapedGlyphs(record.title)}
+        </h3>
+        <p className="text-sm text-foreground-soft">
+          {stripScrapedGlyphs(record.company)}
+        </p>
+        <p className="text-sm leading-6 text-foreground-soft">
+          {stripScrapedGlyphs(getApplicationNextStepLabel(record))}
+        </p>
+      </div>
+      <div>
+        <Button
+          onClick={() =>
+            props.onNavigate(
+              opensResumeStudio
+                ? buildResumeWorkspaceRoute(record.jobId)
+                : buildJobFinderContextRoute("/job-finder/applications", {
+                    applicationRecordId: record.id,
+                    jobId: record.jobId,
+                    targetId: null,
+                  }),
+            )
+          }
+          size="compact"
+          type="button"
+          variant="secondary"
+        >
+          <ArrowUpRight aria-hidden="true" />{" "}
+          {opensResumeStudio ? "Open resume" : "Open this application"}
+        </Button>
+      </div>
+    </article>
+  );
+}
+
 export function ActionsScreen(props: {
   safeguardPauses?: readonly PlanSafeguardPause[];
   applicationAttempts?: JobFinderWorkspaceSnapshot["applicationAttempts"];
@@ -816,6 +887,18 @@ export function ActionsScreen(props: {
       }),
     [deferredQuery, jobsById, unresolved],
   );
+  const visibleAwaitingRecords = useMemo(
+    () =>
+      applicationsAwaitingUser.filter((record) =>
+        matchesCollectionSearch(deferredQuery, [
+          record.title,
+          record.company,
+          "application",
+          getApplicationNextStepLabel(record),
+        ]),
+      ),
+    [applicationsAwaitingUser, deferredQuery],
+  );
   const [page, setPage] = useState(1);
   const pageCount = Math.max(
     1,
@@ -841,9 +924,10 @@ export function ActionsScreen(props: {
     {
       id: "application" as const,
       title: "Applications",
-      totalCount: visibleRequests.filter(
-        (request) => request.scope.type === "application",
-      ).length,
+      totalCount:
+        visibleRequests.filter(
+          (request) => request.scope.type === "application",
+        ).length + visibleAwaitingRecords.length,
     },
     {
       id: "discovery_source" as const,
@@ -863,7 +947,7 @@ export function ActionsScreen(props: {
         // action it offers; the page header owns the credential boundary
         // only, so the promise is stated once per card instead of three
         // times on the same screen.
-        description={`Finish each step where Job Finder sends you. Browser steps stay in ${JOB_FINDER_BROWSER_NAME}; resume and profile reviews open directly in the app. Passwords and security codes stay with you.`}
+        description={`Steps only you can do. Answer here, or finish in ${JOB_FINDER_BROWSER_NAME} and confirm. Passwords and security codes stay with you.`}
         title="Needs you"
       />
 
@@ -886,71 +970,6 @@ export function ActionsScreen(props: {
         pauses={props.safeguardPauses ?? []}
         onNavigate={props.onNavigate}
       />
-      {applicationsAwaitingUser.length > 0 ? (
-        <section
-          aria-labelledby="applications-awaiting-you-heading"
-          className="grid gap-3"
-        >
-          <div className="flex items-center gap-2">
-            <h2
-              className="font-semibold text-(--text-headline)"
-              id="applications-awaiting-you-heading"
-            >
-              Applications waiting on you
-            </h2>
-            <Badge variant="section">{applicationsAwaitingUser.length}</Badge>
-          </div>
-          {applicationsAwaitingUser.map((record) => {
-            const opensResumeStudio = getApplicationNextStepLabel(record)
-              .toLowerCase()
-              .includes("resume studio");
-            return (
-              <article
-                className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5"
-                key={record.id}
-              >
-                <div className="grid gap-1">
-                  <h3 className="font-semibold text-(--text-headline)">
-                    {stripScrapedGlyphs(record.title)}
-                  </h3>
-                  <p className="text-sm text-foreground-soft">
-                    {stripScrapedGlyphs(record.company)}
-                  </p>
-                  <p className="text-sm leading-6 text-foreground-soft">
-                    {stripScrapedGlyphs(getApplicationNextStepLabel(record))}
-                  </p>
-                </div>
-                <div>
-                  <Button
-                    onClick={() =>
-                      props.onNavigate(
-                        opensResumeStudio
-                          ? buildResumeWorkspaceRoute(record.jobId)
-                          : buildJobFinderContextRoute(
-                              "/job-finder/applications",
-                              {
-                                applicationRecordId: record.id,
-                                jobId: record.jobId,
-                                targetId: null,
-                              },
-                            ),
-                      )
-                    }
-                    size="compact"
-                    type="button"
-                    variant="secondary"
-                  >
-                    <ArrowUpRight aria-hidden="true" />{" "}
-                    {opensResumeStudio
-                      ? "Open resume"
-                      : "Open this application"}
-                  </Button>
-                </div>
-              </article>
-            );
-          })}
-        </section>
-      ) : null}
       {activeDecisions.length > 0 ? (
         <section
           aria-labelledby="reusable-answers-heading"
@@ -1041,7 +1060,9 @@ export function ActionsScreen(props: {
             </Button>
           </div>
         </div>
-      ) : unresolved.length > 0 && visibleRequests.length === 0 ? (
+      ) : (unresolved.length > 0 || applicationsAwaitingUser.length > 0) &&
+        visibleRequests.length === 0 &&
+        visibleAwaitingRecords.length === 0 ? (
         <CollectionNoMatches
           noun="actions"
           onClear={() => view.setQuery("")}
@@ -1057,6 +1078,13 @@ export function ActionsScreen(props: {
             const pageRequests = pagedRequests.filter(
               (request) => request.scope.type === group.id,
             );
+            // Paused applications are not paged with the requests; they lead
+            // the group on its first page so the person sees them at once.
+            const pageRecords =
+              group.id === "application" && currentPage === 1
+                ? visibleAwaitingRecords
+                : [];
+            const shownCount = pageRequests.length + pageRecords.length;
             return (
               <section
                 className="grid gap-3"
@@ -1074,19 +1102,25 @@ export function ActionsScreen(props: {
                   of the mounted page window. */}
                   <Badge variant="section">{totalCount}</Badge>
                 </div>
-                {pageRequests.length === 0 ? (
+                {shownCount === 0 ? (
                   <p className="text-sm leading-6 text-foreground-soft">
                     All {totalCount} on another page.
                   </p>
                 ) : (
                   <>
-                    {pageRequests.length < totalCount ? (
+                    {shownCount < totalCount ? (
                       <p className="text-sm leading-6 text-foreground-soft">
-                        Showing {pageRequests.length} of {totalCount} on this
-                        page.
+                        Showing {shownCount} of {totalCount} on this page.
                       </p>
                     ) : null}
                     <div className="grid gap-3">
+                      {pageRecords.map((record) => (
+                        <AwaitingApplicationCard
+                          key={record.id}
+                          onNavigate={props.onNavigate}
+                          record={record}
+                        />
+                      ))}
                       {pageRequests.map((request) => {
                         const applicationScope =
                           request.scope.type === "application"
@@ -1167,7 +1201,7 @@ export function ActionsScreen(props: {
 export function QuestionAnswerForm(props: {
   isPending: boolean;
   onAnswer: (
-    answers: readonly string[],
+    answers: readonly { questionId: string; answer: string }[],
     saveForFuture: boolean,
   ) => void | Promise<void>;
   questions: readonly ApplicationAttemptQuestion[];
@@ -1202,8 +1236,11 @@ export function QuestionAnswerForm(props: {
             // An optional question the person left blank is left blank on the
             // form too; there is nothing to record for it.
             questions
-              .map((question) => readAnswer(question.id).trim())
-              .filter((answer) => answer.length > 0),
+              .map((question) => ({
+                questionId: question.id,
+                answer: readAnswer(question.id).trim(),
+              }))
+              .filter((entry) => entry.answer.length > 0),
             saveForFuture,
           ),
         ).then(

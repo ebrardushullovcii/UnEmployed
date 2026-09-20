@@ -47,6 +47,7 @@ function hands(pages: { current: RawApplyPage }): ApplyPageHands & {
       return Promise.resolve({ ok: true, url });
     },
     clickElement: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+    pressKey: (_ref, key) => Promise.resolve({ ok: true, observedValue: key }),
     scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
     wait: () => Promise.resolve(),
     goBack: () => {
@@ -126,6 +127,47 @@ describe("page tools", () => {
       expect(outcome.content).toContain("the page did not change");
       expect(outcome.progress).toBe(false);
     }
+  });
+
+  test("presses a keyboard key on a named control", async () => {
+    const pages = {
+      current: rawPage({
+        controls: [
+          {
+            index: 0,
+            tagName: "input",
+            inputType: "text",
+            role: "",
+            id: "city",
+            name: "city",
+            label: "City",
+            groupLabel: "",
+            placeholder: "",
+            autocomplete: "",
+            required: false,
+            invalid: false,
+            validationMessage: "",
+            disabled: false,
+            readOnly: false,
+            visible: true,
+            value: "",
+            checked: false,
+            multiple: false,
+            options: [],
+            selectedOptionLabel: "",
+          },
+        ],
+      }),
+    };
+    const pageHands = hands(pages);
+    const pressKey = vi.spyOn(pageHands, "pressKey");
+    const tools = createPageTools(pageHands);
+    await tools.observe();
+
+    const outcome = await run(tools, "press_key", { ref: "c0", key: "Enter" });
+
+    expect(pressKey).toHaveBeenCalledWith("c0", "Enter");
+    expect(outcome.kind).toBe("ok");
   });
 
   test("a write against a page that moved on is refused once and the new page shown", async () => {

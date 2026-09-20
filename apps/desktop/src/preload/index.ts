@@ -90,6 +90,7 @@ import type {
   ResumeImportProgressEvent,
   ResumeImportRun,
   ResumeApplicationMode,
+  TailoringMode,
   JobFinderResumePdfExportResult,
   RevealSavedFileResult,
   ResumePdfExportIntent,
@@ -103,6 +104,7 @@ import type {
   JobFinderTestSaveSurface,
   JobFinderAgentDiscoveryActionInput,
   JobFinderAgentDiscoveryResult,
+  JobFinderSearchRequest,
   JobFinderSettings,
   ProfileSetupState,
   ProjectGroupedManualAnswerCommand,
@@ -135,6 +137,7 @@ import type {
   UpdateApplicationDefaultsInput,
   UpdateApplicationAuthorityEnvelopeInput,
   UpdateWorkspaceBehaviorInput,
+  UpdateAiBehaviorInput,
   WorkspaceRevision,
   UserActionCommandInput,
 } from "@unemployed/contracts";
@@ -821,6 +824,11 @@ const desktopApi = {
         "job-finder:update-workspace-behavior",
         input,
       ) as Promise<JobFinderWorkspaceSnapshot>,
+    updateAiBehavior: (input: UpdateAiBehaviorInput) =>
+      ipcRenderer.invoke(
+        "job-finder:update-ai-behavior",
+        input,
+      ) as Promise<JobFinderWorkspaceSnapshot>,
     updateAppearanceTheme: (appearanceTheme: AppearanceTheme) =>
       ipcRenderer.invoke(
         "job-finder:update-appearance-theme",
@@ -947,6 +955,7 @@ const desktopApi = {
     runAgentDiscovery: (
       onActivity?: (event: DiscoveryActivityEvent) => void,
       targetId?: string,
+      searchRequest?: JobFinderSearchRequest,
     ) => {
       if (activeAgentDiscoveryRequestId) {
         return Promise.reject(new Error("Agent discovery is already running."));
@@ -980,6 +989,7 @@ const desktopApi = {
       const payload: JobFinderAgentDiscoveryActionInput = {
         requestId,
         targetId: targetId ?? null,
+        ...(searchRequest ? { searchRequest } : {}),
       };
 
       const promise = ipcRenderer
@@ -1143,10 +1153,12 @@ const desktopApi = {
     setJobResumeApplicationMode: (
       jobId: string,
       resumeApplicationMode: ResumeApplicationMode,
+      resumeTailoringMode?: TailoringMode | null,
     ) =>
       ipcRenderer.invoke("job-finder:set-job-resume-application-mode", {
         jobId,
         resumeApplicationMode,
+        ...(resumeTailoringMode === undefined ? {} : { resumeTailoringMode }),
       }) as Promise<JobFinderWorkspaceSnapshot>,
     removeJobFromReview: (jobId: string) =>
       ipcRenderer.invoke("job-finder:remove-job-from-review", {
@@ -1286,9 +1298,11 @@ const desktopApi = {
       ) as Promise<JobFinderWorkspaceSnapshot>,
     startAutoApplyQueueRun: (
       jobIds: JobFinderApplyQueueActionInput["jobIds"],
+      applicationAutomationMode?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
     ) =>
       ipcRenderer.invoke("job-finder:start-auto-apply-queue-run", {
         jobIds,
+        ...(applicationAutomationMode ? { applicationAutomationMode } : {}),
       }) as Promise<JobFinderWorkspaceSnapshot>,
     approveApplyRun: (input: JobFinderApplyRunActionInput) =>
       ipcRenderer.invoke(
@@ -1371,6 +1385,7 @@ const desktopApi = {
             loadAgentOwnedBrowserDemo: (input: {
               sourceUrl: string;
               applicationUrl: string;
+              secondaryApplicationUrl?: string;
             }) =>
               ipcRenderer.invoke(
                 "job-finder:test-load-agent-owned-browser-demo",

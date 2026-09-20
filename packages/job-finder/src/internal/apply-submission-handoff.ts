@@ -45,6 +45,13 @@ export type ApplySubmissionHandoff =
       status: "send_now";
       finalAction: { actionRef: string; actionLabel: string };
       envelope: ApplicationAuthorityEnvelope;
+      /**
+       * True when the person pressed Send themselves on an application
+       * prepared under "Ask before sending". That press is the confirmation
+       * the mode asks for, and it becomes the execution grant the submission
+       * path requires.
+       */
+      confirmedByPerson?: boolean;
     };
 
 /**
@@ -114,8 +121,13 @@ export interface ApplySubmissionFacts {
   idempotencyKey: string;
   preflightId: string;
   now: string;
+  /** The person pressed Send on an "Ask before sending" application. */
+  confirmedByPerson?: boolean;
   signal?: AbortSignal;
 }
+
+/** How long the person's press stays good for; the send starts at once. */
+const PERSON_CONFIRMATION_GRANT_MS = 10 * 60_000;
 
 /**
  * Runs the submission path for one prepared application.
@@ -132,6 +144,22 @@ export async function sendPreparedApplication(
   ) => Promise<ApplicationSubmissionRuntimeResult>,
 ): Promise<ApplicationSubmissionRuntimeResult> {
   const policy = facts.envelope.decisionPolicy;
+  // "Ask before sending" needs the person's own press on record before the
+  // runtime will act. The press is that record: the runtime issues a grant
+  // bound to the exact attempt once its preflight exists, good for a few
+  // minutes.
+  const grantedAtMs = Date.parse(facts.now);
+  const personConfirmation =
+    facts.envelope.mode === "confirm_before_submit" &&
+    facts.confirmedByPerson === true
+      ? {
+          grantedAt: facts.now,
+          expiresAt: new Date(
+            (Number.isFinite(grantedAtMs) ? grantedAtMs : Date.now()) +
+              PERSON_CONFIRMATION_GRANT_MS,
+          ).toISOString(),
+        }
+      : null;
   return runSubmission({
     repository: facts.repository,
     browserRuntime: facts.browserRuntime,
@@ -141,6 +169,7 @@ export async function sendPreparedApplication(
     authorityRevision: facts.envelope.revision,
     preflightId: facts.preflightId,
     idempotencyKey: facts.idempotencyKey,
+    ...(personConfirmation ? { personConfirmation } : {}),
     lineage: facts.lineage,
     resumeBytes: facts.resumeBytes,
     answers: policy
@@ -168,46 +197,49 @@ export async function sendPreparedApplication(
 /**
  * What the person is told after a submission attempt.
  *
- * A browser click is never proof that an employer received anything, so a
- * sent application is only ever "we sent it, check the site" until the person
- * confirms it themselves. Nothing here ever offers to try again: an attempt
- * whose outcome is unknown must not be repeated.
+ * An employer-site receipt confirmation counts as submitted. A click without
+ * that confirmation stays uncertain and is never retried automatically.
  */
 export function describeSubmissionOutcome(input: {
   result: ApplicationSubmissionRuntimeResult;
   siteLabel: string;
-  /**
-   * Whether the page showed the words a site uses after taking an
-   * application. Descriptive only: it changes what the person is told, never
-   * whether the outcome counts as confirmed.
-   */
-  confirmationSeen?: boolean;
 }): { summary: string; detail: string; nextActionLabel: string } {
   switch (input.result.status) {
+    case "submitted":
+      return {
+        summary: "Application submitted",
+        detail: `${input.siteLabel} confirmed that it received this application. Job Finder will not send it again.`,
+        nextActionLabel: "View application",
+      };
     case "outcome_uncertain":
-      return input.confirmationSeen
-        ? {
-            summary: "Submitted — confirmation seen",
-            detail: `Job Finder sent this application to ${input.siteLabel} and its page then showed a confirmation. That is what was on screen, not proof the employer received it, so it counts as unconfirmed until you check. Job Finder will not send it again.`,
-            nextActionLabel: "Check the site and confirm",
-          }
-        : {
-            summary: "Sent — check it arrived",
-            detail: `Job Finder sent this application to ${input.siteLabel}. Its site did not confirm it arrived, and Job Finder will not send it again. Open ${input.siteLabel} to check, then tell Job Finder what you found.`,
-            nextActionLabel: "Check the site and confirm",
-          };
+      return {
+        summary: "Sent — check it arrived",
+        detail: `Job Finder sent this application to ${input.siteLabel}. Its site did not confirm it arrived, and Job Finder will not send it again. Open ${input.siteLabel} to check, then tell Job Finder what you found.`,
+        nextActionLabel: "Check the site and confirm",
+      };
     case "recorded_not_submitted":
       return {
         summary: "Not sent",
         detail: `Nothing was sent to ${input.siteLabel}. The application is filled in and waiting for you.`,
         nextActionLabel: "Open the application and finish it",
       };
-    default:
+    default: {
+      // Say why. A bare "did not send" left the person, and the developer,
+      // guessing which check refused; the orchestrator always knows.
+      const why =
+        "detail" in input.result && typeof input.result.detail === "string"
+          ? input.result.detail.trim()
+          : "";
+      const reason =
+        "reason" in input.result && typeof input.result.reason === "string"
+          ? input.result.reason.replace(/_/gu, " ")
+          : "";
       return {
         summary: "Not sent",
-        detail: `Job Finder did not send this application to ${input.siteLabel}, and nothing on the site was changed.`,
+        detail: `Job Finder did not send this application to ${input.siteLabel}, and nothing on the site was changed.${reason ? ` It stopped because: ${reason}.` : ""}${why ? ` ${why}` : ""}`,
         nextActionLabel: "Open the application and finish it",
       };
+    }
   }
 }
 
@@ -331,6 +363,7 @@ export async function submitPreparedApplication(input: {
   lineage: SubmissionPreflightLineageFacts;
   loadResumeBytes: () => Promise<Uint8Array>;
   now: string;
+  confirmedByPerson?: boolean;
   signal?: AbortSignal;
   runSubmission: (
     runtimeInput: ApplicationSubmissionRuntimeInput,
@@ -356,6 +389,7 @@ export async function submitPreparedApplication(input: {
       idempotencyKey: applySubmissionIdempotencyKey(input.lineage),
       preflightId: applySubmissionPreflightId(input.lineage),
       now: input.now,
+      ...(input.confirmedByPerson ? { confirmedByPerson: true } : {}),
       ...(input.signal ? { signal: input.signal } : {}),
     },
     input.runSubmission,

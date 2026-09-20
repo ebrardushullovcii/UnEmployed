@@ -136,7 +136,7 @@ export function buildApplyFormObservation(
   const controls: ApplyFormControl[] = raw.controls.map((rawControl) => {
     const kind = toControlKind(rawControl);
     const base = {
-      ref: `c${rawControl.index}`,
+      ref: rawControl.ref ?? `c${rawControl.index}`,
       kind,
       label: rawControl.label.trim(),
       groupLabel: rawControl.groupLabel.trim(),
@@ -192,7 +192,7 @@ export function buildApplyFormObservation(
   }
 
   const actions: ApplyFormAction[] = raw.actions.map((rawAction) => ({
-    ref: `a${rawAction.index}`,
+    ref: rawAction.ref ?? `a${rawAction.index}`,
     label: rawAction.label.trim(),
     kind: inferActionKind(rawAction.label),
     visible: rawAction.visible,
@@ -207,7 +207,7 @@ export function buildApplyFormObservation(
       resolved = null;
     }
     return {
-      ref: `l${rawLink.index}`,
+      ref: rawLink.ref ?? `l${rawLink.index}`,
       label: rawLink.label.trim(),
       href: resolved ? resolved.toString() : rawLink.href,
       origin:
@@ -255,7 +255,7 @@ export function buildApplyFormObservation(
     actions,
     links,
     clickables: raw.clickables.map((clickable) => ({
-      ref: `e${clickable.index}`,
+      ref: clickable.ref ?? `e${clickable.index}`,
       label: clickable.label,
       role: clickable.role,
       tagName: clickable.tagName,
@@ -290,6 +290,7 @@ export function createApplyPageHands(
       buildApplyFormObservation(await mechanics.readPage(), now().toISOString()),
     navigate: (url) => mechanics.navigate(url),
     clickElement: (ref) => mechanics.clickElement(ref),
+    pressKey: (ref, key) => mechanics.pressKey(ref, key),
     scroll: (direction) => mechanics.scroll(direction),
     wait: (milliseconds) => mechanics.wait(milliseconds),
     goBack: () => mechanics.goBack(),

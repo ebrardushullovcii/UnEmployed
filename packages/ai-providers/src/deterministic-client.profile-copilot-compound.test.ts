@@ -103,6 +103,34 @@ async function revise(request: string, input: RevisionInput = baseInput) {
 }
 
 describe("compound profile copilot requests never absorb later clauses", () => {
+  test("stages a conversational monthly minimum, target, and written-word experience correction together", async () => {
+    const reply = await revise(
+      "I want to correct my experience from six years to seven and update expected salary: minimum 2,000 euro per month but really want 3,000.",
+      {
+        ...baseInput,
+        profile: { ...createProfile(), yearsExperience: 6 },
+        searchPreferences: preferencesWith({
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: "EUR",
+          currencyStatus: "explicit",
+        }),
+      },
+    );
+
+    expect(findCompensationOperation(reply.patchGroups)?.value).toEqual({
+      minimum: 2000,
+      maximum: 3000,
+      interval: "month",
+      currency: "EUR",
+      currencyStatus: "explicit",
+    });
+    expect(findFieldOperation(reply.patchGroups, "yearsExperience")?.value).toEqual({
+      yearsExperience: 7,
+    });
+  });
+
   test("descriptor + salary keeps the descriptor value clean when salary follows", async () => {
     const reply = await revise(
       "set my email to alex@example.com and my expected salary to 180000",

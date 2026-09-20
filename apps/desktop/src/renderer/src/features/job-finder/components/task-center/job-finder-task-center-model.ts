@@ -848,19 +848,16 @@ export function buildJobFinderTaskCenterModel(
 }
 
 /**
- * The Tasks chip caption. One zero rule for every count in the shell: a badge
- * never renders a zero, so a run with nothing paused reads "1 active" rather
- * than "1 active · 0 paused". Null means nothing is happening and the chip
- * renders no caption at all.
+ * The Activity chip caption: how many runs are working right now, or null
+ * when nothing is, so the chip renders no count at all.
+ *
+ * Paused runs are not counted here. Every pause this panel knows about is
+ * waiting on the person, and Needs you already counts that work; "Tasks · 1
+ * paused" beside "Needs you · 2 unresolved" was two numbers for one queue.
  */
 export function describeTaskCenterCounts(input: {
   activeCount: number;
   pausedCount: number;
 }): string | null {
-  const active = input.activeCount > 0 ? `${input.activeCount} active` : null;
-  const paused = input.pausedCount > 0 ? `${input.pausedCount} paused` : null;
-  if (active && paused) {
-    return `${active} · ${paused}`;
-  }
-  return active ?? paused;
+  return input.activeCount > 0 ? `${input.activeCount} running` : null;
 }

@@ -358,7 +358,7 @@ describe("Job Finder application authority service", () => {
     });
   });
 
-  it("reports an empty answer bank without hashing or throwing, while optional kinds stay optional", async () => {
+  it("reports an empty answer bank without throwing, while optional kinds stay optional", async () => {
     const repository = createInMemoryJobFinderRepository(
       createEmptyJobFinderRepositoryState(),
     );
@@ -371,7 +371,9 @@ describe("Job Finder application authority service", () => {
     });
     const empty = await service.getReadiness();
     expect(empty.answerApprovalStatus).toBe("missing_answers");
-    expect(empty.currentAnswers.digest).toBeNull();
+    // An empty bank still hashes: approving "nothing on file" is what lets
+    // sending start on a fresh profile (ADR 0027).
+    expect(empty.currentAnswers.digest).not.toBeNull();
     expect(empty.currentAnswers.entryCount).toBe(0);
     expect(empty.blockers).toContainEqual({
       code: "no_reusable_answers",

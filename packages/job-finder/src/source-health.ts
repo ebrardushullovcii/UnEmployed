@@ -66,6 +66,8 @@ export type DiscoveryRunHealthFields = {
     completedAt: string | null;
     jobsFound?: number;
     duplicatesMerged?: number;
+    /** The execution's own failure text, when it failed. */
+    warning?: string | null;
   }[];
 };
 
@@ -183,6 +185,9 @@ export type EnabledSourceHealthCounts = {
   total: number;
 };
 
+const RUN_SIDE_FAILURE_PATTERN =
+  /ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED|ERR_NAME_NOT_RESOLVED|ERR_CONNECTION_RESET|did not answer in time|ran out of time|was stopped/iu;
+
 export function listSourceAttentionReasons(
   target: DiscoverySourceHealthFields,
   signals: SourceRuntimeSignals = {},
@@ -190,9 +195,14 @@ export function listSourceAttentionReasons(
   const reasons: SourceAttentionReason[] = [];
 
   const latestExecution = signals.latestExecutions?.get(target.id);
+  // A search that lost the network or ran out of time says nothing about
+  // the site itself; only a failure on the site counts against it.
+  const failedOnSite =
+    latestExecution?.state === "failed" &&
+    !RUN_SIDE_FAILURE_PATTERN.test(latestExecution.warning ?? "");
   if (
     target.staleReason ||
-    latestExecution?.state === "failed" ||
+    failedOnSite ||
     signals.repeatedlyFailingTargetIds?.has(target.id)
   ) {
     reasons.push("failing");
@@ -206,15 +216,8 @@ export function listSourceAttentionReasons(
   ) {
     reasons.push("returned_nothing");
   }
-  // Usage and guidance verification are separate facts. Missing bounded
-  // history cannot establish that a source has never been used.
-  if (
-    !target.lastVerifiedAt &&
-    !signals.usedTargetIds?.has(target.id) &&
-    !signals.succeededTargetIds?.has(target.id)
-  ) {
-    reasons.push("never_verified");
-  }
+  // A source that was never checked is not a problem: checks are optional
+  // guidance (ADR 0024) and searches use unchecked sources as they are.
   if (target.instructionStatus === "stale") {
     reasons.push("guidance_stale");
   }
@@ -386,7 +389,9 @@ export function describeEnabledSourceHealth(
   return {
     reason: signals.succeededTargetIds?.has(target.id)
       ? "The latest search used this source successfully."
-      : "Checked and working.",
+      : target.lastVerifiedAt || signals.usedTargetIds?.has(target.id)
+        ? "Checked and working."
+        : "Not checked yet. Searches can still use it.",
     reasons,
     state: "healthy",
   };

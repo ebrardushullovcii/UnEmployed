@@ -1834,9 +1834,9 @@ describe("cancelling a browser step releases the application waiting on it", () 
     const released = after.applicationRecords.find(
       (record) => record.id === applicationRecordId,
     );
-    expect(released?.lastAttemptState).toBe("unsupported");
+    expect(released?.lastAttemptState).toBe("failed");
     expect(released?.nextActionLabel).toBe(
-      "Finish this application yourself on the job site.",
+      "Try again, or finish it yourself on the job site.",
     );
     // Nothing is left claiming the person still owes this application a step.
     expect(

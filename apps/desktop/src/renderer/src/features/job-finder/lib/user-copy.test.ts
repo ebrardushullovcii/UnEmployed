@@ -276,7 +276,6 @@ export const PENDING_ADOPTION = {
     "features/job-finder/screens/applications/applications-crm-views.tsx",
     "features/job-finder/screens/rapid-review/rapid-review-screen.tsx",
     "features/job-finder/screens/review-queue/resume-assistant-proposal-card.tsx",
-    "features/job-finder/screens/review-queue/review-queue-mission-panel.tsx",
     "features/job-finder/screens/safeguards/safeguards-presentation.ts",
     "features/job-finder/screens/settings/settings-application-authority-section.tsx",
     "features/job-finder/screens/settings/settings-candidate-assets.tsx",

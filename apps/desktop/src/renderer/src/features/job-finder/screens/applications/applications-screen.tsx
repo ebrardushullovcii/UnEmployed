@@ -17,6 +17,7 @@ import type {
   JobFinderApplyRunActionInput,
   JobFinderApplyRunDetailsQuery,
   JobFinderExactApplicationTarget,
+  UserActionCommandInput,
 } from "@unemployed/contracts";
 import { isListableCompanyName } from "@unemployed/contracts";
 import { ArrowLeft } from "lucide-react";
@@ -54,6 +55,9 @@ import {
   type ApplicationCrmView,
 } from "./applications-crm-views";
 import { ApplicationsCrmDetail } from "./applications-crm-detail";
+import type { ApplyMode } from "../../lib/apply-mode-contracts-stub";
+import { resolveApplyStatePresentation } from "./apply-state";
+import { APPLICATION_PREPARATION_BATCH_LIMIT } from "../review-queue/review-queue-status";
 
 export function ApplicationsScreen(props: {
   actionMessage?: string | null;
@@ -126,6 +130,10 @@ export function ApplicationsScreen(props: {
   safeguardsBlockerCount?: number;
   onOpenSafeguards?: () => void;
   onOpenNeedsYou?: () => void;
+  onPerformUserAction?: (
+    command: UserActionCommandInput,
+  ) => void | Promise<void>;
+  isUserActionPending?: (requestId: string) => boolean;
   onAllowSiteSaves?: (host: string | null) => void;
   /**
    * Opens or focuses the managed Job Finder browser on the paused application
@@ -144,6 +152,8 @@ export function ApplicationsScreen(props: {
   canConfirmFinishedInBrowser?: boolean;
   confirmFinishedInBrowserStatus?: ConfirmFinishedInBrowserStatus;
   confirmFinishedInBrowserBlockerText?: string | null;
+  /** The mode chosen in Settings; decides what a finished fill means. */
+  applyMode?: ApplyMode;
   /** Route-owned tracker mode, so "Open tracker" is a link, not a tab. */
   workspaceView?: "workflow" | "crm";
   onWorkspaceViewChange?: (view: "workflow" | "crm") => void;
@@ -227,6 +237,73 @@ export function ApplicationsScreen(props: {
     },
     [],
   );
+  // The words for a job whose application is being filled in right now, so
+  // the list never shows a stale "prepare when you are ready" beside a
+  // running preparation.
+  const liveRunLinesByJobId = useMemo(() => {
+    const runningRunIds = new Set(
+      applyRuns
+        .filter((run) => run.state === "running")
+        .map((run) => run.id),
+    );
+    const lines = new Map<string, string>();
+    for (const result of applyJobResults) {
+      if (!runningRunIds.has(result.runId)) continue;
+      if (result.state === "planned") {
+        lines.set(result.jobId, "Waiting its turn in this run.");
+        continue;
+      }
+      if (result.state !== "filling" && result.state !== "submitting")
+        continue;
+      lines.set(
+        result.jobId,
+        result.summary?.trim() || "Filling in the form.",
+      );
+    }
+    return lines;
+  }, [applyJobResults, applyRuns]);
+  const applyMode: ApplyMode = props.applyMode ?? "fill_only";
+  // The newest run result per record, so each row reads one of the five
+  // apply states from what the run recorded.
+  const latestApplyResultByRecordId = useMemo(() => {
+    const latest = new Map<string, JobFinderWorkspaceSnapshot["applyJobResults"][number]>();
+    for (const result of applyJobResults) {
+      if (!result.applicationRecordId) continue;
+      const current = latest.get(result.applicationRecordId);
+      if (!current || current.updatedAt < result.updatedAt) {
+        latest.set(result.applicationRecordId, result);
+      }
+    }
+    return latest;
+  }, [applyJobResults]);
+  // Bulk retry: every application whose last run ended where a fresh run
+  // could differ. One control, so a batch that failed on a bad network night
+  // is not ten separate "Try again" presses.
+  const retryableJobIds = useMemo(() => {
+    const running = new Set(
+      applyRuns
+        .filter((run) => run.state === "running")
+        .flatMap((run) => run.jobIds),
+    );
+    const jobIds: string[] = [];
+    for (const record of applicationRecords) {
+      if (running.has(record.jobId)) continue;
+      const result = latestApplyResultByRecordId.get(record.id);
+      if (!result) continue;
+      const presentation = resolveApplyStatePresentation({
+        mode: applyMode,
+        result,
+      });
+      if (
+        presentation.kind === "could_not_apply" &&
+        presentation.action === "try_again" &&
+        !jobIds.includes(record.jobId)
+      ) {
+        jobIds.push(record.jobId);
+      }
+    }
+    return jobIds.slice(0, APPLICATION_PREPARATION_BATCH_LIMIT);
+  }, [applicationRecords, applyMode, applyRuns, latestApplyResultByRecordId]);
   const filterCounts = useMemo(
     () =>
       Object.fromEntries(
@@ -606,7 +683,7 @@ export function ApplicationsScreen(props: {
             description={
               workspaceView === "crm"
                 ? "Stages you record yourself, plus notes, reminders and export. Recording a stage is a local note; it never submits anything."
-                : `${countApplicationLedgerEntries(applicationRecords)} applications. Review progress, resolve blockers, and continue applications.`
+                : `${countApplicationLedgerEntries(applicationRecords)} applications. Each one shows where it stands and what it needs from you.`
             }
             title={workspaceView === "crm" ? "Tracker" : "Applications"}
           />
@@ -656,6 +733,31 @@ export function ApplicationsScreen(props: {
                   latestRunAttentionCount === 1 ? "case" : "cases"
                 }`}
               </StatusBadge>
+            </section>
+          ) : null}
+          {workspaceView === "workflow" && retryableJobIds.length > 1 ? (
+            <section
+              aria-label="Retry applications that could not be applied"
+              className="flex flex-wrap items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) px-4 py-3"
+              data-testid="applications-bulk-retry"
+            >
+              <p className="min-w-0 text-(length:--text-small) leading-6 text-foreground">
+                {retryableJobIds.length} applications could not be applied
+                and can be tried again.
+              </p>
+              <Button
+                disabled={
+                  isApplyPending ||
+                  (dailyPreparationCapacity !== null &&
+                    dailyPreparationCapacity.remaining < 1)
+                }
+                onClick={() => onStartAutoApplyQueue([...retryableJobIds])}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                Try again for all {retryableJobIds.length}
+              </Button>
             </section>
           ) : null}
           {hasUnassignedLegacyLineage ? (
@@ -730,6 +832,9 @@ export function ApplicationsScreen(props: {
             applicationRecords={filteredApplicationRecords}
             filterCounts={filterCounts}
             hasAnyApplications={applicationRecords.length > 0}
+            liveRunLinesByJobId={liveRunLinesByJobId}
+            latestApplyResultByRecordId={latestApplyResultByRecordId}
+            applyMode={applyMode}
             onFilterChange={setActiveFilter}
             onSelectRecord={selectRecordAndRevealDetails}
             selectedRecord={effectiveSelectedRecord}
@@ -852,11 +957,19 @@ export function ApplicationsScreen(props: {
               : {})}
             onRevokeApplyRunApproval={onRevokeApplyRunApproval}
             onStartAutoApplyQueue={onStartAutoApplyQueue}
+            applyMode={applyMode}
             onSelectApplyRun={handleSelectApplyRun}
             onStartApplyCopilot={onStartApplyCopilot}
             applicationAttempts={applicationAttempts}
             {...(props.onOpenNeedsYou
               ? { onOpenNeedsYou: props.onOpenNeedsYou }
+              : {})}
+            {...(userActionRequests ? { userActionRequests } : {})}
+            {...(props.onPerformUserAction
+              ? { onPerformUserAction: props.onPerformUserAction }
+              : {})}
+            {...(props.isUserActionPending
+              ? { isUserActionPending: props.isUserActionPending }
               : {})}
             {...(props.onAllowSiteSaves
               ? { onAllowSiteSaves: props.onAllowSiteSaves }

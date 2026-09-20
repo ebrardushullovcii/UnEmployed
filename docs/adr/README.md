@@ -29,6 +29,10 @@ ADRs capture durable decisions and rejected alternatives. Use them to avoid reop
 | [0021](0021-apply-agent-runtime.md)                                  | accepted   | Apply agent loop replaces the fixed prepare-only script  |
 | [0022](0022-two-apply-modes-one-click.md)                            | accepted   | Two apply modes, one or two clicks; preparation reaches the form |
 | [0023](0023-agent-owned-runs.md)                                     | accepted   | The model owns search, source-check, and apply runs; code is safety only |
+| [0024](0024-job-finder-browser-harness-and-three-apply-modes.md)      | accepted   | Browser harness, broad search requests, and three apply modes           |
+| [0025](0025-one-ai-behavior-panel.md)                                 | accepted   | One Settings section holds every choice about how the AI behaves        |
+| [0026](0026-shortlisted-three-steps-per-job.md)                       | accepted   | Shortlisted is three steps per job; one "Lines to confirm" list in the resume |
+| [0027](0027-applications-finish-continue-and-bulk-apply.md)           | accepted   | Declarations never stop a run; continued runs keep the page and mode; Apply to all is one press |
 
 ## Policy
 

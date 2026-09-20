@@ -31,6 +31,7 @@ const JOB_FINDER_TEST_SAVE_SURFACE_CHANNELS = {
     "job-finder:save-settings",
     "job-finder:update-application-defaults",
     "job-finder:update-workspace-behavior",
+    "job-finder:update-ai-behavior",
     "job-finder:update-appearance-theme",
     "job-finder:update-tracker-crm",
   ],

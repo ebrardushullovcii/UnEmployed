@@ -186,11 +186,14 @@ async function buildDecisionPolicy(input: {
     profileState.profile,
     profileState.revision,
   );
+  // Missing work-authorisation or sponsorship answers do not gate sending:
+  // the run hands any such question back at the form (ADR 0021), and a gate
+  // here only produced a misleading "approve your answers" error on a profile
+  // that had nothing to approve.
   if (
     approvedSnapshot === null ||
     current.digest === null ||
-    approvedSnapshot.digest !== current.digest ||
-    current.missingRequiredKinds.length > 0
+    approvedSnapshot.digest !== current.digest
   ) {
     throw new JobFinderApplicationAuthorityError(
       "approved_answers_required",

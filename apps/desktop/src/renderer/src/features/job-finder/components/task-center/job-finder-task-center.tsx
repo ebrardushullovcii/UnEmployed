@@ -255,7 +255,9 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
       ref={detailsRef}
     >
       <summary
-        aria-label={taskCountsLabel ? `Tasks: ${taskCountsLabel}` : "Tasks"}
+        aria-label={
+          taskCountsLabel ? `Activity: ${taskCountsLabel}` : "Activity"
+        }
         className="inline-flex h-10 min-h-10 min-w-10 cursor-pointer list-none items-center justify-center gap-2 rounded-(--radius-button) border border-(--control-border) bg-(--surface-panel) px-2.5 py-2 text-(length:--text-small) font-medium text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 xl:px-4 xl:text-(length:--text-small) [&::-webkit-details-marker]:hidden"
         onClick={(event) => {
           // The panel state owns openness so overlay ownership and shell
@@ -264,13 +266,14 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
           setIsPanelOpen((open) => !open);
         }}
         ref={summaryRef}
-        title={taskCountsLabel ? `Tasks: ${taskCountsLabel}` : "Tasks"}
+        title={taskCountsLabel ? `Activity: ${taskCountsLabel}` : "Activity"}
       >
         <ListChecks aria-hidden="true" className="size-4 shrink-0" />
-        {/* One name at every width. The header said "Tasks" compact and
-            "Task center" at 1440, so the same destination read as two. */}
+        {/* One name at every width. "Tasks" read as a to-do list for the
+            person, which is what Needs you is; this panel is what Job Finder
+            itself is doing, so it is named for that. */}
         <span className="hidden whitespace-nowrap min-[900px]:inline max-[1099px]:!hidden">
-          Tasks
+          Activity
         </span>
         {/* One zero rule for every count in the shell: a badge never renders
             at 0. This chip used to render a permanent grey "Tasks 0" in every
@@ -290,19 +293,19 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
           the panel opened upward over the title bar, clipped its own heading
           off the top of the window, and swallowed clicks on the toolbar. */}
       <section
-        aria-label="Tasks"
+        aria-label="Activity"
         className="surface-popover-solid absolute right-0 top-12 grid max-h-[min(38rem,calc(100vh-8rem))] w-[min(34rem,calc(100vw-2rem))] gap-3 overflow-x-hidden overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-4 shadow-(--modal-shadow)"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="grid gap-1">
-            <h2 className="font-display text-(--text-headline)">Tasks</h2>
+            <h2 className="font-display text-(--text-headline)">Activity</h2>
             <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-              Current and latest job-search, resume, and application work.
-              Estimates appear only when completed history exists.
+              What Job Finder is doing now, and how its latest runs ended.
+              Steps only you can do are in Needs you.
             </p>
           </div>
           <Button
-            aria-label="Close Tasks"
+            aria-label="Close Activity"
             className="shrink-0"
             onClick={() => closePanel(true)}
             size="icon"
@@ -315,7 +318,8 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
 
         {model.items.length === 0 ? (
           <p className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3 text-(length:--text-small) text-foreground-soft">
-            No workflow tasks yet.
+            Nothing is running. Searches, resume imports, and application runs
+            show here while they work.
           </p>
         ) : (
           <div className="grid gap-3">

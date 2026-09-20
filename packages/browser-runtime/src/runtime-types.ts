@@ -1,6 +1,7 @@
 import type {
   AgentDiscoveryProgress,
   ApplicationAttestationKind,
+  ApplicationAuthorityEnvelope,
   ApplicationAutomationMode,
   ApplyPageSession,
   ApplyRawPageHands,
@@ -17,9 +18,11 @@ import type {
   CandidateProfile,
   DiscoveryRunResult,
   JobFinderSettings,
+  JobFinderSearchRequest,
   JobPosting,
   JobSearchPreferences,
   JobSearchCampaignMode,
+  AiJobSearchBehavior,
   JobSource,
   ParkedBrowserTabReference,
   ApplicationResumeArtifact,
@@ -76,6 +79,13 @@ export interface ApplicationAttachmentArtifact {
 export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
   applicationAttachments?: readonly ApplicationAttachmentArtifact[];
   mode: ApplicationExecutionMode;
+  /**
+   * Where to open the browser for this run, when it is not the job's own
+   * link. A run that continues after the person finished a step in the
+   * browser starts on the page it stopped on, and reuses that open tab, so
+   * what they ticked there is still ticked. Omitted means the job's link.
+   */
+  startingUrl?: string;
   /**
    * Stable logical execution key for a retry that may be recovered after a
    * process restart. Runtimes may use it to deduplicate safe intermediate
@@ -142,6 +152,14 @@ export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
    */
   applyAllowedOrigins?: readonly string[];
   /**
+   * Records a newly discovered employer ATS origin after the independent move
+   * reviewer has accepted the handoff. Returning null keeps navigation
+   * available for preparation but does not widen final-submit authority.
+   */
+  authorizeReviewedApplicationOrigin?: (
+    origin: string,
+  ) => Promise<ApplicationAuthorityEnvelope | null>;
+  /**
    * Declaration kinds the person approved in advance, from the saved authority
    * document. Anything not on this list pauses for them. Omitted means none.
    */
@@ -163,6 +181,9 @@ export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
     session: ApplyPageSession;
     startedAt: string;
     signal?: AbortSignal;
+    onProgress?: (
+      progress: ApplicationPreparationProgress,
+    ) => void | Promise<void>;
   }) => Promise<ApplyExecutionResult>;
   recoveryContext?: ApplyRecoveryContext;
   captureVisualSnapshot?: (
@@ -177,6 +198,13 @@ export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
     snapshot: BrowserVisualSnapshotRef;
     context: BrowserVisualAnalysisContext;
   }) => Promise<BrowserVisualObservationSet>;
+}
+
+export interface ApplicationPreparationProgress {
+  step: number;
+  note: string;
+  progressSteps: number;
+  elapsedMs: number;
 }
 
 export interface BrowserSessionRuntime {
@@ -235,8 +263,8 @@ export interface BrowserSessionRuntime {
     },
   ): Promise<void>;
   /**
-   * Main-process-only one-shot final-action hand. It never returns a
-   * submission claim; external verification is a separate boundary.
+   * Main-process-only one-shot final-action hand. It reports submission only
+   * when the employer page visibly confirms receipt after the action.
    */
   executeExactlyOneFinalAction?(
     source: JobSource,
@@ -265,6 +293,10 @@ export interface AgentDiscoveryOptions {
   };
   /** The person's search focus, expressed as an instruction to the agent. */
   searchMode?: JobSearchCampaignMode;
+  /** The person's plain-language goal and run-scoped search choices. */
+  searchRequest?: JobFinderSearchRequest;
+  /** The saved AI search behavior (Settings): selectivity and remote handling. */
+  searchGuidance?: AiJobSearchBehavior;
   targetJobCount: number;
   maxSteps: number;
   runControl?: {
@@ -278,6 +310,12 @@ export interface AgentDiscoveryOptions {
   startingUrls: string[];
   /** Pages parked for unresolved user action; discovery must not reuse or close them. */
   protectedPages?: ParkedBrowserTabReference[];
+  /**
+   * Open this run in its own tab and leave every other tab alone, so several
+   * sources can be searched at the same time. The tab is closed when the run
+   * ends unless the run was stopped for the person.
+   */
+  dedicatedPage?: boolean;
   agentHints?: {
     widenReviewBudget?: boolean;
   };

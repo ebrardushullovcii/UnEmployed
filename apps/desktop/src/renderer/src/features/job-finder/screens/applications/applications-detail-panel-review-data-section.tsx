@@ -20,6 +20,10 @@ import {
   formatStatusLabel,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
+import {
+  ExternalUrlLink,
+  SavedFileLink,
+} from "../../components/open-outside-links";
 import { CANDIDATE_ASSETS_CHANGED_EVENT } from "./applications-application-documents";
 import {
   getAnswerTone,
@@ -184,7 +188,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                     ) : null}
                     {checkpoint.storagePath ? (
                       <p className="mt-2 break-all">
-                        Saved: {checkpoint.storagePath}
+                        Saved: <SavedFileLink path={checkpoint.storagePath} />
                       </p>
                     ) : null}
                   </div>
@@ -239,7 +243,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                     ) : null}
                     {question.pageUrl ? (
                       <p className="mt-2 break-all text-(length:--text-small) leading-6 text-foreground-soft">
-                        Page: {question.pageUrl}
+                        Page: <ExternalUrlLink url={question.pageUrl} />
                       </p>
                     ) : null}
                     {question.visualContext ? (
@@ -308,10 +312,14 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                   <p>{formatStatusLabel(artifact.kind)}</p>
                   {artifact.textSnippet ? <p>{artifact.textSnippet}</p> : null}
                   {artifact.storagePath ? (
-                    <p className="break-all">Saved: {artifact.storagePath}</p>
+                    <p className="break-all">
+                      Saved: <SavedFileLink path={artifact.storagePath} />
+                    </p>
                   ) : null}
                   {artifact.url ? (
-                    <p className="break-all">URL: {artifact.url}</p>
+                    <p className="break-all">
+                      URL: <ExternalUrlLink url={artifact.url} />
+                    </p>
                   ) : null}
                   {artifact.visualEvidence ? (
                     <VisualEvidenceSummary evidence={artifact.visualEvidence} />
@@ -355,7 +363,9 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                       so a bare repeat printed the same long URL twice. */}
                   {checkpoint.url &&
                   !(checkpoint.detail ?? "").includes(checkpoint.url) ? (
-                    <p className="mt-2 break-all">{checkpoint.url}</p>
+                    <p className="mt-2 break-all">
+                      <ExternalUrlLink url={checkpoint.url} />
+                    </p>
                   ) : null}
                   {checkpoint.visualEvidence.length ? (
                     <div className="mt-2 grid gap-1">
@@ -849,7 +859,7 @@ function ApplicationQuestionAnswerEditor(props: {
             </p>
           ) : candidateAssetStatus === "error" ? (
             <p className="text-(length:--text-small) text-destructive">
-              Documents &amp; assets could not be loaded. Open Settings and try
+              Your documents could not be loaded. Open Documents and try
               again.
             </p>
           ) : candidateAssets.length > 0 ? (
@@ -879,7 +889,7 @@ function ApplicationQuestionAnswerEditor(props: {
                 ? buildJobFinderContextRoute("/job-finder/review-queue", {
                     jobId,
                   })
-                : "/job-finder/settings"
+                : "/job-finder/documents"
             }
           >
             {question.kind === "resume"
@@ -974,7 +984,12 @@ function VisualEvidenceSummary(props: {
     <p className="mt-2 break-words text-(length:--text-small) leading-6 text-foreground-soft">
       Visual evidence: {evidence.summary} •{" "}
       {formatStatusLabel(evidence.retention)}
-      {evidence.storagePath ? ` • ${evidence.storagePath}` : ""}
+      {evidence.storagePath ? (
+        <>
+          {" • "}
+          <SavedFileLink path={evidence.storagePath} />
+        </>
+      ) : null}
     </p>
   );
 }

@@ -391,11 +391,19 @@ export function recoverInterruptedDiscoveryRun(
  * entry. `resolveDiscoveryTargetBudget` supplies every per-position invariant
  * (caps, floors, step ceilings).
  */
+export interface DiscoveryTargetBudget {
+  /** How many suitable jobs the agent should try to inspect on this source. */
+  targetJobCount: number;
+  /** How many new identities this source may add to the run's saved results. */
+  retentionJobCount: number;
+  maxSteps: number;
+}
+
 export function resolveDiscoveryBudgetPlan(input: {
   targetIds: readonly string[];
   runJobBudget?: number | null;
-}): ReadonlyMap<string, { targetJobCount: number; maxSteps: number }> {
-  const plan = new Map<string, { targetJobCount: number; maxSteps: number }>();
+}): ReadonlyMap<string, DiscoveryTargetBudget> {
+  const plan = new Map<string, DiscoveryTargetBudget>();
   let plannedJobsFoundSoFar = 0;
 
   for (let index = 0; index < input.targetIds.length; index += 1) {
@@ -411,15 +419,22 @@ export function resolveDiscoveryBudgetPlan(input: {
       );
     }
 
-    const budget = resolveDiscoveryTargetBudget({
+    const allocation = resolveDiscoveryTargetBudget({
       targetsRemaining: input.targetIds.length - index,
       validJobsFoundSoFar: plannedJobsFoundSoFar,
       ...(input.runJobBudget != null
         ? { runJobBudget: input.runJobBudget }
         : {}),
     });
+    const budget: DiscoveryTargetBudget = {
+      ...allocation,
+      // Even when this source has no remaining save allocation, give the
+      // agent a one-job sampling target so selected sources are attempted.
+      targetJobCount: Math.max(1, allocation.targetJobCount),
+      retentionJobCount: allocation.targetJobCount,
+    };
     plan.set(targetId, budget);
-    plannedJobsFoundSoFar += budget.targetJobCount;
+    plannedJobsFoundSoFar += budget.retentionJobCount;
   }
 
   return plan;

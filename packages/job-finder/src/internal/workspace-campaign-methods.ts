@@ -93,6 +93,9 @@ const IN_FLIGHT_JOB_STATUSES = new Set<ApplicationStatus>([
   "offer",
 ]);
 
+
+const LEGACY_PRECISION_RETAINED_JOBS = 15;
+const LIFTED_RETAINED_JOBS = 1_000;
 function compareRetentionPriority(left: SavedJob, right: SavedJob): number {
   return (
     right.matchAssessment.score - left.matchAssessment.score ||
@@ -433,7 +436,14 @@ export async function commitCampaignRunTerminal(input: {
             job.matchAssessment.score >= campaign.minimumFitScore),
       )
       .sort(compareRetentionPriority)
-      .slice(0, campaign.limits.retainedJobTarget)
+      // Plans created before the cap was lifted still carry the old
+      // fifteen-job default; nobody chose it, so it reads as the new one.
+      .slice(
+        0,
+        campaign.limits.retainedJobTarget === LEGACY_PRECISION_RETAINED_JOBS
+          ? LIFTED_RETAINED_JOBS
+          : campaign.limits.retainedJobTarget,
+      )
       .map((job) => job.id);
     const retainedJobIdSet = new Set([
       ...rankedRetainedJobIds,

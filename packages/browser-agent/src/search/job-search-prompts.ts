@@ -26,18 +26,73 @@ export function createJobSearchPrompts(config: AgentConfig): {
   const goal = packet
     ? `Check ${promptContext.siteLabel} for a future search run. The goal of this check: ${packet.phaseGoal}`
     : `Find up to ${config.targetJobCount} current job postings on ${promptContext.siteLabel} that fit this person, and save them.`;
+  // The saved AI search behavior (Settings) decides how picky the run is; a
+  // run-scoped mode is the fallback for callers that still pass only that.
+  const selectivity =
+    promptContext.searchGuidance?.selectivity ??
+    (promptContext.searchMode === "scale" ? "wide_net" : "best_matches");
   const searchFocus =
-    promptContext.searchMode === "scale"
+    selectivity === "wide_net"
       ? "Search focus: find a broad pool of plausible jobs. Explore widely and save borderline possibilities when they could reasonably fit; later review will narrow them."
-      : "Search focus: save only strong fits. Prefer close matches to the requested roles, locations, work modes, skills, and experience over filling the list.";
+      : selectivity === "balanced"
+        ? "Search focus: save close matches, and also adjacent roles the person could plausibly do well with their experience. Skip postings that are clearly a different job or level."
+        : "Search focus: save only strong fits. Prefer close matches to the requested roles, locations, work modes, skills, and experience over filling the list.";
+  const remoteHandling =
+    promptContext.searchGuidance === undefined
+      ? null
+      : promptContext.searchGuidance.remoteCountsAsAnyLocation
+        ? "Remote roles: a posting that is remote for the person's country or region counts as matching their locations, even when the office is somewhere else."
+        : "Remote roles: do not count a remote posting as a location match on its own; the role must fit the listed locations and work modes.";
+  const searchIntent = promptContext.searchRequest?.intent.trim() ?? "";
+  const freshnessInstruction =
+    promptContext.searchRequest?.freshness === "recent"
+      ? "Freshness: prefer postings marked as recent. Do not guess dates, and do not discard an otherwise suitable posting when the site gives no trustworthy date."
+      : null;
+  const experienceLines = config.userProfile.experiences
+    .filter((experience) => !experience.isDraft)
+    .map((experience) =>
+      [
+        experience.title,
+        experience.companyName ? `at ${experience.companyName}` : null,
+        [experience.startDate, experience.isCurrent ? "present" : experience.endDate]
+          .filter(Boolean)
+          .join(" to ") || null,
+        experience.summary,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    )
+    .filter(Boolean);
+  const educationLines = config.userProfile.education
+    .filter((education) => !education.isDraft)
+    .map((education) =>
+      [education.degree, education.fieldOfStudy, education.schoolName]
+        .filter(Boolean)
+        .join(" · "),
+    )
+    .filter(Boolean);
+  const boundedResumeText = config.userProfile.baseResume.textContent
+    ?.trim()
+    .slice(0, 6_000);
 
   const system = [
     `You are working in this person's browser on ${promptContext.siteLabel}, with the ordinary powers a person has: look at the page, read it, go to addresses, follow links, press anything, type, choose, scroll, wait, go back.`,
     "",
     goal,
     packet ? null : searchFocus,
+    packet ? null : remoteHandling,
+    !packet && searchIntent
+      ? `The person asked for: ${JSON.stringify(searchIntent)}. Interpret this request with their full profile in mind. It may narrow or redirect the saved target roles and defaults below.`
+      : null,
+    packet ? null : freshnessInstruction,
     "",
     "About the person:",
+    config.userProfile.headline
+      ? `- Headline: ${config.userProfile.headline}`
+      : null,
+    config.userProfile.summary
+      ? `- Summary: ${config.userProfile.summary}`
+      : null,
     `- Roles they want: ${listOrNone(searchPreferences.targetRoles, "not specified")}`,
     `- Locations: ${listOrNone(searchPreferences.locations, "no constraint; do not add their current location as one")}`,
     `- Work modes: ${listOrNone(searchPreferences.workModes, "not specified")}`,
@@ -45,6 +100,15 @@ export function createJobSearchPrompts(config: AgentConfig): {
       ? `- Experience: ${config.userProfile.yearsExperience} years`
       : null,
     config.userProfile.skills?.length ? `- Skills: ${config.userProfile.skills.join(", ")}` : null,
+    experienceLines.length > 0
+      ? `- Experience:\n${experienceLines.map((line) => `  - ${line}`).join("\n")}`
+      : null,
+    educationLines.length > 0
+      ? `- Education:\n${educationLines.map((line) => `  - ${line}`).join("\n")}`
+      : null,
+    boundedResumeText
+      ? `- Resume text (bounded):\n${boundedResumeText}`
+      : null,
     "",
     "How to work:",
     "- Work the site out the way a person would. Use its search and filters when they help; scroll or page through results; open a posting only when the card is not enough.",

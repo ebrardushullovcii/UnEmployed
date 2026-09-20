@@ -77,6 +77,7 @@ export async function loadWorkHistoryReviewDriveState() {
 export async function loadAgentOwnedBrowserDriveState(input: {
   sourceUrl: string;
   applicationUrl: string;
+  secondaryApplicationUrl?: string;
 }) {
   const state = createAgentOwnedBrowserDriveState(input);
   await ensureDemoResumeFiles(

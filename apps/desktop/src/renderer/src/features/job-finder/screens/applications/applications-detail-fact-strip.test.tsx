@@ -662,8 +662,9 @@ describe("ApplicationsDetailPanel container contract", () => {
     expect(
       screen.getByRole("region", { name: "Application status" }),
     ).toBeTruthy();
-    // A paused run with a saved next action is the user's gate, not a consent.
-    expect(screen.getAllByText("Needs you")).toHaveLength(1);
+    // The newest run result says submitted, and a recorded submission
+    // outranks the record's paused attempt state (ADR 0022).
+    expect(screen.getAllByText("Applied")).toHaveLength(1);
 
     // The selected-record body is the pane's single bounded primary scroll
     // region, so the locked layout routes wheel and keyboard scrolling to it.

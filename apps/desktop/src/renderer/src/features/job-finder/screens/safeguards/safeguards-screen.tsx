@@ -1,4 +1,4 @@
-import { PageHeader } from "../../components/page-header";
+import { PageHeaderStack } from "../../components/page-header";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type {
@@ -217,7 +217,7 @@ export function SafeguardsScreen(props: {
           through the shared PageHeader like the rest of the app. The card
           below states the boundary in full, so the description no longer
           paraphrases it in smaller type first. */}
-      <PageHeader
+      <PageHeaderStack
         description="What Job Finder is allowed to do on an application site, and the automatic limits that keep a high-volume search safe."
         meta="Quality and reputation"
         title="Safeguards"

@@ -303,14 +303,14 @@ describe("applications status helpers", () => {
     });
 
     expect(getApplicationStagePresentation(record)).toEqual({
-      label: "Manual apply only",
+      label: "Needs you on the site",
       tone: "warning",
     });
-    expect(getApplicationLatestActivityLabel(record)).toBe("Manual apply only");
-    expect(getApplicationNextStepLabel(record)).toBe("Manual apply only");
+    expect(getApplicationLatestActivityLabel(record)).toBe("Needs you on the site");
+    expect(getApplicationNextStepLabel(record)).toBe("Needs you on the site");
     expect(
       getApplicationReadableNextStepLabel(getApplicationNextStepLabel(record)),
-    ).toBe("Manual apply only");
+    ).toBe("Needs you on the site");
   });
 
   it("uses terminal failed copy ahead of consent-approved fallback copy", () => {
@@ -507,7 +507,7 @@ describe("sign-in walls in the list row", () => {
     const record = createRecord({
       company: "Acme",
       lastAttemptState: "paused",
-      nextActionLabel: "Fill it in",
+      nextActionLabel: "Apply",
     });
 
     expect(getApplicationNextStepLabel(record)).not.toMatch(/sign in on/i);

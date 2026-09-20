@@ -85,6 +85,24 @@ function config(overrides: Partial<AgentConfig> = {}): AgentConfig {
         textUpdatedAt: "2026-09-01T09:00:00.000Z",
         extractionStatus: "ready",
       },
+      experiences: [
+        {
+          id: "experience_1",
+          title: "Platform Engineer",
+          companyName: "Northwind",
+          startDate: "2020",
+          isCurrent: true,
+          summary: "Built reliable developer tooling.",
+        },
+      ],
+      education: [
+        {
+          id: "education_1",
+          degree: "BSc",
+          fieldOfStudy: "Computer Science",
+          schoolName: "Example University",
+        },
+      ],
     }),
     searchPreferences: {
       targetRoles: ["Platform Engineer"],
@@ -173,6 +191,64 @@ describe("job search agent", () => {
     expect(scale.system).toContain("borderline possibilities");
   });
 
+  test("lets the saved AI search behavior decide how picky the run is and how remote counts", () => {
+    const balanced = createJobSearchPrompts(
+      config({
+        promptContext: {
+          siteLabel: "the example board",
+          searchMode: "precision",
+          searchGuidance: {
+            selectivity: "balanced",
+            remoteCountsAsAnyLocation: true,
+          },
+        },
+      }),
+    );
+    const strict = createJobSearchPrompts(
+      config({
+        promptContext: {
+          siteLabel: "the example board",
+          // The saved choice wins over the run mode the caller passed.
+          searchMode: "scale",
+          searchGuidance: {
+            selectivity: "best_matches",
+            remoteCountsAsAnyLocation: false,
+          },
+        },
+      }),
+    );
+
+    expect(balanced.system).toContain("adjacent roles the person could plausibly do well");
+    expect(balanced.system).toContain("counts as matching their locations");
+    expect(strict.system).toContain("save only strong fits");
+    expect(strict.system).not.toContain("find a broad pool of plausible jobs");
+    expect(strict.system).toContain("do not count a remote posting as a location match");
+  });
+
+  test("uses the person's exact goal, freshness choice, and full profile", () => {
+    const prompts = createJobSearchPrompts(
+      config({
+        promptContext: {
+          siteLabel: "the example board",
+          searchMode: "precision",
+          searchRequest: {
+            intent: "around engineering",
+            breadth: "best_only",
+            freshness: "recent",
+            sourceIds: "all",
+          },
+        },
+      }),
+    );
+
+    expect(prompts.system).toContain('The person asked for: "around engineering"');
+    expect(prompts.system).toContain("Freshness: prefer postings marked as recent");
+    expect(prompts.system).toContain("Builds dependable internal tools");
+    expect(prompts.system).toContain("Platform Engineer · at Northwind");
+    expect(prompts.system).toContain("BSc · Computer Science · Example University");
+    expect(prompts.system).toContain("8 years of platform engineering");
+  });
+
   test("saves what it reads, tells the model what was already saved, and finishes in its own words", async () => {
     const pages = { current: rawPage() };
     const conversation: string[] = [];
@@ -218,15 +294,17 @@ describe("job search agent", () => {
 
   test("reads a task-relevant same-site GET endpoint through the live browser session", async () => {
     const pages = { current: rawPage() };
-    const get = vi.fn(() =>
-      Promise.resolve({
+    const get = vi.fn((url: string, options: { headers: Record<string, string> }) => {
+      void url;
+      void options;
+      return Promise.resolve({
         text: () => Promise.resolve('{"jobs":[{"id":"j1"}]}'),
         status: () => 200,
         statusText: () => "OK",
         headers: () => ({ "content-type": "application/json" }),
         ok: () => true,
-      }),
-    );
+      });
+    });
     const page = {
       url: () => pages.current.url ?? "",
       context: () => ({ request: { get } }),
@@ -253,14 +331,11 @@ describe("job search agent", () => {
       jobExtractor: extractor,
     });
 
-    expect(get).toHaveBeenCalledWith(
+    const [requestedUrl, requestOptions] = get.mock.calls[0] ?? [];
+    expect(requestedUrl).toBe(
       "https://jobs.example.test/api/jobs?query=engineer",
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          accept: expect.stringContaining("application/json"),
-        }),
-      }),
     );
+    expect(requestOptions?.headers.accept).toContain("application/json");
   });
 
   test("reviews a task-relevant API-only origin before reading it directly", async () => {

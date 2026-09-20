@@ -116,7 +116,7 @@ export function applicationRecordBlockedBySiteSaves(record: {
 
 /** The one sentence that state earns. */
 export const SITE_SAVES_AS_YOU_GO_REASON =
-  "This site saves your answers as you type, and Job Finder is not allowed to let it.";
+  "This site saves your answers as you type. Job Finder now lets sites do that, so run it again.";
 
 /** The host the permission would be granted for, as a person would name it. */
 export function getApplicationHostLabel(
@@ -163,6 +163,25 @@ export function applyResultPausedOnQuestion(result: ApplyResult): boolean {
     result?.blockerReason === "question_grounding_failed" ||
     result?.blockerReason === "required_human_input" ||
     result?.blockerReason === "field_interpretation_failed"
+  );
+}
+
+/**
+ * True when the run actually handed back something to answer. A run that got
+ * stuck, or lost its model, carries the same blocker reason with no question
+ * behind it, and that is a run to try again, not a question to answer.
+ */
+export function applyResultHasQuestionForPerson(
+  result: ApplyResult,
+  pendingQuestionCount: number | null | undefined,
+  pausedQuestion?: string | null,
+): boolean {
+  if (!applyResultPausedOnQuestion(result)) return false;
+  return (
+    (pendingQuestionCount ?? 0) > 0 ||
+    (result?.latestQuestionCount ?? 0) > 0 ||
+    Boolean(pausedQuestion?.trim()) ||
+    getPausedQuestionText(result) !== null
   );
 }
 
@@ -421,9 +440,14 @@ export function resolveApplicationRecoveryPresentation(input: {
   const isServiceWorkerBlocked = applyResultIsServiceWorkerBlocked(
     visibleApplyResult,
   );
-  const needsManualFieldFinish = applyResultNeedsManualFieldFinish(
-    visibleApplyResult,
-  );
+  // A pause with questions on file is a question step, not a browser
+  // hand-off: the answers are typed here, and the run carries on itself.
+  const needsManualFieldFinish =
+    applyResultNeedsManualFieldFinish(visibleApplyResult) &&
+    !(
+      applyResultPausedOnQuestion(visibleApplyResult) &&
+      (pausedQuestionCount ?? 0) > 0
+    );
   const requiresSubmissionOutcomeVerification =
     visibleApplyResult?.blockerReason === "submission_outcome_uncertain" ||
     visibleApplyResult?.privacyReceipt?.submissionOutcome?.outcome ===
@@ -519,18 +543,15 @@ export function resolveApplicationRecoveryPresentation(input: {
     };
   }
 
-  // The site writes as you type. A retry alone reruns into the same refusal;
-  // the one thing that changes it is allowing saving on that host.
+  // The site writes as you type. Runs let sites save as they go now, so a
+  // result stopped on this (from an older run) just needs another go.
   if (applyResultBlockedBySiteSaves(visibleApplyResult)) {
-    const host = getApplicationHostLabel(destinationUrl);
     return {
       state: "site_saves_as_you_go",
       statusLine: "This site saves as you type",
       reasonSentence: SITE_SAVES_AS_YOU_GO_REASON,
-      primaryAction: "allow_site_saves",
-      primaryActionLabel: host
-        ? `Allow saving on ${host} and try again`
-        : "Allow saving on this site and try again",
+      primaryAction: "try_again",
+      primaryActionLabel: "Try again",
     };
   }
 
@@ -554,7 +575,13 @@ export function resolveApplicationRecoveryPresentation(input: {
     };
   }
 
-  if (applyResultPausedOnQuestion(visibleApplyResult)) {
+  if (
+    applyResultHasQuestionForPerson(
+      visibleApplyResult,
+      pausedQuestionCount,
+      pausedQuestion,
+    )
+  ) {
     const question =
       pausedQuestion?.trim() || getPausedQuestionText(visibleApplyResult);
     const count = pausedQuestionCount ?? 0;
@@ -571,7 +598,7 @@ export function resolveApplicationRecoveryPresentation(input: {
             ? `The form asks: ${question}`
             : "The form asks something nothing in your profile, resume, or saved answers covers.",
       primaryAction: "answer_in_needs_you",
-      primaryActionLabel: "Answer in Needs you",
+      primaryActionLabel: "Answer the questions",
     };
   }
 
@@ -611,6 +638,24 @@ export function resolveApplicationRecoveryPresentation(input: {
         "This listing has no application Job Finder can fill in.",
       primaryAction: "open_listing",
       primaryActionLabel: OPEN_LISTING_ACTION,
+    };
+  }
+
+  // The form was worked to the end and nothing stopped it: the person reads
+  // it over and sends it. This used to fall through to "stopped before
+  // finishing" with a Try again button under a row that said Ready to send.
+  if (
+    visibleApplyResult?.state === "awaiting_review" &&
+    !visibleApplyResult.blockerReason
+  ) {
+    return {
+      state: "finish_in_browser",
+      statusLine: "Ready for you to read over and send",
+      reasonSentence:
+        reasonSentence ??
+        "Job Finder filled the form in and stopped before the send button.",
+      primaryAction: "open_browser",
+      primaryActionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
     };
   }
 

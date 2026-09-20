@@ -19,6 +19,8 @@ export interface ResumeWorkspaceScreenProps {
   isWorkspacePending: boolean;
   /** Native PDF export is pending without invalidating a ready workspace. */
   isExportPending?: boolean;
+  /** An application run is starting; the Apply button shows it. */
+  isApplyPending?: boolean;
   workspace: JobFinderResumeWorkspace | null;
   availableResumeTemplates: readonly ResumeTemplateDefinition[];
   assistantMessages: readonly ResumeAssistantMessage[];

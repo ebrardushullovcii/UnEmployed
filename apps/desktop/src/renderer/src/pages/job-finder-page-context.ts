@@ -20,6 +20,7 @@ import type {
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
   JobFinderOpenBrowserSessionInput,
+  JobFinderSearchRequest,
   JobFinderResumePreview,
   JobFinderResumeWorkspace,
   JobFinderSetResumeClaimConfirmationInput,
@@ -36,6 +37,7 @@ import type {
   ResumeStrategyRecommendation,
   ResumeImportProgressEvent,
   ResumeApplicationMode,
+  TailoringMode,
   ResumeTimelineRepairAction,
   SaveApplicationAnswerCommandInput,
   SaveCampaignRuleInput,
@@ -49,6 +51,7 @@ import type {
   SnoozeGroupedDecisionInput,
   UpdateApplicationDefaultsInput,
   UpdateWorkspaceBehaviorInput,
+  UpdateAiBehaviorInput,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -109,6 +112,7 @@ export interface JobFinderPageContext {
   onStartAutoApply: (input: JobFinderApplicationStartTarget) => void;
   onStartAutoApplyQueue: (
     jobIds: JobFinderApplyQueueActionInput["jobIds"],
+    applicationAutomationMode?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
   ) => Promise<JobFinderAutoApplyQueueStartOutcome>;
   onStartApplyCopilot: (input: JobFinderApplicationStartTarget) => void;
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void;
@@ -143,6 +147,8 @@ export interface JobFinderPageContext {
   onMutateRapidReview: (input: RapidReviewMutationInput) => Promise<void>;
   onMutateSafeguards: (input: SafeguardMutationInput) => Promise<boolean>;
   onApproveCurrentResume: (jobId: string) => void;
+  /** Approves a Light or Tailored draft and starts the application in one press. */
+  onApproveResumeAndApply: (jobId: string) => void;
   onApproveResume: (jobId: string, exportId: string) => void;
   onClearResumeApproval: (jobId: string) => void;
   onSetWorkHistoryReviewAcknowledgment: (
@@ -250,11 +256,12 @@ export interface JobFinderPageContext {
   onSetJobResumeApplicationMode: (
     jobId: string,
     resumeApplicationMode: ResumeApplicationMode,
+    resumeTailoringMode?: TailoringMode | null,
   ) => void;
   onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onResetWorkspace: () => void;
   onResumeProfileSetup: (step?: ProfileSetupStep) => void;
-  onRunAgentDiscovery?: () => void;
+  onRunAgentDiscovery?: (searchRequest?: JobFinderSearchRequest) => void;
   /**
    * Cancels the active discovery run through the same fenced preload request
    * the shell Task Center uses; when absent, no surface offers a stop action.
@@ -354,6 +361,7 @@ export interface JobFinderPageContext {
   onUpdateWorkspaceBehavior: (
     input: UpdateWorkspaceBehaviorInput,
   ) => Promise<boolean>;
+  onUpdateAiBehavior: (input: UpdateAiBehaviorInput) => Promise<boolean>;
   onUpdateAppearanceTheme: (
     appearanceTheme: AppearanceTheme,
   ) => Promise<boolean>;

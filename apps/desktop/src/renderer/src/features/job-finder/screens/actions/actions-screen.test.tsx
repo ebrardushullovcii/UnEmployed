@@ -623,7 +623,9 @@ describe("ActionsScreen", () => {
 
     expect(countNeedsYouItems({ applicationRecords: [record], requests: [] })).toBe(1);
     expect(screen.queryByText("Nothing needs you right now")).toBeNull();
-    expect(screen.getByText("Applications waiting on you")).toBeTruthy();
+    // One Applications group holds live steps and paused applications alike.
+    expect(screen.getByRole("heading", { name: "Applications" })).toBeTruthy();
+    expect(screen.queryByText("Applications waiting on you")).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: /Open this application/ }),
     );

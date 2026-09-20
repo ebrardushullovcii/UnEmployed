@@ -2,6 +2,7 @@ export type {
   AgentDiscoveryOptions,
   ApplicationAttachmentArtifact,
   ApplicationExecutionMode,
+  ApplicationPreparationProgress,
   BrowserSessionRuntime,
   CatalogBrowserSessionRuntimeSeed,
   ExecuteApplicationFlowInput,

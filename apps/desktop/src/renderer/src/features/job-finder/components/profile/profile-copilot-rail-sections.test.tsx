@@ -338,7 +338,7 @@ describe("ProfileCopilotTranscript", () => {
     );
     expect(container?.textContent).toContain("Set locations to New York");
     expect(container?.textContent).toContain(
-      "Set compensation to 3,000–4,000 / month (currency not set — confirmation needed)",
+      "Set minimum compensation to 3,000 and target compensation to 4,000 / month (currency not set — confirmation needed)",
     );
     expect(container?.textContent).not.toContain("Nothing changed yet.");
   });
@@ -842,7 +842,9 @@ describe("describePatchOperation compensation clear truth", () => {
         currencyStatus: "needs_clarification",
       },
     } as never);
-    expect(description).toContain("Set compensation to 3,000–4,000");
+    expect(description).toContain(
+      "Set minimum compensation to 3,000 and target compensation to 4,000",
+    );
   });
 });
 

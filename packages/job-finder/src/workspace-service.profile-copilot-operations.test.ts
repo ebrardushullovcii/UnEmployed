@@ -1,4 +1,7 @@
-import type { JobFinderAiClient } from "@unemployed/ai-providers";
+import {
+  createDeterministicJobFinderAiClient,
+  type JobFinderAiClient,
+} from "@unemployed/ai-providers";
 import type {
   CandidateProfile,
   JobSearchPreferences,
@@ -833,9 +836,110 @@ async function runProfileCopilotOperationCase(
 }
 
 describe("workspaceService profile copilot exhaustive patch operations", () => {
+  test("upsert_experience_record edits the matching role instead of adding a second card and keeps its bullets", async () => {
+    const baseSeed = createSeed();
+    const existing = baseSeed.profile.experiences[0];
+    if (!existing) {
+      throw new Error("seed needs one experience");
+    }
+    const patchGroup: ProfileCopilotPatchGroup =
+      ProfileCopilotPatchGroupSchema.parse({
+        id: "patch_group_upsert_merge",
+        summary: "Set the role location",
+        applyMode: "applied",
+        operations: [
+          {
+            operation: "upsert_experience_record",
+            record: {
+              ...existing,
+              id: null,
+              location: "Remote, United States",
+              achievements: [],
+              skills: [],
+            },
+          },
+        ],
+        createdAt: "2026-04-15T09:00:00.000Z",
+      });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: baseSeed,
+      aiClient: createPatchStubAiClient(patchGroup, []),
+    });
+    await workspaceService.getWorkspaceSnapshot();
+
+    const proposal = await workspaceService.proposeProfileCopilotChange(
+      `Set the location of my ${existing.title ?? "role"} role to Remote, United States`,
+      { surface: "profile", section: "experience" },
+    );
+    const proposed = proposal.profileCopilotMessages
+      .flatMap((message) => message.patchGroups ?? [])
+      .at(-1);
+    if (!proposed) {
+      throw new Error("expected a proposed patch group");
+    }
+    await workspaceService.applyProfileCopilotPatchGroup(proposed.id);
+    const state = await readAuthoritativeState(repository);
+    const roles = state.profile.experiences.filter(
+      (entry) => entry.title === existing.title,
+    );
+
+    expect(roles).toHaveLength(1);
+    expect(roles[0]?.id).toBe(existing.id);
+    expect(roles[0]?.location).toBe("Remote, United States");
+    expect(roles[0]?.achievements).toEqual(existing.achievements);
+  });
+
   for (const [operation, testCase] of caseEntries) {
     test(`${operation}: chat proposal stays review-only, applies, persists, and undoes`, async () => {
       await runProfileCopilotOperationCase(testCase);
     });
   }
+
+  test("applies the owner's exact compound experience and monthly salary correction through the real conversation path", async () => {
+    const request =
+      "I want to correct my experience from six years to seven and update expected salary: minimum 2,000 euro per month but really want 3,000.";
+    const baseSeed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      aiClient: createDeterministicJobFinderAiClient(),
+      seed: {
+        ...baseSeed,
+        profile: {
+          ...baseSeed.profile,
+          yearsExperience: 6,
+        },
+        searchPreferences: {
+          ...baseSeed.searchPreferences,
+          compensation: {
+            minimum: null,
+            maximum: null,
+            interval: "year",
+            currency: "EUR",
+            currencyStatus: "explicit",
+          },
+          minimumSalaryUsd: null,
+          targetSalaryUsd: null,
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.sendProfileCopilotMessage(request, {
+      surface: "profile",
+      section: "preferences",
+    });
+    const state = await readAuthoritativeState(repository);
+
+    expect(snapshot.profileCopilotMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "user", content: request }),
+      ]),
+    );
+    expect(state.profile.yearsExperience).toBe(7);
+    expect(state.searchPreferences.compensation).toEqual({
+      minimum: 2000,
+      maximum: 3000,
+      interval: "month",
+      currency: "EUR",
+      currencyStatus: "explicit",
+    });
+  });
 });

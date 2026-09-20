@@ -19,6 +19,8 @@ import {
   isActiveApplicationAuthorityEnvelope,
   isActiveSubmissionExecutionGrant,
   serializeApplicationAuthorityDecisionPolicyForDigest,
+  applicationAuthorityMaxOrigins,
+  applicationAuthorityMaxResumeDigests,
 } from "./index";
 
 const VALID_SHA = "a".repeat(64);
@@ -399,22 +401,19 @@ describe("application authority envelope contracts", () => {
     ).toBe(true);
   });
 
-  it("requires exact scope and resume identity for intermediate external mutation capability", () => {
+  it("lets one intermediate mutation grant cover many jobs, resumes and origins", () => {
+    // Field saves are on by default (ADR 0024): the grant grows with every
+    // application of the session instead of being pinned to one of each.
     const result = ApplicationAuthorityEnvelopeSchema.safeParse({
       ...validEnvelopeInput,
       allowedResumeSha256: [],
+      allowedOrigins: ["https://jobs.example.com", "https://apply.example.org"],
       decisionPolicy: validDecisionPolicy,
       expiresAt: "2026-08-27T11:00:00.000Z",
       intermediateMutationsAuthorized: true,
-      scope: { campaignId: null, jobIds: [] },
+      scope: { campaignId: null, jobIds: ["job_a", "job_b"] },
     });
-    expect(result.success).toBe(false);
-    if (result.success) {
-      throw new Error("Expected unscoped intermediate authority to fail.");
-    }
-    expect(firstIssuePaths(result.error)).toEqual(
-      expect.arrayContaining(["scope", "allowedResumeSha256"]),
-    );
+    expect(result.success).toBe(true);
   });
 
   test.each([
@@ -651,10 +650,11 @@ describe("application authority envelope contracts", () => {
       }).success,
     ).toBe(false);
 
-    const manyResumes = Array.from({ length: 20 }, (_, index) =>
-      index.toString(16).padStart(2, "0").repeat(32),
+    const manyResumes = Array.from(
+      { length: applicationAuthorityMaxResumeDigests },
+      (_, index) => index.toString(16).padStart(64, "0"),
     );
-    expect(manyResumes).toHaveLength(20);
+    expect(manyResumes).toHaveLength(applicationAuthorityMaxResumeDigests);
     expect(
       ApplicationAuthorityEnvelopeSchema.safeParse({
         ...validEnvelopeInput,
@@ -669,7 +669,7 @@ describe("application authority envelope contracts", () => {
     ).toBe(false);
 
     const manyOrigins = Array.from(
-      { length: 50 },
+      { length: applicationAuthorityMaxOrigins },
       (_, index) => `https://host-${index}.example.com`,
     );
     expect(

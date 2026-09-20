@@ -30,10 +30,12 @@ interface DetailFact {
   muted?: boolean;
   note?: string;
   title?: string;
+  /** A sentence-length value takes the whole row instead of one column. */
+  wide?: boolean;
 }
 
 function DetailFactCell({ fact }: { fact: DetailFact }) {
-  const { content, label, muted = false, note, title } = fact;
+  const { content, label, muted = false, note, title, wide = false } = fact;
   const valueTitle =
     title ??
     (note && typeof content === "string"
@@ -41,7 +43,7 @@ function DetailFactCell({ fact }: { fact: DetailFact }) {
       : (note ?? undefined));
 
   return (
-    <div className="min-w-0">
+    <div className={wide ? "min-w-0 sm:col-span-2 @[32rem]/detail:col-span-3" : "min-w-0"}>
       <dt className={APPLICATION_DETAIL_FACT_LABEL_CLASS}>{label}</dt>
       <dd
         className={`mt-1 block min-w-0 break-words text-(length:--text-field) leading-6 ${muted ? "font-normal text-foreground-muted" : "font-semibold text-foreground"}`}
@@ -116,9 +118,16 @@ export function ApplicationsDetailFactStrip(props: {
   // The runtime's own sentence describes the same event as a site failure, so
   // the strip reuses the exact shared labels instead of a rival account.
   const isFieldSavePause = applyResultIsFieldSavePause(visibleApplyResult);
+  // A stop reason already printed in the status block above is not repeated
+  // as "latest activity" beside it.
+  const repeatsStatusBlock =
+    selectedRecord.lastActionLabel !== null &&
+    selectedRecord.lastActionLabel !== undefined &&
+    (visibleApplyResult?.detail === selectedRecord.lastActionLabel ||
+      visibleApplyResult?.summary === selectedRecord.lastActionLabel);
   const latestActivityContent = isFieldSavePause
     ? FIELD_SAVE_PAUSE_ACTIVITY
-    : selectedRecord.lastActionLabel
+    : selectedRecord.lastActionLabel && !repeatsStatusBlock
       ? isSiteBlockedPause
         ? "Automatic prep paused"
         : selectedRecord.lastActionLabel
@@ -146,7 +155,13 @@ export function ApplicationsDetailFactStrip(props: {
         // one event arrive in four places. Latest activity only survives when
         // it is not the status title said again.
         ...(latestActivityContent
-          ? [{ content: latestActivityContent, label: "Latest activity" }]
+          ? [
+              {
+                content: latestActivityContent,
+                label: "Latest activity",
+                wide: latestActivityContent.length > 60,
+              },
+            ]
           : []),
         preparationStatusFact,
       ];

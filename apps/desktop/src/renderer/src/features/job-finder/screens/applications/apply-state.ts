@@ -10,6 +10,7 @@ import {
 import {
   applyResultBlockedBySiteSaves,
   applyResultIsStillRunning,
+  applyResultHasQuestionForPerson,
   applyResultStoppedStructurally,
   formatElapsedMinutes,
   getApplicationStopReasonSentence,
@@ -136,6 +137,22 @@ export function resolveApplyStatePresentation(input: {
     };
   }
 
+  // The run worked the form to the end and handed back what only the
+  // person can answer: a declaration, a question nothing on file covers.
+  // That is theirs to finish, not a failure.
+  if (applyResultHasQuestionForPerson(result, pendingQuestionCount)) {
+    return {
+      kind: "needs_you",
+      title: "Needs you",
+      sentence:
+        reason ??
+        "The form asks something only you can answer. Answer it here, or finish it in the browser.",
+      action: "open_browser",
+      actionLabel: OPEN_THE_BROWSER_ACTION,
+      questionsLeftLabel,
+    };
+  }
+
   if (result?.state === "awaiting_review" || submissionOutcome !== null) {
     return {
       kind: "ready_to_send",
@@ -177,7 +194,7 @@ export function resolveApplyStatePresentation(input: {
 
 /** The one per-job control in Shortlisted, named for what the mode does. */
 export function applyActionLabel(mode: ApplyMode): string {
-  return mode === "apply_for_me" ? "Apply" : "Fill it in";
+  return mode === "apply_for_me" ? "Apply" : "Apply";
 }
 
 /** The one list-level control in Shortlisted. */

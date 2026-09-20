@@ -6,8 +6,6 @@ import type {
   JobSource,
 } from "@unemployed/contracts";
 
-import { hasSubmissionConfirmationText } from "@unemployed/browser-agent";
-
 import type { SubmissionPreflightLineageFacts } from "./application-submission-preflight";
 import { runApplicationSubmissionRuntime } from "./application-submission-runtime";
 import {
@@ -87,6 +85,7 @@ export async function sendPreparedApplicationIfAllowed(input: {
     source: input.source,
     envelope: input.envelope,
     lineage: input.lineage,
+    ...(input.handoff.confirmedByPerson ? { confirmedByPerson: true } : {}),
     loadResumeBytes: async () =>
       new Uint8Array(await readFile(input.resumeArtifact.filePath)),
     now: new Date().toISOString(),
@@ -94,25 +93,13 @@ export async function sendPreparedApplicationIfAllowed(input: {
     runSubmission: runApplicationSubmissionRuntime,
   });
 
-  // What the page said after the click. An observation for the person, never
-  // proof: the outcome stays unconfirmed either way.
-  let confirmationSeen = false;
-  if (result.status === "outcome_uncertain" && runtime.applyPageMechanics) {
-    try {
-      const page = await runtime.applyPageMechanics(input.source).readPage();
-      confirmationSeen = hasSubmissionConfirmationText(page.bodyText);
-    } catch {
-      confirmationSeen = false;
-    }
-  }
-
   const told = describeSubmissionOutcome({
     result,
     siteLabel: input.siteLabel,
-    confirmationSeen,
   });
   return {
-    sent: result.status === "outcome_uncertain",
+    sent:
+      result.status === "submitted" || result.status === "outcome_uncertain",
     pageClosed: false,
     ...told,
   };

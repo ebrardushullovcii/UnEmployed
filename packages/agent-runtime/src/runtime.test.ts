@@ -161,6 +161,37 @@ describe("agent task runtime", () => {
     expect(result.receipt.stopReason).toBe("cost_budget");
   });
 
+  test("one silent provider call cannot overrun the task budget", async () => {
+    const progress: string[] = [];
+    const result = await runAgentTask({
+      taskId: "task_silent_provider",
+      capability: "bounded_task",
+      systemPrompt: "Use a tool.",
+      state: {},
+      initialDraft: {},
+      model: {
+        chat() {
+          return new Promise(() => {
+            // Deliberately ignore the signal: the runtime still owns its
+            // deadline even when a provider adapter fails to settle on abort.
+          });
+        },
+      },
+      tools: [],
+      validate: () => [],
+      buildContext: () => ({}),
+      timeBudgetMs: 1_000,
+      modelTurnTimeoutMs: 10,
+      onProgress: ({ message }) => progress.push(message),
+    });
+
+    expect(result.receipt.stopReason).toBe("time_budget");
+    expect(result.receipt.providerCalls).toBe(1);
+    expect(progress).toContain(
+      "The assistant did not answer before this turn's time limit",
+    );
+  });
+
   test("keeps the assistant tool-call message when the recent tail contains many tool results", async () => {
     let providerCall = 0;
     const result = await runAgentTask({

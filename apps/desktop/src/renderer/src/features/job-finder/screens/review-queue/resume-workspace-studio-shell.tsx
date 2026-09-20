@@ -58,6 +58,8 @@ interface ResumeWorkspaceStudioShellProps {
   historyPanel: ReactNode;
   /** Native PDF export is pending without invalidating a ready workspace. */
   isExportPending?: boolean;
+  /** An application run is starting from this editor. */
+  isApplyPending?: boolean;
   isWorkspacePending: boolean;
   mobileStudioTab: ResumeStudioMobileTab;
   onApproveCurrentPdf: () => void;
@@ -527,6 +529,7 @@ export function ResumeWorkspaceStudioShell(
     useState<string | null>(null);
   const validationIssues = props.validationIssues ?? [];
   const isExportPending = props.isExportPending ?? false;
+  const isApplyPending = props.isApplyPending ?? false;
   const firstBlockingIssue = validationIssues.find(
     isBlockingResumeValidationIssue,
   );
@@ -821,11 +824,13 @@ export function ResumeWorkspaceStudioShell(
                 ? "Needs fixes"
                 : approvalBlockedByDecisions
                   ? "Needs decisions"
-                  : canApproveResume
-                    ? props.hasUnsavedChanges
-                      ? "Unsaved changes"
-                      : "Ready to approve"
-                    : "Choose template"}
+                  : props.exportBlockedReason
+                    ? "Lines to confirm"
+                    : canApproveResume
+                      ? props.hasUnsavedChanges
+                        ? "Unsaved changes"
+                        : "Ready to approve"
+                      : "Choose template"}
           </Badge>
           <strong
             className="min-w-0 text-(length:--text-body) leading-5 text-(--text-headline)"
@@ -842,7 +847,7 @@ export function ResumeWorkspaceStudioShell(
                   : approvalBlockedByDecisions
                     ? "Choose whether to leave each hidden role off this resume before approving."
                     : props.exportBlockedReason
-                      ? "Resolve the blocked claims before approval."
+                      ? "Keep or remove the flagged lines, then approve."
                       : "Choose an apply-safe template before approval."}
           </strong>
           {/* Compact widths used to carry a second, contiguous approval band
@@ -891,19 +896,23 @@ export function ResumeWorkspaceStudioShell(
           !props.hasUnsavedChanges &&
           props.onPrepareApplication ? (
             <Button
-              disabled={props.isWorkspacePending || isExportPending}
+              disabled={
+                props.isWorkspacePending || isExportPending || isApplyPending
+              }
               onClick={props.onPrepareApplication}
-              pending={props.isWorkspacePending || isExportPending}
+              pending={
+                props.isWorkspacePending || isExportPending || isApplyPending
+              }
               type="button"
               variant="primary"
             >
-              Fill it in
+              Apply
               <ArrowRight className="size-4" />
             </Button>
           ) : null}
           {/* One route back. `← Back to Shortlisted` already sits ~100px away
               in the workspace header, so a second `Continue to Shortlisted →`
-              beside `Fill it in →` read as forward progress to a
+              beside `Apply →` read as forward progress to a
               different place. It only appears when there is no Prepare action
               to offer, and then it points back. */}
           {props.canClearApproval ? (
@@ -937,7 +946,9 @@ export function ResumeWorkspaceStudioShell(
                     ? () => focusValidationIssue(firstBlockingIssue)
                     : approvalBlockedByDecisions
                       ? focusWorkHistoryDecisions
-                      : focusTemplateChooser
+                      : props.exportBlockedReason
+                        ? props.onReviewBlockingIssues
+                        : focusTemplateChooser
               }
               pending={props.isWorkspacePending || isExportPending}
               type="button"
@@ -951,7 +962,9 @@ export function ResumeWorkspaceStudioShell(
                     ? "Fix approval blocker"
                     : approvalBlockedByDecisions
                       ? "Review hidden roles"
-                      : "Choose an apply-safe template"}
+                      : props.exportBlockedReason
+                        ? (props.exportBlockedActionLabel ?? "Review lines")
+                        : "Choose an apply-safe template"}
               <ArrowRight className="size-4" />
             </Button>
           )}

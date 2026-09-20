@@ -277,7 +277,7 @@ describe("resume import reconciliation", () => {
     ).toBe(false);
   });
 
-  test("keeps resume-inferred search preferences behind explicit review", () => {
+  test("fills empty search preferences from the resume", () => {
     const seed = createSeed();
     const targetRolesCandidate = ResumeImportFieldCandidateSchema.parse({
       runId: "resume_import_run_target_roles",
@@ -307,10 +307,11 @@ describe("resume import reconciliation", () => {
       [targetRolesCandidate],
     );
 
+    // The seed has no target roles yet, so the inferred one fills the field.
     expect(reconciled[0]).toMatchObject({
       id: "candidate_target_roles",
-      resolution: "needs_review",
-      resolutionReason: "list_candidates_require_review",
+      resolution: "auto_applied",
+      resolutionReason: "applied_into_empty_profile",
     });
   });
 
@@ -702,7 +703,9 @@ describe("resume import reconciliation", () => {
         educationCandidate,
       ])[0],
     ).toMatchObject({
-      resolution: "needs_review",
+      // A fresh profile takes the grounded record; only the unsupported
+      // fields are stripped first.
+      resolution: "auto_applied",
       value: {
         schoolName: "Oregon State University",
         degree: null,

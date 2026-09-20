@@ -1088,13 +1088,14 @@ describe("buildJobFinderTaskCenterModel", () => {
 describe("describeTaskCenterCounts", () => {
   test("never renders a zero beside a real count", () => {
     expect(describeTaskCenterCounts({ activeCount: 2, pausedCount: 0 })).toBe(
-      "2 active",
+      "2 running",
     );
+    // Paused work is the person's queue and Needs you already counts it.
     expect(describeTaskCenterCounts({ activeCount: 0, pausedCount: 3 })).toBe(
-      "3 paused",
+      null,
     );
     expect(describeTaskCenterCounts({ activeCount: 2, pausedCount: 3 })).toBe(
-      "2 active · 3 paused",
+      "2 running",
     );
     expect(describeTaskCenterCounts({ activeCount: 0, pausedCount: 0 })).toBe(
       null,

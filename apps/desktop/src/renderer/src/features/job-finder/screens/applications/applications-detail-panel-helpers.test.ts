@@ -375,7 +375,7 @@ describe("service-worker site block helpers", () => {
     ).toBe(true);
     expect(
       applicationRecordLooksSiteBlocked({
-        nextActionLabel: "Fill it in",
+        nextActionLabel: "Apply",
         lastActionLabel: "Resume approved",
         latestBlocker: null,
       }),

@@ -35,18 +35,14 @@ import { ThemeProvider } from "@renderer/app/theme-provider";
 import { Button } from "@renderer/components/ui/button";
 import { useModalFocusTrap } from "@renderer/features/job-finder/components/profile/use-modal-focus-trap";
 import {
-  BarChart3,
-  Building2,
   ClipboardCheck,
   Compass,
   FileText,
   House,
   Keyboard,
-  Layers3,
   Menu,
   Minus,
   Settings,
-  ShieldCheck,
   Square,
   UserRound,
   X,
@@ -204,42 +200,12 @@ const openingShellSecondaryGroups: readonly {
   }[];
 }[] = [
   {
-    label: "Your data",
+    label: "Workspace",
     destinations: [
       {
         icon: FileText,
         label: "Documents",
         path: "/job-finder/documents",
-      },
-      {
-        icon: Building2,
-        label: "Companies",
-        path: "/job-finder/companies",
-      },
-      {
-        icon: BarChart3,
-        label: "Outcomes",
-        path: "/job-finder/analytics",
-      },
-    ],
-  },
-  {
-    label: "Setup and safety",
-    destinations: [
-      {
-        icon: Layers3,
-        label: "Search plans",
-        path: "/job-finder/campaigns",
-      },
-      {
-        icon: Layers3,
-        label: "Resume approaches",
-        path: "/job-finder/resume-strategies",
-      },
-      {
-        icon: ShieldCheck,
-        label: "Safeguards",
-        path: "/job-finder/safeguards",
       },
       {
         icon: Settings,
@@ -321,7 +287,7 @@ function readInitialDesktopPlatform(): "darwin" | "linux" | "win32" | null {
  */
 const OPENING_ROUTE_TITLE_OVERRIDES: Readonly<Record<string, string>> = {
   "/job-finder/profile": "Your profile",
-  "/job-finder/review-queue": "Shortlisted jobs",
+  "/job-finder/review-queue": "Shortlisted",
 };
 
 function getOpeningRouteTitle(pathname: string, label: string): string {
@@ -971,7 +937,7 @@ export function ApplyCopilotVisualCheckpointDialog(props: {
   onClose: () => void;
   /**
    * Returns a refusal sentence when the start could not begin. The dialog then
-   * stays open and says so: pressing "Fill it in" and watching the
+   * stays open and says so: pressing "Apply" and watching the
    * dialog close with nothing else happening is the defect this return value
    * exists to prevent.
    */
@@ -1052,7 +1018,7 @@ export function ApplyCopilotVisualCheckpointDialog(props: {
         <div className="flex items-start justify-between gap-4">
           <div className="grid gap-2">
             <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-              Fill it in
+              Apply
             </p>
             {/* The heading is the identity: which application this gate is
                 actually about. Group 6 supplies the subject line. */}
@@ -1170,7 +1136,7 @@ export function ApplyCopilotVisualCheckpointDialog(props: {
               type="button"
               variant="primary"
             >
-              Fill it in
+              Apply
             </Button>
           )}
         </div>

@@ -30,6 +30,7 @@ import {
   SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
 } from "../../lib/job-finder-shell-gutters";
 import { EmptyState } from "../../components/empty-state";
+import { ExternalUrlLink } from "../../components/open-outside-links";
 import { PreferenceList } from "../../components/preference-list";
 import { StatusBadge } from "../../components/status-badge";
 import { MatchEvidenceMatrix } from "../../components/match-evidence-matrix";
@@ -112,9 +113,9 @@ export function presentDiscoveryJobStatusLabel(status: string): string {
       return "Resume needs review";
     // shortlistJob writes "drafting" the moment a job is shortlisted, before
     // any draft is requested, so this is the same state Shortlisted calls
-    // "Needs resume". "Resume in progress" made people wait for nothing.
+    // "No resume yet". "Resume in progress" made people wait for nothing.
     case "drafting":
-      return "Needs resume";
+      return "No resume yet";
     default:
       return formatStatusLabel(status);
   }
@@ -126,7 +127,7 @@ interface DiscoveryDetailPanelProps {
    * The Shortlisted rows. When this job is on that list its readiness is
    * computed there, once, and read back here: the inspector used to derive a
    * second verdict from the stored job status, so the same job could read
-   * "Resume needs review" here and "Ready to prepare" on Shortlisted seconds
+   * "Resume needs review" here and "Ready to apply" on Shortlisted seconds
    * apart.
    */
   reviewQueue?: readonly ReviewQueueItem[];
@@ -143,6 +144,8 @@ interface DiscoveryDetailPanelProps {
   ) => Promise<EmployerExclusionPreview>;
   onOpenCompany?: (companyId: string) => void;
   onOpenApplication?: (recordId: string) => void;
+  /** Opens the original listing page in the Job Finder browser. */
+  onOpenListing?: (url: string) => void;
   onQueueJob: (jobId: string) => void;
   /**
    * Request-local outcome of this job's own Shortlist decision, correlated by
@@ -421,6 +424,7 @@ export function DiscoveryDetailPanel({
   onPreviewEmployerExclusion,
   onOpenCompany,
   onOpenApplication = () => undefined,
+  onOpenListing,
   onQueueJob,
   queueFeedback,
   selectedJob,
@@ -553,6 +557,32 @@ export function DiscoveryDetailPanel({
         canonicalUrl: selectedJob.canonicalUrl,
       })
     : null;
+  // A six-month contract read as a permanent role at an annual salary until
+  // the user opened the page. The board's own spelling is machine text
+  // ("FULL_TIME") and a flattened card repeats the same place and work mode
+  // in every slot it had, so each fact is said once and in plain words. A
+  // listing whose place is simply "Remote" already states its work mode, so
+  // the mode is not printed a second time beside it.
+  const workModeLabel = selectedJob
+    ? (formatWorkModeLabel(selectedJob.workMode) ?? "Work mode not stated")
+    : null;
+  const locationAndWorkModeLine = selectedJob
+    ? [
+        formatEmploymentTypeLabel(selectedJob.employmentType),
+        listingLocationLabel,
+        // "Remote (UK) · Remote" and "Hybrid, London · Hybrid" say the mode
+        // twice; the place already carries it whenever it names it.
+        listingLocationLabel &&
+        workModeLabel &&
+        listingLocationLabel
+          .toLowerCase()
+          .includes(workModeLabel.trim().toLowerCase())
+          ? null
+          : workModeLabel,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
   // An echoed job title is not listing text; it reads as a bug under an
   // "About this job" heading.
   const listingText = (() => {
@@ -750,9 +780,11 @@ export function DiscoveryDetailPanel({
     >
       <div className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-4 py-3">
         <p className="text-(length:--text-heading-3) font-semibold text-(--text-headline)">
-          Job inspector
+          Job details
         </p>
-        {selectedJob && readinessStatus ? (
+        {/* "Discovered" is the state of every row on this page; the badge
+            only earns its place once the job has moved on to Shortlisted. */}
+        {selectedJob && readinessStatus && selectedJob.status !== "discovered" ? (
           <StatusBadge tone={readinessStatus.tone}>
             {readinessStatus.label}
           </StatusBadge>
@@ -937,7 +969,7 @@ export function DiscoveryDetailPanel({
                     </strong>
                     {selectedJob.salaryText && normalizedCompensation ? (
                       <p className="mt-2 text-(length:--text-small) text-foreground-soft">
-                        Normalized: {normalizedCompensation}
+                        About {normalizedCompensation}
                       </p>
                     ) : null}
                   </div>
@@ -946,20 +978,7 @@ export function DiscoveryDetailPanel({
                       Location and work mode
                     </span>
                     <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
-                      {[
-                        // A six-month contract read as a permanent role at an
-                        // annual salary until the user opened the page. The
-                        // board's own spelling is machine text ("FULL_TIME")
-                        // and a flattened card repeats the same place and work
-                        // mode in every slot it had, so each fact is said once
-                        // and in plain words.
-                        formatEmploymentTypeLabel(selectedJob.employmentType),
-                        listingLocationLabel,
-                        formatWorkModeLabel(selectedJob.workMode) ??
-                          "Work mode not stated",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
+                      {locationAndWorkModeLine}
                     </strong>
                     {listingLocationCount > 1 ? (
                       <p
@@ -1031,14 +1050,17 @@ export function DiscoveryDetailPanel({
                   </div>
                 </details>
 
-                <div className="grid sm:grid-cols-2" data-job-detail-fact-grid>
+                <div
+                  className="grid gap-3 sm:grid-cols-2"
+                  data-job-detail-fact-grid
+                >
                   <div
                     className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2"
                     data-testid="discovery-detail-listing-activity"
                   >
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
                       <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
-                        Listing activity
+                        Listing status
                       </span>
                       <StatusBadge
                         className="shrink-0 px-2.5 py-1 text-(length:--text-tiny) font-semibold tracking-[0.04em]"
@@ -1052,78 +1074,17 @@ export function DiscoveryDetailPanel({
                     </p>
                   </div>
                   {listingDate ? (
-                    <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+                    <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
                       <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
                         {listingDate.label}
                       </span>
-                      <strong className="mt-2 block text-(length:--text-section-title) text-(--text-headline)">
+                      <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
                         {listingDate.value}
                       </strong>
                     </div>
                   ) : null}
-                  {selectedJob.atsProvider ? (
-                    <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                      <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
-                        Applications handled by
-                      </span>
-                      <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
-                        {selectedJob.atsProvider}
-                      </strong>
-                    </div>
-                  ) : null}
-                  {selectedJob.applicationUrl &&
-                  selectedJob.applicationUrl !== selectedJob.canonicalUrl ? (
-                    <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
-                      <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
-                        Application route
-                      </span>
-                      <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">
-                        {selectedJob.applicationUrl}
-                      </strong>
-                    </div>
-                  ) : null}
-                  <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
-                    <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
-                      Original listing
-                    </span>
-                    <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">
-                      {selectedJob.canonicalUrl}
-                    </strong>
-                    <p
-                      className="mt-2 text-(length:--text-small) leading-5 text-foreground-soft"
-                      data-testid="discovery-detail-application-method"
-                    >
-                      Application method: {applicationMethodLabel}
-                    </p>
-                    {listingCopyFailedJobId === selectedJob.id ? (
-                      <p className="mt-2 text-(length:--text-small) leading-5 text-destructive">
-                        The link could not be copied. Select the URL above and
-                        copy it manually.
-                      </p>
-                    ) : null}
-                  </div>
                 </div>
 
-                {/* Company context is a detour, not the decision on this
-                    screen, so it sits below the listing rather than above it. */}
-                {selectedJobCompanyId && onOpenCompany && employerDisplay ? (
-                  <Button
-                    className="justify-self-start"
-                    onClick={() => onOpenCompany(selectedJobCompanyId)}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    View {employerDisplay} in Companies
-                  </Button>
-                ) : null}
-
-                <PreferenceList
-                  compact
-                  label="Found on"
-                  values={sourceLabels}
-                />
-                <SourceDiagnostics summaries={intelligenceSummaries} />
                 {selectedJob.keySkills.length > 0 ? (
                   <PreferenceList
                     compact
@@ -1131,15 +1092,7 @@ export function DiscoveryDetailPanel({
                     values={selectedJob.keySkills}
                   />
                 ) : null}
-                {selectedJob.keywordSignals.length > 0 ? (
-                  <PreferenceList
-                    compact
-                    label="Targeting cues"
-                    values={selectedJob.keywordSignals.map(
-                      (signal) => signal.label,
-                    )}
-                  />
-                ) : null}
+
 
                 {selectedJob.screeningHints.remoteGeographies.length > 0 ? (
                   <PreferenceList
@@ -1190,22 +1143,107 @@ export function DiscoveryDetailPanel({
                     </p>
                   </div>
                 ) : null}
-                <SourceChronologyDisclosure
-                  firstSeenAt={selectedJob.firstSeenAt}
-                  lastSeenAt={selectedJob.lastSeenAt}
-                  lastVerifiedActiveAt={selectedJob.lastVerifiedActiveAt}
-                />
-                {selectedJob.employerWebsiteUrl ? (
-                  <div className="grid gap-2">
-                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                      Company site
-                    </p>
-                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                      This job points to a company site that opens during the
-                      application flow.
-                    </p>
-                  </div>
+                {/* Company context is a detour, not the decision on this
+                    screen, so it sits below the listing rather than above it. */}
+                {selectedJobCompanyId && onOpenCompany && employerDisplay ? (
+                  <Button
+                    className="justify-self-start"
+                    onClick={() => onOpenCompany(selectedJobCompanyId)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    View {employerDisplay} in Companies
+                  </Button>
                 ) : null}
+
+                {/* Where the job came from and how the app read it. None of
+                    this decides whether to shortlist, so it folds behind one
+                    line instead of trailing the pane as six loose cards. */}
+                <details
+                  className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border)"
+                  data-testid="discovery-detail-source-details"
+                >
+                  <summary className="cursor-pointer px-4 py-3 text-(length:--text-small) font-medium text-foreground-soft">
+                    Source details
+                  </summary>
+                  <div className="grid gap-4 px-4 pb-4">
+                    <PreferenceList
+                      compact
+                      label="Found on"
+                      values={sourceLabels}
+                    />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
+                        <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                          Original listing
+                        </span>
+                        <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">
+                          <ExternalUrlLink url={selectedJob.canonicalUrl} />
+                        </strong>
+                        <p
+                          className="mt-2 text-(length:--text-small) leading-5 text-foreground-soft"
+                          data-testid="discovery-detail-application-method"
+                        >
+                          Application method: {applicationMethodLabel}
+                        </p>
+                        {listingCopyFailedJobId === selectedJob.id ? (
+                          <p className="mt-2 text-(length:--text-small) leading-5 text-destructive">
+                            The link could not be copied. Select the URL above
+                            and copy it manually.
+                          </p>
+                        ) : null}
+                      </div>
+                      {selectedJob.applicationUrl &&
+                      selectedJob.applicationUrl !== selectedJob.canonicalUrl ? (
+                        <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
+                          <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                            Application route
+                          </span>
+                          <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">
+                            <ExternalUrlLink url={selectedJob.applicationUrl} />
+                          </strong>
+                        </div>
+                      ) : null}
+                      {selectedJob.atsProvider ? (
+                        <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
+                          <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                            Applications handled by
+                          </span>
+                          <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
+                            {selectedJob.atsProvider}
+                          </strong>
+                        </div>
+                      ) : null}
+                    </div>
+                    {selectedJob.keywordSignals.length > 0 ? (
+                      <PreferenceList
+                        compact
+                        label="Keywords the source flagged"
+                        values={selectedJob.keywordSignals.map(
+                          (signal) => signal.label,
+                        )}
+                      />
+                    ) : null}
+                    <SourceDiagnostics summaries={intelligenceSummaries} />
+                    <SourceChronologyDisclosure
+                      firstSeenAt={selectedJob.firstSeenAt}
+                      lastSeenAt={selectedJob.lastSeenAt}
+                      lastVerifiedActiveAt={selectedJob.lastVerifiedActiveAt}
+                    />
+                    {selectedJob.employerWebsiteUrl ? (
+                      <div className="grid gap-2">
+                        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+                          Company site
+                        </p>
+                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                          This job points to a company site that opens during
+                          the application flow.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                </details>
               </div>
             </div>
           </div>
@@ -1399,11 +1437,23 @@ export function DiscoveryDetailPanel({
                 ) : null}
               </fieldset>
             ) : null}
-            {/* A dismissal and a link copy are secondary work: they keep their
-                natural width on one left-aligned row instead of two stacked
-                full-width filled bars under the primary decision. The copy
-                action stays available while the feedback form is open. */}
+            {/* Opening the listing, a dismissal and a link copy are secondary
+                work: they keep their natural width on one left-aligned row
+                instead of stacked full-width bars under the primary decision.
+                The open and copy actions stay available while the feedback
+                form is open. */}
             <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {onOpenListing ? (
+                <Button
+                  data-testid="discovery-detail-open-listing"
+                  onClick={() => onOpenListing(selectedJob.canonicalUrl)}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  Open listing
+                </Button>
+              ) : null}
               {feedbackJobId === selectedJob.id ? null : (
                 <Button
                   disabled={isSelectedJobPending}
@@ -1442,8 +1492,8 @@ export function DiscoveryDetailPanel({
                 variant="outline"
               >
                 {copiedListingJobId === selectedJob.id
-                  ? "Listing link copied"
-                  : "Copy listing link"}
+                  ? "Link copied"
+                  : "Copy link"}
               </Button>
             </div>
             <p aria-live="polite" className="sr-only" role="status">
@@ -1458,8 +1508,8 @@ export function DiscoveryDetailPanel({
       ) : (
         <EmptyState
           className="min-h-80"
-          description="Choose a job to review its fit, source, and next step."
-          title="Choose a job to review"
+          description="Pick a job from the list to see what it asks for, how it fits you, and shortlist it."
+          title="Choose a job"
         />
       )}
     </section>

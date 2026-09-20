@@ -597,7 +597,7 @@ describe("apply run cancellation and application record concurrency", () => {
     }
   });
 
-  test("every production apply invocation passes deny-default intermediate authorization, including resumption", async () => {
+  test("every production apply invocation allows field saves and denies sending, including resumption", async () => {
     const seed = createSeed();
     seed.settings.resumeApplicationMode = "original_resume";
     seed.profile.baseResume.storagePath = "/tmp/alex-vanguard.pdf";
@@ -760,9 +760,11 @@ describe("apply run cancellation and application record concurrency", () => {
       mode: input.mode,
     }));
     expect(authorizations.length).toBeGreaterThanOrEqual(4);
+    // Field saves are allowed by default (ADR 0024): a form that saves as
+    // you type must carry on. Sending and account creation stay off.
     for (const authorization of authorizations) {
       expect(authorization).toEqual({
-        intermediateMutationsAuthorized: false,
+        intermediateMutationsAuthorized: true,
         submitAuthorized: false,
         accountCreationAuthorized: false,
         mode: "prepare_only",
@@ -964,7 +966,7 @@ describe("apply run cancellation and application record concurrency", () => {
       "Automatic apply run cancelled.",
     );
     expect(queuedRecord?.nextActionLabel).toBe(
-      "Restart the run if you want to continue later.",
+      "Press Try again to pick this up later.",
     );
   });
 

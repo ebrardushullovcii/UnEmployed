@@ -1,5 +1,6 @@
 import {
   formatEmployerLabelFromSlug,
+  isAgeTokenMisreadAsCompany,
   sanitizeObservedEmployerLabel,
   type JobPosting,
 } from "@unemployed/contracts";
@@ -107,8 +108,11 @@ const WORK_MODE_VALUES = ["remote", "hybrid", "onsite"] as const;
 const EASY_APPLY_PATTERN =
   /\b(easy apply|quick apply|one[- ]click apply|apply instantly|instant apply)\b/i;
 const APPLY_PATTERN = /\bapply\b/i;
+// A bare age badge ("12d", "3h", "2w", "1mo", "5m") is how boards print how
+// long ago a card was posted. It used to pass every guard and end up as the
+// employer of the job.
 const POSTED_PATTERN =
-  /\b(posted|ago|today|yesterday|just posted|sot|dje|\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|jave|muaj(?:sh)?|ore?))\b/iu;
+  /\b(posted|ago|today|yesterday|just posted|sot|dje|\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|jave|muaj(?:sh)?|ore?)|\d{1,3}\s?(?:d|h|w|mo|m|y))\b/iu;
 /**
  * Text that can honestly be reported as a posting date: it carries a number, a
  * month name, or a relative-time word.
@@ -1882,7 +1886,9 @@ function splitTrailingCompanyLocation(value: string): {
       COMPANY_NOISE_PATTERN.test(companyCandidate) ||
       SALARY_PATTERN.test(companyCandidate) ||
       POSTED_PATTERN.test(companyCandidate) ||
-      isRoleLikePhrase(companyCandidate)
+      isRoleLikePhrase(companyCandidate) ||
+      // "12d" beside a card is how long ago it was posted, not who posted it.
+      isAgeTokenMisreadAsCompany(companyCandidate)
     ) {
       continue;
     }

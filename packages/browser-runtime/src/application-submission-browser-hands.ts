@@ -8,6 +8,29 @@ import {
 } from "@unemployed/contracts";
 import type { Page } from "playwright";
 
+import {
+  closePrepareOnlyFinalActionWindow,
+  openPrepareOnlyFinalActionWindow,
+} from "./playwright-application-flow";
+
+const SUBMISSION_CONFIRMATION_SIGNALS = [
+  "application submitted",
+  "thank you for applying",
+  "thanks for applying",
+  "we have received your application",
+  "your application has been received",
+  "application received",
+  "successfully applied",
+  "application complete",
+] as const;
+
+function hasEmployerSubmissionConfirmation(pageText: string): boolean {
+  const normalized = pageText.toLowerCase().replace(/\s+/gu, " ").trim();
+  return SUBMISSION_CONFIRMATION_SIGNALS.some((signal) =>
+    normalized.includes(signal),
+  );
+}
+
 /**
  * Generic final-control discovery deliberately knows nothing about a provider
  * or an application's answer policy. Product orchestration supplies the
@@ -89,6 +112,19 @@ export type ApplicationFinalActionResult =
       readonly reason: "action_issued" | "action_error";
       readonly observation: ApplicationFormObservation;
       readonly control: ApplicationFinalControl;
+      readonly facts: ApplicationExternalActionFacts;
+    }
+  | {
+      /** The employer page visibly confirmed receipt after the one action. */
+      readonly outcome: "submitted";
+      readonly reason: "employer_confirmation";
+      readonly observation: ApplicationFormObservation;
+      readonly control: ApplicationFinalControl;
+      readonly confirmation: {
+        readonly observedAt: string;
+        readonly destination: ApplicationSafePageUrl;
+        readonly summary: string;
+      };
       readonly facts: ApplicationExternalActionFacts;
     };
 
@@ -494,8 +530,8 @@ export async function observeApplicationForm(
 
 /**
  * Re-observe, validate exact identity/origin, run the immediate veto, and
- * issue at most one final-control click. A click never becomes `submitted`:
- * this boundary returns uncertainty until an external verifier supplies proof.
+ * issue at most one final-control click. A click is uncertain unless the
+ * employer page then visibly confirms that it received the application.
  */
 export async function executeExactlyOneFinalAction(
   page: Page,
@@ -935,6 +971,9 @@ export async function executeExactlyOneFinalAction(
     };
     page.on("request", requestListener);
     let actionCompleted = false;
+    // The prepare-only guard stays on the page from preparation; this is the
+    // one press it is opened for.
+    await openPrepareOnlyFinalActionWindow(page);
     try {
       await postVetoLocator.click({
         noWaitAfter: true,
@@ -964,22 +1003,54 @@ export async function executeExactlyOneFinalAction(
     }
     page.off("request", requestListener);
     const pageAfter = readSafePageUrl(page.url());
+    const facts: ApplicationExternalActionFacts = {
+      actionAttempted: true,
+      actionIssued: true,
+      actionCompleted,
+      pageBefore,
+      pageAfter,
+      urlChanged:
+        pageBefore.origin !== pageAfter.origin ||
+        pageBefore.safePath !== pageAfter.safePath,
+      requestsObservedDuringAction,
+    };
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (input.signal?.aborted) break;
+      try {
+        const bodyText = await page.locator("body").innerText({ timeout: 250 });
+        if (hasEmployerSubmissionConfirmation(bodyText)) {
+          return {
+            outcome: "submitted",
+            reason: "employer_confirmation",
+            observation: finalObservation,
+            control: finalControl,
+            confirmation: {
+              observedAt: new Date().toISOString(),
+              destination: readSafePageUrl(page.url()),
+              summary:
+                "The employer site showed an application-received confirmation after the final action.",
+            },
+            facts: {
+              ...facts,
+              pageAfter: readSafePageUrl(page.url()),
+              urlChanged:
+                pageBefore.origin !== readSafePageUrl(page.url()).origin ||
+                pageBefore.safePath !== readSafePageUrl(page.url()).safePath,
+            },
+          };
+        }
+      } catch {
+        // Navigation can briefly replace the body. Keep the bounded check.
+      }
+      await page.waitForTimeout(100);
+    }
+    await closePrepareOnlyFinalActionWindow(page);
     return {
       outcome: "outcome_uncertain",
       reason: "action_issued",
       observation: finalObservation,
       control: finalControl,
-      facts: {
-        actionAttempted: true,
-        actionIssued: true,
-        actionCompleted,
-        pageBefore,
-        pageAfter,
-        urlChanged:
-          pageBefore.origin !== pageAfter.origin ||
-          pageBefore.safePath !== pageAfter.safePath,
-        requestsObservedDuringAction,
-      },
+      facts,
     };
   });
 }

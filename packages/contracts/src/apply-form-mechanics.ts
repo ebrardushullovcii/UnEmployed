@@ -11,6 +11,8 @@
  */
 
 export interface RawApplyControl {
+  /** Stable handle supplied by the browser when the control is inside a frame. */
+  ref?: string;
   /** Position among the form controls on the page. Refs are built from this. */
   index: number;
   tagName: string;
@@ -36,6 +38,7 @@ export interface RawApplyControl {
 }
 
 export interface RawApplyAction {
+  ref?: string;
   index: number;
   label: string;
   visible: boolean;
@@ -50,6 +53,7 @@ export interface RawApplyAction {
  * which link matters; that is a reading of the words, and it happens above.
  */
 export interface RawApplyLink {
+  ref?: string;
   /** Position among the page's links. Refs are built from this. */
   index: number;
   label: string;
@@ -71,6 +75,7 @@ export interface RawApplyLink {
  * everything clickable is reported and the model decides what it is.
  */
 export interface RawApplyClickable {
+  ref?: string;
   index: number;
   /** The element's visible text, trimmed and bounded. */
   label: string;
@@ -153,6 +158,8 @@ export interface ApplyRawPageHands {
   navigate: (url: string) => Promise<ApplyNavigationResult>;
   /** Presses anything on the page, whatever it is made of. */
   clickElement: (ref: string) => Promise<ApplyWriteResult>;
+  /** Presses a keyboard key on one element, or on the active page. */
+  pressKey: (ref: string | undefined, key: string) => Promise<ApplyWriteResult>;
   /** Moves the page, so content that loads on scroll can be seen. */
   scroll: (
     direction: "down" | "up" | "top" | "bottom",

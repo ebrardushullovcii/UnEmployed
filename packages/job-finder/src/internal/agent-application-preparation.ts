@@ -29,6 +29,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import {
+  AiBehaviorPreferenceSchema,
   ApplicationReviewCardSchema,
   CoverLetterPreferenceSchema,
 } from "@unemployed/contracts";
@@ -73,6 +74,7 @@ export interface AgentApplicationPreparationInput {
   /** Who the model is, for the privacy receipt: "OpenCode Go", "muse-spark-1.3". */
   providerLabel?: string | null;
   modelLabel?: string | null;
+  onProgress?: Parameters<typeof runApplyAgent>[0]["onProgress"];
   /**
    * Writes and renders the letter this application sends. Omitted when the
    * caller has no way to produce one, in which case a form that asks for a
@@ -106,8 +108,17 @@ function toApplyAuthority(
     // Confirm-first works the form all the way to its send button but is never
     // itself allowed to press it.
     submitAuthorized: mode === "autonomous_submit" && submitAuthorized,
-    preApprovedAttestationKinds:
-      executionInput.preApprovedAttestationKinds ?? [],
+    // The saved permission's list plus the routine declarations the person
+    // allows in Settings (ADR 0027). Without the second, every "I certify"
+    // box stopped the run, because nothing in the product ever wrote the
+    // first.
+    preApprovedAttestationKinds: [
+      ...new Set([
+        ...(executionInput.preApprovedAttestationKinds ?? []),
+        ...AiBehaviorPreferenceSchema.parse(executionInput.settings.aiBehavior ?? {})
+          .applying.preApprovedDeclarations,
+      ]),
+    ],
     salaryDisclosure: executionInput.salaryDisclosure ?? "pause_for_user",
     allowedOrigins: executionInput.applyAllowedOrigins ?? [],
   };
@@ -190,7 +201,10 @@ function toBlocker(
     return {
       code: BLOCKER_CODES[blocked.blocker.code],
       userActionKind: null,
-      summary: blocked.blocker.summary,
+      // The agent's own sentence is the report the person acts on. Keep the
+      // page-derived blocker detail as supporting evidence, but do not replace
+      // the agent's explanation with a generic wrapper.
+      summary: result.reason,
       detail: blocked.blocker.detail,
       questionIds: [],
       sourceDebugEvidenceRefIds: [],
@@ -202,10 +216,32 @@ function toBlocker(
         : result.finalUrl,
     };
   }
-  // ADR 0022: a question Job Finder could not answer is not a task. The run
-  // fills what it can and hands the browser over; the questions are kept on
-  // the record so the person can see what is left, but nothing blocks.
-  void questions;
+  if (questions.length > 0) {
+    return {
+      code: "missing_candidate_answer",
+      userActionKind: null,
+      summary: result.reason,
+      detail: result.reason,
+      questionIds: questions.map((question) => question.id),
+      sourceDebugEvidenceRefIds: [],
+      url: result.finalUrl,
+    };
+  }
+  // A run that said it was stuck never reached the end of the form. Without a
+  // blocker it read as "Ready to send" beside its own sentence saying the
+  // form could not be reached; the record now says it could not apply and
+  // offers another go.
+  if (result.outcome === "stuck") {
+    return {
+      code: "requires_manual_review",
+      userActionKind: null,
+      summary: result.reason,
+      detail: result.reason,
+      questionIds: [],
+      sourceDebugEvidenceRefIds: [],
+      url: result.finalUrl,
+    };
+  }
   return null;
 }
 
@@ -279,39 +315,21 @@ function nextActionFor(result: ApplyAgentResult): string {
     return blocked.blocker.nextActionLabel;
   }
   if (result.pauses.some((pause) => pause.question !== null)) {
-    return "Open the Job Finder browser and finish it";
+    return "Answer the form's questions and continue";
+  }
+  if (result.outcome === "stuck") {
+    return "Try again, or open the listing and apply on the site";
   }
   return result.outcome === "awaiting_your_review"
     ? "Review it and send it"
     : "Open the application and finish it";
 }
 
-/** How many questions the run left for the person, in one plain phrase. */
-function questionsLeftPhrase(result: ApplyAgentResult): string {
-  const count = result.pauses.reduce(
-    (total, pause) =>
-      total + (pause.questions?.length ?? (pause.question ? 1 : 0)),
-    0,
-  );
-  return count === 1
-    ? "1 question left for you"
-    : `${count} questions left for you`;
-}
-
 function summaryFor(result: ApplyAgentResult): string {
-  switch (result.outcome) {
-    case "paused":
-      return result.pauses.some((pause) => pause.question !== null) &&
-        !result.pauses.some((pause) => pause.blocker !== null)
-        ? `Filled in what it could; ${questionsLeftPhrase(result)}`
-        : "This application needs you";
-    case "stuck":
-      return "Job Finder could not finish this application";
-    case "awaiting_your_review":
-      return "Ready for you to review and send";
-    default:
-      return "Filled in and waiting";
-  }
+  return (
+    result.reason.trim() ||
+    "Job Finder stopped before finishing this application."
+  );
 }
 
 /**
@@ -366,13 +384,27 @@ export async function runAgentApplicationPreparation(
 
   const targetUrl =
     executionInput.job.applicationUrl ?? executionInput.job.canonicalUrl;
+  const authority = toApplyAuthority(executionInput);
+  const allowedOrigins = [...authority.allowedOrigins];
+  const activeAuthority: ApplyAuthority = {
+    ...authority,
+    allowedOrigins,
+  };
+  let activeEnvelope = input.envelope ?? null;
+  const moveReviewer = createMoveReviewer({
+    llmClient: input.llmClient,
+    goal: `Apply for ${executionInput.job.title} at ${executionInput.job.company}, starting from the listing at ${targetUrl}. Fill in the employer's application form; nothing is sent.`,
+    homeLabel: input.siteLabel,
+    homeHosts: [hostnameOf(targetUrl) ?? input.siteLabel],
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
 
   const outcome = await runApplyAgentSafely(input, {
     hands: createApplyPageHands(input.session, now),
     safety: input.session,
     intermediateWritesAuthorized:
       executionInput.intermediateMutationsAuthorized === true,
-    authority: toApplyAuthority(executionInput),
+    authority: activeAuthority,
     sources: {
       profile: executionInput.profile,
       resumeText: executionInput.profile.baseResume.textContent,
@@ -391,13 +423,32 @@ export async function runAgentApplicationPreparation(
       startingUrl: targetUrl,
     },
     siteLabel: input.siteLabel,
-    reviewMove: createMoveReviewer({
-      llmClient: input.llmClient,
-      goal: `Apply for ${executionInput.job.title} at ${executionInput.job.company}, starting from the listing at ${targetUrl}. Fill in the employer's application form; nothing is sent.`,
-      homeLabel: input.siteLabel,
-      homeHosts: [hostnameOf(targetUrl) ?? input.siteLabel],
-      ...(input.signal ? { signal: input.signal } : {}),
-    }),
+    writing: AiBehaviorPreferenceSchema.parse(
+      executionInput.settings.aiBehavior ?? {},
+    ).applying,
+    reviewMove: async (move) => {
+      const review = await moveReviewer(move);
+      if (!review.allowed) return review;
+      let origin: string | null = null;
+      try {
+        origin = new URL(move.url).origin;
+      } catch {
+        origin = null;
+      }
+      if (
+        origin &&
+        !allowedOrigins.includes(origin) &&
+        executionInput.authorizeReviewedApplicationOrigin
+      ) {
+        const widened =
+          await executionInput.authorizeReviewedApplicationOrigin(origin);
+        if (widened) {
+          activeEnvelope = widened;
+          allowedOrigins.push(origin);
+        }
+      }
+      return review;
+    },
     ...(input.letters
       ? {
           letters: createApplicationLetterProvider({
@@ -412,6 +463,7 @@ export async function runAgentApplicationPreparation(
         }
       : {}),
     now,
+    ...(input.onProgress ? { onProgress: input.onProgress } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
   });
 
@@ -421,7 +473,9 @@ export async function runAgentApplicationPreparation(
     // that does nothing and a record that says it is still going.
     return buildPreparationResult({
       executionInput,
-      state: "paused",
+      // A run the model or browser dropped is a failed attempt to try again,
+      // not a step waiting on the person.
+      state: "failed",
       summary: "Job Finder could not finish this application",
       detail: outcome.detail,
       questions: [],
@@ -460,7 +514,7 @@ export async function runAgentApplicationPreparation(
     handoff: decideApplySubmissionHandoff({
       result,
       mode: toApplyAuthority(executionInput).mode,
-      envelope: input.envelope ?? null,
+      envelope: activeEnvelope,
       siteLabel: input.siteLabel,
     }),
     reviewCard: buildApplyReviewCard({
@@ -471,14 +525,22 @@ export async function runAgentApplicationPreparation(
   });
 
   const questions = toQuestions(result);
+  const blocker = toBlocker(result, questions);
+  // A form worked to the end with nothing left for the person is ready for
+  // them to read over and send. Recording it as "paused" put every finished
+  // application in the Waiting-on-you count beside the ones that were stuck.
+  const attemptState: ApplyExecutionResult["state"] =
+    blocker === null && questions.length === 0 && result.outcome !== "stuck"
+      ? "ready"
+      : "paused";
 
   return buildPreparationResult({
     executionInput,
-    state: "paused",
+    state: attemptState,
     summary: summaryFor(result),
     detail: result.reason,
     questions,
-    blocker: toBlocker(result, questions),
+    blocker,
     checkpoints: toCheckpoints(result, executionInput.job.id, startedAt),
     checkpointLabel: summaryFor(result),
     checkpointDetail: result.reason,
@@ -552,9 +614,10 @@ export function createApplyFormPreparer(input: {
     | undefined;
   envelope?: ApplicationAuthorityEnvelope | null;
   onPrepared?: AgentApplicationPreparationInput["onPrepared"];
+  onProgress?: AgentApplicationPreparationInput["onProgress"];
   now?: () => Date;
 }): NonNullable<ExecuteApplicationFlowInput["prepareApplicationForm"]> {
-  return async ({ session, startedAt, signal }) => {
+  return async ({ session, startedAt, signal, onProgress }) => {
     const llmClient = toApplyLlmClient(input.aiClient);
     if (!llmClient) {
       const detail =
@@ -585,6 +648,17 @@ export function createApplyFormPreparer(input: {
     }
 
     const status = input.aiClient.getStatus?.() ?? null;
+    const reportProgress =
+      input.onProgress || onProgress
+        ? async (
+            progress: Parameters<
+              NonNullable<AgentApplicationPreparationInput["onProgress"]>
+            >[0],
+          ) => {
+            await input.onProgress?.(progress);
+            await onProgress?.(progress);
+          }
+        : undefined;
     return runAgentApplicationPreparation({
       session,
       executionInput: input.executionInput,
@@ -596,6 +670,7 @@ export function createApplyFormPreparer(input: {
       ...(input.letters ? { letters: input.letters } : {}),
       ...(input.envelope ? { envelope: input.envelope } : {}),
       ...(input.onPrepared ? { onPrepared: input.onPrepared } : {}),
+      ...(reportProgress ? { onProgress: reportProgress } : {}),
       ...(signal ? { signal } : {}),
       ...(input.now ? { now: input.now } : {}),
     });
@@ -622,7 +697,7 @@ export function buildApplyLetterDependencies(input: {
       job: SavedJob;
       profile: CandidateProfile;
       settings: JobFinderSettings;
-      fileType: "pdf" | "docx" | null;
+      fileType: "pdf" | "docx" | "txt" | null;
     }) => Promise<RenderedLetterArtifact>;
   };
   job: SavedJob;
@@ -727,29 +802,49 @@ export function buildApplyReviewCard(input: {
   const letterEntry = input.result.filled.find(
     (entry) => entry.questionKind === "cover_letter",
   );
+  // The card's schema caps every string. The run's own text (a grounding
+  // note that quotes a resume line, a long field label) can run past a cap,
+  // and an over-long note used to make this parse throw after the form had
+  // been filled in, so the run ended as "stopped safely" and nothing was
+  // sent. Text is clamped to what the card can hold; the record keeps the
+  // full run trail.
+  const clamp = (text: string, max: number): string => {
+    const trimmed = text.trim() || "-";
+    return trimmed.length <= max
+      ? trimmed
+      : `${trimmed.slice(0, max - 1).trimEnd()}…`;
+  };
+  const clampGrounding = (notes: readonly string[]): string[] =>
+    notes
+      .map((note) => note.trim())
+      .filter((note) => note.length > 0)
+      .slice(0, 8)
+      .map((note) => clamp(note, 240));
 
   return ApplicationReviewCardSchema.parse({
-    siteLabel: input.siteLabel,
+    siteLabel: clamp(input.siteLabel, 240),
     pageUrl: input.result.finalUrl,
-    answers: input.result.filled.map((entry) => ({
-      question: entry.label,
-      answer: entry.answer.value,
-      source: entry.answer.provenanceLabel,
+    answers: input.result.filled.slice(0, 200).map((entry) => ({
+      question: clamp(entry.label, 2_000),
+      answer: clamp(entry.answer.value, 12_000),
+      source: clamp(entry.answer.provenanceLabel, 240),
       written: entry.answer.sourceKind === "generated",
-      groundedIn: entry.answer.groundedIn,
+      groundedIn: clampGrounding(entry.answer.groundedIn),
     })),
-    attachments: input.result.attachments.map((attachment) => ({
-      label: attachment.label,
-      fileName: attachment.fileName,
-      field: attachment.controlLabel,
+    attachments: input.result.attachments.slice(0, 20).map((attachment) => ({
+      label: clamp(attachment.label, 240),
+      fileName: clamp(attachment.fileName, 240),
+      field: clamp(attachment.controlLabel, 2_000),
     })),
     letter: letterEntry
       ? {
-          text: letterEntry.answer.value,
-          groundedIn: letterEntry.answer.groundedIn,
+          text: clamp(letterEntry.answer.value, 12_000),
+          groundedIn: clampGrounding(letterEntry.answer.groundedIn),
         }
       : null,
-    waitingOnYou: input.result.pauses.map((pause) => pause.summary),
+    waitingOnYou: input.result.pauses
+      .slice(0, 20)
+      .map((pause) => clamp(pause.summary, 2_000)),
     preparedAt: input.preparedAt,
   });
 }

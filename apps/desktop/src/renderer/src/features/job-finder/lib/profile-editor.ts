@@ -937,12 +937,17 @@ export function buildSearchPreferencesPayload(
           currency: compensationCurrency,
           currencyStatus,
         },
-    tailoringMode: values.tailoringMode,
+    // The resume approach and the strict collection filter are saved from
+    // Settings (AI behavior), not from this form. A profile save carries the
+    // saved values through unchanged so it can never write back a stale copy
+    // over a choice made in Settings while this form was open.
+    tailoringMode: searchPreferences.tailoringMode,
     companyBlacklist: parseListInput(values.companyBlacklist),
     companyWhitelist: parseListInput(values.companyWhitelist),
     discovery: {
       ...searchPreferences.discovery,
-      collectOnlyHardCriteriaMatches: values.collectOnlyHardCriteriaMatches,
+      collectOnlyHardCriteriaMatches:
+        searchPreferences.discovery.collectOnlyHardCriteriaMatches ?? false,
       targets: toDiscoveryTargets(
         meaningfulDiscoveryTargets,
         searchPreferences.discovery.targets,

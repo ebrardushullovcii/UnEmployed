@@ -1,4 +1,5 @@
 import {
+  AiBehaviorPreferenceSchema,
   applyCompensationPreferenceChange,
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
@@ -21,6 +22,10 @@ import {
   type CommitProfileCopilotStateInput,
 } from "./profile-commit-stale-conflict";
 import { hasResumeAffectingProfileChange } from "./resume-workspace-staleness";
+import {
+  areEquivalentEducationRecords,
+  areEquivalentExperienceRecords,
+} from "./resume-record-identity";
 import { createUniqueId } from "./shared";
 import { normalizeSearchPreferences } from "./workspace-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
@@ -527,16 +532,69 @@ function collectManualEditsAfterRevision(input: {
 function replaceOrInsertRecord<TRecord extends { id: string }>(
   records: readonly TRecord[],
   record: TRecord,
+  isSameRecord?: (existing: TRecord, incoming: TRecord) => boolean,
 ): TRecord[] {
   const existingIndex = records.findIndex((entry) => entry.id === record.id);
 
   if (existingIndex >= 0) {
+    const existing = records[existingIndex] as TRecord;
     const next = [...records];
-    next[existingIndex] = record;
+    // A one-field correction ("set the location") arrives as a whole record
+    // with the untouched fields blank. Blanks keep what the card had, so the
+    // bullets under a role survive an edit to its header.
+    next[existingIndex] = mergeRecordIntoExisting(existing, record);
+    return next;
+  }
+
+  // The assistant usually describes the record it means ("my Marketing
+  // Manager role") instead of quoting its id. Matching on identity fields
+  // turns "add the company to that role" into an edit of the existing card
+  // rather than a second card beside it.
+  const equivalentIndex = isSameRecord
+    ? records.findIndex((entry) => isSameRecord(entry, record))
+    : -1;
+  if (equivalentIndex >= 0) {
+    const existing = records[equivalentIndex] as TRecord;
+    const next = [...records];
+    next[equivalentIndex] = mergeRecordIntoExisting(existing, record);
     return next;
   }
 
   return [...records, record];
+}
+
+/**
+ * The incoming record wins every field it fills. A blank string, null, or an
+ * empty list keeps what the card already had, because the assistant sends
+ * the whole record even for a one-field change and does not know the rest.
+ * A non-empty list replaces the old one, so "remove the second bullet" still
+ * works; booleans are always explicit and are taken as sent.
+ */
+function mergeRecordIntoExisting<TRecord extends { id: string }>(
+  existing: TRecord,
+  incoming: TRecord,
+): TRecord {
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [key, value] of Object.entries(
+    incoming as Record<string, unknown>,
+  )) {
+    if (key === "id") {
+      continue;
+    }
+    if (typeof value === "boolean") {
+      merged[key] = value;
+      continue;
+    }
+    const incomingEmpty =
+      value === null ||
+      value === undefined ||
+      (typeof value === "string" && value.trim().length === 0) ||
+      (Array.isArray(value) && value.length === 0);
+    if (!incomingEmpty) {
+      merged[key] = value;
+    }
+  }
+  return merged as TRecord;
 }
 
 function removeRecord<TRecord extends { id: string }>(
@@ -588,12 +646,16 @@ export function createWorkspaceProfileCopilotMethods(input: {
       context,
       reviewItems: profileSetupState.reviewItems,
     });
+    const settings = await ctx.repository.getSettings();
     const assistantReply = await ctx.aiClient.reviseCandidateProfile({
       profile,
       searchPreferences,
       context,
       relevantReviewItems,
       request: content,
+      assistantBehavior: AiBehaviorPreferenceSchema.parse(
+        settings.aiBehavior ?? {},
+      ).profileAssistant,
       conversationFacts: buildConversationFacts({
         profile,
         searchPreferences,
@@ -821,10 +883,14 @@ export function createWorkspaceProfileCopilotMethods(input: {
         case "upsert_experience_record":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            experiences: replaceOrInsertRecord(nextProfile.experiences, {
-              ...operation.record,
-              id: operation.record.id ?? createUniqueId("experience"),
-            }),
+            experiences: replaceOrInsertRecord(
+              nextProfile.experiences,
+              {
+                ...operation.record,
+                id: operation.record.id ?? createUniqueId("experience"),
+              },
+              areEquivalentExperienceRecords,
+            ),
           });
           break;
         case "remove_experience_record":
@@ -839,10 +905,14 @@ export function createWorkspaceProfileCopilotMethods(input: {
         case "upsert_education_record":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            education: replaceOrInsertRecord(nextProfile.education, {
-              ...operation.record,
-              id: operation.record.id ?? createUniqueId("education"),
-            }),
+            education: replaceOrInsertRecord(
+              nextProfile.education,
+              {
+                ...operation.record,
+                id: operation.record.id ?? createUniqueId("education"),
+              },
+              areEquivalentEducationRecords,
+            ),
           });
           break;
         case "remove_education_record":

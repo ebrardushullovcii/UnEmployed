@@ -370,15 +370,14 @@ describe("sending, gathered at the moment it is asked", () => {
 });
 
 describe("what the person is told when the page showed a confirmation", () => {
-  test("says what was on screen without calling it proof", () => {
+  test("counts the employer's receipt confirmation as submitted", () => {
     const told = describeSubmissionOutcome({
-      result: { status: "outcome_uncertain" } as never,
+      result: { status: "submitted" } as never,
       siteLabel: "Northwind careers",
-      confirmationSeen: true,
     });
-    expect(told.summary).toBe("Submitted — confirmation seen");
-    expect(told.detail).toContain("not proof the employer received it");
+    expect(told.summary).toBe("Application submitted");
+    expect(told.detail).toContain("confirmed that it received");
     expect(told.detail).toContain("will not send it again");
-    expect(told.nextActionLabel).toBe("Check the site and confirm");
+    expect(told.nextActionLabel).toBe("View application");
   });
 });

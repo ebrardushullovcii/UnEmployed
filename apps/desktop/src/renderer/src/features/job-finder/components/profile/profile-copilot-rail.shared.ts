@@ -266,18 +266,16 @@ export function describePatchOperation(
         }
       }
 
-      const range =
-        minimumIsNumber && maximumIsNumber
-          ? // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-            `${formatNumber(minimum as number)}–${formatNumber(maximum as number)}`
-          : minimumIsNumber
-            ? // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-              `from ${formatNumber(minimum as number)}`
-            : maximumIsNumber
-              ? // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-                `up to ${formatNumber(maximum as number)}`
-              : "range";
-      return `Set compensation to ${range} / ${intervalLabel} (${currencyLabel})`;
+      if (minimumIsNumber && maximumIsNumber) {
+        return `Set minimum compensation to ${formatNumber(minimum)} and target compensation to ${formatNumber(maximum)} / ${intervalLabel} (${currencyLabel})`;
+      }
+      if (minimumIsNumber) {
+        return `Set minimum compensation to ${formatNumber(minimum)} / ${intervalLabel} (${currencyLabel})`;
+      }
+      if (maximumIsNumber) {
+        return `Set target compensation to ${formatNumber(maximum)} / ${intervalLabel} (${currencyLabel})`;
+      }
+      return `Update compensation / ${intervalLabel} (${currencyLabel})`;
     }
     case "remove_profile_list_entries": {
       // The confirmation card quotes what would go, so nothing disappears

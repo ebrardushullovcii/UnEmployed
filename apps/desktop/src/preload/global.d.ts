@@ -36,6 +36,7 @@ import type {
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
   JobFinderDiscoveryCancellationInput,
+  JobFinderSearchRequest,
   CandidateProfile,
   ClearApplicationAnswerCommandInput,
   EditApplicationDocumentInput,
@@ -89,6 +90,7 @@ import type {
   ResumeImportProgressEvent,
   ResumeImportRun,
   ResumeApplicationMode,
+  TailoringMode,
   JobFinderResumePdfExportResult,
   RevealSavedFileResult,
   ResumePdfExportIntent,
@@ -137,6 +139,7 @@ import type {
   UpdateApplicationDefaultsInput,
   UpdateApplicationAuthorityEnvelopeInput,
   UpdateWorkspaceBehaviorInput,
+  UpdateAiBehaviorInput,
   WorkspaceRevision,
   UserActionCommandInput,
 } from "@unemployed/contracts";
@@ -388,6 +391,9 @@ declare global {
         updateWorkspaceBehavior: (
           input: UpdateWorkspaceBehaviorInput,
         ) => Promise<JobFinderWorkspaceSnapshot>;
+        updateAiBehavior: (
+          input: UpdateAiBehaviorInput,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         updateAppearanceTheme: (
           appearanceTheme: AppearanceTheme,
         ) => Promise<JobFinderWorkspaceSnapshot>;
@@ -428,6 +434,7 @@ declare global {
         runAgentDiscovery: (
           onActivity?: (event: DiscoveryActivityEvent) => void,
           targetId?: string,
+          searchRequest?: JobFinderSearchRequest,
         ) => Promise<JobFinderAgentDiscoveryResult>;
         runSourceDebug: (
           targetId: string,
@@ -492,6 +499,7 @@ declare global {
         setJobResumeApplicationMode: (
           jobId: string,
           resumeApplicationMode: ResumeApplicationMode,
+          resumeTailoringMode?: TailoringMode | null,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         removeJobFromReview: (
           jobId: string,
@@ -576,6 +584,7 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyQueueRun: (
           jobIds: JobFinderApplyQueueActionInput["jobIds"],
+          applicationAutomationMode?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
         ) => Promise<JobFinderWorkspaceSnapshot>;
         approveApplyRun: (
           input: JobFinderApplyRunActionInput,
@@ -621,6 +630,7 @@ declare global {
           loadAgentOwnedBrowserDemo: (input: {
             sourceUrl: string;
             applicationUrl: string;
+            secondaryApplicationUrl?: string;
           }) => Promise<JobFinderWorkspaceSnapshot>;
           /**
            * Arms exactly the next save on one protected surface to fail, then

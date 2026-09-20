@@ -90,11 +90,8 @@ describe("openai-compatible chat and draft behavior", () => {
     });
 
     try {
-      const client = createOpenAiCompatibleJobFinderAiClient({
-        apiKey: "test-key",
-        baseUrl: "https://example.com/v1",
-        model: "test-model",
-      });
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       const input = {
         profile: createProfile(),
@@ -152,6 +149,7 @@ describe("openai-compatible chat and draft behavior", () => {
         reason: "provider_output_unverified",
         detail: "AI could not produce usable rewrite suggestions this time.",
       });
+      expect(result.notes.join(" ")).not.toContain("Generated with Primary AI");
       expect(result.fullText).not.toContain("Model draft partial");
     } finally {
       restoreFetch();
@@ -310,7 +308,8 @@ describe("openai-compatible chat and draft behavior", () => {
         notes: [
           "Created with AI, keeping your own wording: it proposed 2 rewrites, none matched your saved evidence closely enough to use, so the sentences come from your profile and the structure and emphasis from the model.",
           ...deterministicFallback.notes.filter(
-            (note) => note !== "Used the built-in deterministic resume tailorer.",
+            (note) =>
+              note !== "Used the built-in deterministic resume tailorer.",
           ),
         ],
         generationProvenance: {

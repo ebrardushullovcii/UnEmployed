@@ -1176,8 +1176,13 @@ export function createWorkHistoryReviewDriveState(): JobFinderRepositoryState {
 export function createAgentOwnedBrowserDriveState(input: {
   sourceUrl: string;
   applicationUrl: string;
+  secondaryApplicationUrl?: string;
 }): JobFinderRepositoryState {
-  const base = createResumeWorkspaceDemoState();
+  // This seed drives the real Apply pipeline, so it must carry the same
+  // approved, on-disk resume lineage as the apply-queue demo. Starting from
+  // the resume-workspace seed left every live drive blocked before browser
+  // launch because that seed intentionally has no generated assets.
+  const base = createApplyQueueDemoState();
   return JobFinderRepositoryStateSchema.parse({
     ...base,
     searchPreferences: {
@@ -1225,8 +1230,45 @@ export function createAgentOwnedBrowserDriveState(input: {
             employerWebsiteUrl: input.applicationUrl,
             employerDomain: new URL(input.applicationUrl).hostname,
           }
+        : job.id === "job_consent_queue" && input.secondaryApplicationUrl
+          ? {
+              ...job,
+              title: "Staff Product Designer",
+              company: "Contoso Labs",
+              canonicalUrl: `${input.sourceUrl.replace(/\/$/u, "")}/jobs/staff-product-designer`,
+              applicationUrl: input.secondaryApplicationUrl,
+              employerWebsiteUrl: input.secondaryApplicationUrl,
+              employerDomain: new URL(input.secondaryApplicationUrl).hostname,
+              screeningHints: {
+                ...job.screeningHints,
+                requiresConsentInterrupt: false,
+                requiresConsentInterruptKind: null,
+              },
+            }
         : job,
     ),
+    // Browser-drive fixtures start from approved resume lineage, not from the
+    // apply-queue demo's historical runs. Carrying those old run ids into a
+    // fresh Electron drive made startup recovery log "Unknown apply run" and
+    // polluted Needs you with tasks the harness never created.
+    applyRuns: [],
+    applyJobResults: [],
+    applySubmitApprovals: [],
+    applicationAuthorityEnvelopes: [],
+    submissionPreflights: [],
+    submissionExecutionGrants: [],
+    submissionIdempotencyRecords: [],
+    submissionArmedMarkers: [],
+    submissionOutcomeRecords: [],
+    applicationQuestionRecords: [],
+    applicationAnswerRecords: [],
+    applicationArtifactRefs: [],
+    applicationReplayCheckpoints: [],
+    applicationConsentRequests: [],
+    applicationRecords: [],
+    applicationAttempts: [],
+    userActionRequests: [],
+    userActionEvents: [],
   });
 }
 

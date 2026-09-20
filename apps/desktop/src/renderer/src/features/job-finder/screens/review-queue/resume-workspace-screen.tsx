@@ -29,6 +29,8 @@ import { LockedScreenLayout } from "../../components/locked-screen-layout";
 import {
   ResumeClaimConfirmationPanel,
   buildResumeClaimConfirmationCommandInput,
+  isClaimIssueCoveredByDecisionList,
+  listDecidableClaimAssessments,
 } from "./resume-claim-confirmation-panel";
 import { ResumeWorkspaceEditorPanel } from "./resume-workspace-editor-panel";
 import { ResumeWorkspaceHeader } from "./resume-workspace-header";
@@ -62,7 +64,10 @@ import {
   getAvailableExportToApprove,
   getSelectedTheme,
 } from "./resume-workspace-screen-helpers";
-import { buildResumeValidationAiPrompt } from "./resume-validation-issue-list";
+import {
+  buildResumeValidationAiPrompt,
+  getResumeValidationIssueTargetId,
+} from "./resume-validation-issue-list";
 import { findResumeValidationRestoreCandidate } from "./resume-validation-restore";
 import {
   listUnresolvedWorkHistoryOmissionSuggestions,
@@ -259,8 +264,18 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
         }),
       ) ?? [])
     : [];
-  const hasBlockingValidationIssues = Boolean(
-    props.workspace?.validation?.issues.some(isBlockingResumeValidationIssue),
+  // One list per decision. A line the person can keep or remove is decided
+  // in "Lines to confirm"; the validation list does not repeat it as a
+  // "Blocks approval" row with a different verb. Everything else (invented
+  // numbers, identity, dates, listing text bleed) stays in the issue list.
+  const claimAssessments = props.workspace?.validation?.claimAssessments ?? [];
+  const visibleValidationIssues = (
+    props.workspace?.validation?.issues ?? []
+  ).filter(
+    (issue) => !isClaimIssueCoveredByDecisionList(issue.id, claimAssessments),
+  );
+  const hasBlockingValidationIssues = visibleValidationIssues.some(
+    isBlockingResumeValidationIssue,
   );
   const exportBlockedReason =
     !hasUnsavedChanges && blockingClaimAssessments.length > 0
@@ -522,6 +537,28 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       props.onSetResumeClaimConfirmation,
       props.workspace,
     ],
+  );
+  // "Edit" on a line to confirm opens that line in the editor. The claim
+  // locator is the same shape a validation issue carries, so the issue
+  // target resolver does the work.
+  const editClaimWording = useCallback(
+    (assessment: {
+      sectionId: string;
+      entryId: string | null;
+      bulletId: string | null;
+    }) => {
+      const targetId = getResumeValidationIssueTargetId(assessment);
+      if (targetId) {
+        const targetContext = getResumePreviewTargetContext(targetId);
+        handlePreviewTargetSelect({
+          entryId: targetContext.entryId,
+          sectionId: targetContext.sectionId,
+          targetId,
+        });
+      }
+      setMobileStudioTab("editor");
+    },
+    [handlePreviewTargetSelect],
   );
   const handleAskAiFix = useCallback(
     (issue: Parameters<typeof buildResumeValidationAiPrompt>[0]) => {
@@ -938,7 +975,12 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   // content hash, so the panel reads the committed snapshot rather than the
   // live editing draft. The returned workspace snapshot flows back through
   // props and refreshes every row.
-  const claimConfirmationPanel = props.onSetResumeClaimConfirmation ? (
+  // Mounted only when it has rows: the shell treats its presence as "the
+  // list is the notice" and hides the banner that would otherwise say the
+  // same thing above it.
+  const claimConfirmationPanel =
+    props.onSetResumeClaimConfirmation &&
+    listDecidableClaimAssessments(claimAssessments).length > 0 ? (
     <ResumeClaimConfirmationPanel
       claimAssessments={props.workspace.validation?.claimAssessments ?? []}
       draft={props.workspace.draft}
@@ -963,6 +1005,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
           "Removed a line you did not confirm",
         );
       }}
+      onEditClaim={editClaimWording}
       onSetResumeClaimConfirmation={props.onSetResumeClaimConfirmation}
     />
   ) : null;
@@ -1030,6 +1073,9 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
           {...(props.isExportPending === undefined
             ? {}
             : { isExportPending: props.isExportPending })}
+          {...(props.isApplyPending === undefined
+            ? {}
+            : { isApplyPending: props.isApplyPending })}
           isWorkspacePending={props.isWorkspacePending}
           mobileStudioTab={mobileStudioTab}
           onApproveCurrentPdf={() => {
@@ -1119,7 +1165,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
           }
           studioStatusMessage={studioStatusMessage}
           templatePanel={templatePanel}
-          validationIssues={props.workspace.validation?.issues ?? []}
+          validationIssues={visibleValidationIssues}
         />
       </section>
       {/* One Assistant, one placement: a floating panel over the studio at

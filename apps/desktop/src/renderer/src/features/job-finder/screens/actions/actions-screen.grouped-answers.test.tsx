@@ -474,13 +474,21 @@ describe("Needs you question step shapes", () => {
     expect(answerButton).toHaveProperty("disabled", false);
     fireEvent.click(answerButton);
 
+    // One command carries every answer tied to its question, so one
+    // revision moves the step on and nothing is lost between calls.
     await waitFor(() => {
-      expect(onCommand).toHaveBeenCalledTimes(2);
+      expect(onCommand).toHaveBeenCalledTimes(1);
     });
-    expect(onCommand.mock.calls.map((call) => call[0])).toEqual([
-      expect.objectContaining({ answer: "+1 555 0100", saveForFuture: true }),
-      expect.objectContaining({ answer: "No", saveForFuture: true }),
-    ]);
+    expect(onCommand.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        answer: "+1 555 0100",
+        saveForFuture: true,
+        answers: [
+          { questionId: "q_phone", answer: "+1 555 0100" },
+          { questionId: "q_sponsorship", answer: "No" },
+        ],
+      }),
+    );
   });
 
   it("keeps the single-question shape and its singular checkbox", () => {
@@ -620,10 +628,14 @@ describe("Needs you question step shapes", () => {
     fireEvent.click(answerButton);
 
     await waitFor(() => {
-      expect(onCommand).toHaveBeenCalledTimes(2);
+      expect(onCommand).toHaveBeenCalledTimes(1);
     });
     expect(
-      onCommand.mock.calls.map((call) => (call[0] as { answer: string }).answer),
+      (
+        onCommand.mock.calls[0]?.[0] as {
+          answers: { answer: string }[];
+        }
+      ).answers.map((entry) => entry.answer),
     ).toEqual(["+1 555 0100", "Yes"]);
   });
 });

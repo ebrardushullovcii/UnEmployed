@@ -300,7 +300,9 @@ export function getDefaultCampaignConfiguration(mode: JobSearchCampaignMode) {
   return mode === "precision"
     ? {
         limits: {
-          retainedJobTarget: 15,
+          // A search keeps what it finds. The old fifteen-job cap made a
+          // three-source search show ten results out of sixty-nine.
+          retainedJobTarget: 1_000,
           analysisConcurrency: 2,
           preparationBatchSize: 5,
           dailyPreparationLimit: 20,

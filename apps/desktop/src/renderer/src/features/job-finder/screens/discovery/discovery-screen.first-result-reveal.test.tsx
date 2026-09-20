@@ -162,20 +162,18 @@ afterEach(() => {
 });
 
 describe("DiscoveryScreen first-result reveal", () => {
-  it("reveals the Results view exactly once when the first saved results arrive", () => {
+  it("opens on Results even when empty, and stays there when the first results arrive", () => {
     const view = render(buildScreen({ jobs: [] }));
-    expectSetupView();
+    // The goal box and Search now are the setup; the defaults panel is one
+    // click away, never the landing view.
+    expectResultsView();
 
-    // First empty→nonempty transition flips to Results automatically.
     view.rerender(buildScreen({ jobs: [createJob("first")] }));
     expectResultsView();
   });
 
   it("settles the route header when results arrive after Results was selected", () => {
     const view = render(buildScreen({ jobs: [] }));
-    fireEvent.click(
-      screen.getByRole("button", { name: /^Close search setup$/u }),
-    );
     expectResultsView();
 
     const scrollArea = document.querySelector<HTMLElement>(
@@ -201,7 +199,7 @@ describe("DiscoveryScreen first-result reveal", () => {
 
   it("never yanks the user back after they navigate away again", () => {
     const view = render(buildScreen({ jobs: [] }));
-    expectSetupView();
+    expectResultsView();
 
     view.rerender(buildScreen({ jobs: [createJob("reveal")] }));
     expectResultsView();

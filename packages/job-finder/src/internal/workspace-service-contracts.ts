@@ -35,9 +35,11 @@ import type {
   ResumeTimelineRepairAction,
   ResumeImportVisionArtifact,
   ResumeApplicationMode,
+  TailoringMode,
   ResumeSourceDocument,
   JobFinderResumeWorkspace,
   JobFinderSettings,
+  JobFinderSearchRequest,
   JobFinderWorkspaceSnapshot,
   JobFinderSetWorkHistoryReviewAcknowledgmentInput,
   JobFinderSetResumeClaimConfirmationInput,
@@ -85,6 +87,7 @@ import type {
   ToggleCampaignRuleInput,
   UpdateApplicationDefaultsInput,
   UpdateWorkspaceBehaviorInput,
+  UpdateAiBehaviorInput,
   UserActionCommandInput,
 } from "@unemployed/contracts";
 import type {
@@ -209,6 +212,17 @@ export interface JobFinderWorkspaceService {
     input: UpdateWorkspaceBehaviorInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
   /**
+   * Saves the AI behavior section of Settings in one action: the behavior
+   * preference and cover-letter preference into settings, and the resume
+   * approach into both `settings.resumeApplicationMode` and
+   * `searchPreferences.tailoringMode`. The search selectivity also drives
+   * `searchPreferences.discovery.collectOnlyHardCriteriaMatches`, so search
+   * preferences go through the ordinary save path (active plan kept in sync).
+   */
+  updateAiBehavior(
+    input: UpdateAiBehaviorInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
    * Replaces the tracker CRM settings in the transaction-current settings and
    * only then offers the due-based no-response automation run. Automation
    * failures are reported separately and never roll the committed settings
@@ -244,6 +258,7 @@ export interface JobFinderWorkspaceService {
     onActivity?: (event: DiscoveryActivityEvent) => void,
     signal?: AbortSignal,
     targetId?: string,
+    searchRequest?: JobFinderSearchRequest,
   ): Promise<JobFinderWorkspaceSnapshot>;
   runDiscoveryForTarget(
     targetId: string,
@@ -336,6 +351,7 @@ export interface JobFinderWorkspaceService {
   setJobResumeApplicationMode(
     jobId: string,
     resumeApplicationMode: ResumeApplicationMode,
+    resumeTailoringMode?: TailoringMode | null,
   ): Promise<JobFinderWorkspaceSnapshot>;
   removeJobFromReview(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   dismissDiscoveryJob(
@@ -539,6 +555,8 @@ type DiscoveryTargetPipelineSharedOptions = {
   useAgentRuntime?: boolean;
   /** Explicit campaign context; discovery then uses the campaign's preferences. */
   campaign?: CampaignRunContext;
+  /** The person's instruction and run-scoped search knobs. */
+  searchRequest?: JobFinderSearchRequest;
 };
 
 export type DiscoveryTargetPipelineOptions =
@@ -615,7 +633,7 @@ export interface JobFinderDocumentManager {
     profile: CandidateProfile;
     settings: JobFinderSettings;
     /** A type the form insisted on. Null means the renderer may choose. */
-    fileType: "pdf" | "docx" | null;
+    fileType: "pdf" | "docx" | "txt" | null;
   }): Promise<RenderedLetterArtifact>;
 }
 

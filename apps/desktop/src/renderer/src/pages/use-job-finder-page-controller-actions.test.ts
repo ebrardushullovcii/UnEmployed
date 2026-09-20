@@ -816,19 +816,11 @@ describe("createPrimaryPageActions", () => {
         },
       },
     ],
-    [
-      "work mode",
-      completeSetupProfile,
-      { ...completeSetupPreferences, workModes: [] },
-    ],
+    // Work mode and work history are hints now, not gates; only the name,
+    // a contact and a job source block Finish.
     [
       "contact",
       { ...completeSetupProfile, email: null, phone: null },
-      completeSetupPreferences,
-    ],
-    [
-      "background",
-      { ...completeSetupProfile, experiences: [], projects: [] },
       completeSetupPreferences,
     ],
   ])(
@@ -963,10 +955,10 @@ describe("createPrimaryPageActions", () => {
     );
   });
 
-  it("blocks an explicit ready finish while a required setup item remains pending", async () => {
-    // A required missing-field item (no proposal, no import source) is the
-    // kind of pending item that still gates Finish; recommended imported
-    // suggestions are covered separately as non-blocking.
+  it("blocks an explicit ready finish while a critical setup item remains pending", async () => {
+    // Only a critical pending item still gates Finish. A recommended field the
+    // resume left empty is a hint: it never stands between a person with a
+    // name, a contact, and a source and their first search.
     const setup = createSetupActions({
       reviewItems: [
         {
@@ -979,7 +971,7 @@ describe("createPrimaryPageActions", () => {
           },
           label: "Email",
           reason: "Add an email address or phone number.",
-          severity: "recommended",
+          severity: "critical",
           status: "pending",
           proposedValue: null,
           sourceSnippet: null,
@@ -1557,6 +1549,9 @@ describe("createPrimaryPageActions", () => {
     const updateWorkspaceBehavior = vi
       .fn<JobFinderShellActions["updateWorkspaceBehavior"]>()
       .mockResolvedValue(snapshot);
+    const updateAiBehavior = vi
+      .fn<JobFinderShellActions["updateAiBehavior"]>()
+      .mockResolvedValue(snapshot);
     const runSaveAction = vi.fn(
       async (input: { action: () => Promise<unknown> }) => {
         await input.action();
@@ -1570,6 +1565,7 @@ describe("createPrimaryPageActions", () => {
         updateApplicationDefaults,
         updateAppearanceTheme,
         updateWorkspaceBehavior,
+        updateAiBehavior,
       } as unknown as JobFinderShellActions,
       runSaveAction,
       workspace: {} as JobFinderWorkspaceSnapshot,
@@ -1580,13 +1576,20 @@ describe("createPrimaryPageActions", () => {
       discoveryOnly: true,
     });
     const themeCompleted = await pageActions.onUpdateAppearanceTheme("dark");
+    const aiCompleted = await pageActions.onUpdateAiBehavior({
+      resumeApproach: "conservative",
+    });
 
     expect(behaviorCompleted).toBe(true);
     expect(themeCompleted).toBe(true);
+    expect(aiCompleted).toBe(true);
     expect(updateAppearanceTheme).toHaveBeenCalledWith("dark");
     expect(updateWorkspaceBehavior).toHaveBeenCalledWith({
       keepSessionAlive: true,
       discoveryOnly: true,
+    });
+    expect(updateAiBehavior).toHaveBeenCalledWith({
+      resumeApproach: "conservative",
     });
     expect(updateApplicationDefaults).not.toHaveBeenCalled();
     expect(saveSettings).not.toHaveBeenCalled();
@@ -1677,9 +1680,7 @@ describe("createPrimaryPageActions", () => {
     expect(runAction).toHaveBeenCalledWith(
       expect.any(Function),
       expect.any(Function),
-      expect.stringMatching(
-        /fill-only run.*final submission and account creation remain disabled/i,
-      ),
+      expect.stringMatching(/apply now in applications/i),
       expect.objectContaining({ scope: jobFinderPendingActions.apply() }),
     );
     expect(runAction.mock.calls[0]?.[2] as string).not.toMatch(
@@ -1844,27 +1845,28 @@ describe("createPrimaryPageActions", () => {
       setResumeWorkspaceDirty: vi.fn(),
     } as unknown as PrimaryPageActionArgs);
 
+    // One press starts the application: no consent dialog stands between
+    // the button and the run any more, and screenshots stay off.
     pageActions.onStartApplyCopilot({ jobId: "job_copilot_checkpoints" });
-    resolveVisualCheckpoints[0]?.(true);
     pageActions.onStartApplyCopilot({ jobId: "job_copilot_plain" });
-    resolveVisualCheckpoints[1]?.(false);
+    expect(resolveVisualCheckpoints).toHaveLength(0);
 
-    // Each flow starts only after its async leave confirmation resolves;
-    // wait for both before reading the runner messages.
     await vi.waitFor(() => {
       expect(runAction).toHaveBeenCalledTimes(2);
     });
     const withCheckpoints = runAction.mock.calls[0]?.[2] as string;
     const withoutCheckpoints = runAction.mock.calls[1]?.[2] as string;
 
-    expect(withCheckpoints).toMatch(
-      /preparation finished with visual checkpoints\./i,
-    );
-    expect(withoutCheckpoints).toMatch(/^preparation finished\./i);
+    expect(withCheckpoints).toMatch(/^application run finished\./i);
+    expect(withoutCheckpoints).toMatch(/^application run finished\./i);
     for (const message of [withCheckpoints, withoutCheckpoints]) {
-      expect(message).toMatch(/check the result below/i);
+      // The person is taken to Applications the moment the run starts, so
+      // the finish line no longer sends them there.
+      expect(message).not.toMatch(/check the result on applications/i);
       expect(message).not.toMatch(/check applications/i);
-      expect(message).toMatch(/never clicks submit/i);
+      // The finish line is shared by every apply mode, so it no longer
+      // promises that nothing was sent.
+      expect(message).not.toMatch(/never clicks submit/i);
       expect(message).not.toMatch(/Job Finder prepared the application/i);
       expect(message).not.toMatch(submitOutcomeClaimPattern);
     }
@@ -2069,6 +2071,10 @@ describe("createPrimaryPageActions", () => {
       expect(queueJobForReview).toHaveBeenCalledWith("job_find_results");
       expect(setActionState).toHaveBeenLastCalledWith({
         message: "Job added to Shortlisted.",
+        actionLink: {
+          label: "Open Shortlisted",
+          route: "/job-finder/review-queue",
+        },
       });
     });
     expect(navigate).not.toHaveBeenCalled();

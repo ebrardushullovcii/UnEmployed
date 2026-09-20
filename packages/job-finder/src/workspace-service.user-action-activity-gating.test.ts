@@ -359,6 +359,56 @@ describe("resolved user action resumption activity gating", () => {
     );
   });
 
+  test("an explicit unpause resumes verifying actions skipped during paused startup", async () => {
+    const { repository, executeApplicationFlow, request } =
+      await startLoginBlockedResumptionHarness();
+
+    await repository.saveActivityControl(PAUSED_CONTROL);
+    const reduction = reduceUserActionCommand(
+      request,
+      {
+        action: "confirm_done",
+        requestId: request.id,
+        commandId: "confirm_before_paused_restart",
+        expectedRevision: request.revision,
+      },
+      "2026-07-30T10:40:00.000Z",
+    );
+    if (reduction.status !== "applied") {
+      throw new Error("Expected the pending action to enter verification.");
+    }
+    await repository.commitUserActionTransition({
+      request: reduction.request,
+      event: reduction.event,
+    });
+
+    const restartedService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime: {
+        ...createBrowserRuntime(),
+        executeApplicationFlow,
+        inspectSourceAccess: authenticatedSourceAccess(),
+      },
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager(),
+      exportFileVerifier: { exists: () => Promise.resolve(true) },
+      researchAdapter: createResearchAdapter(),
+    });
+
+    const pausedStartup = await restartedService.getWorkspaceSnapshot();
+    expect(pausedStartup.activityControl.paused).toBe(true);
+    expect(
+      pausedStartup.userActionRequests.find((entry) => entry.id === request.id),
+    ).toMatchObject({ state: "verifying" });
+    expect(executeApplicationFlow).toHaveBeenCalledTimes(1);
+
+    const resumed = await restartedService.setActivityControl({ paused: false });
+    expect(executeApplicationFlow).toHaveBeenCalledTimes(2);
+    expect(
+      resumed.userActionRequests.find((entry) => entry.id === request.id),
+    ).toMatchObject({ state: "resolved" });
+  });
+
   test("resumes an already-marked exact lineage at full capacity without charging another slot", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 7, 23, 12));

@@ -1,6 +1,10 @@
 import type { ApplicationAttemptQuestion } from "@unemployed/contracts";
 
-import { matchOption, resolveApplyAnswer } from "./answer-sourcing";
+import {
+  matchOption,
+  resolveApplyAnswer,
+  resolveReusableAnswer,
+} from "./answer-sourcing";
 import { normalizeSignal } from "./control-classification";
 import {
   buildCoverLetterRequest,
@@ -38,8 +42,8 @@ import type {
  * - a write proposed against a page that has since moved on is retried
  *   against the page as it is now, rather than landing in the wrong field
  * - sending an application goes through its own preflight and authority
- * - what the person allowed about origins is reported, and only enforced when
- *   they actually asked for it
+ * - the origin allowlist is enforced only at the irreversible send preflight;
+ *   ordinary navigation is governed by the reviewed-move path below
  *
  * Everything else — cookie banners, chat widgets, redirects, listings that
  * link to a different company's site, buttons made out of divs — is the
@@ -60,8 +64,13 @@ export type ApplyExecutionOutcome =
       attachment: ApplyAttachedDocument;
       observation: ApplyFormObservation;
     }
-  /** The page changed: clicked, followed, navigated, went back, scrolled. */
-  | { kind: "moved"; note: string; observation: ApplyFormObservation }
+  /** A movement on the page. Only a real page/location change is progress. */
+  | {
+      kind: "moved";
+      note: string;
+      observation: ApplyFormObservation;
+      progress: boolean;
+    }
   /** What the person's own facts say about one field, for the model to use. */
   | {
       kind: "suggestion";
@@ -234,7 +243,8 @@ function bareOrigin(value: string): string | null {
  * scraper mirror, one "that is normal" at a time. So a move off the listing's
  * site is allowed only for a reason the model states, judged by a second
  * opinion against the goal; an origin allowed once stays allowed for the
- * run. When the person wrote down which sites they allow, that list wins.
+ * run. Submission authority is checked separately by `runSubmitPreflight`;
+ * reaching and filling an employer form does not itself send an application.
  */
 async function authorizeOrigin(
   observationOrUrl: ApplyFormObservation | string,
@@ -248,11 +258,6 @@ async function authorizeOrigin(
       : observationOrUrl.origin;
   if (!origin) {
     return { refuse: null, note: null };
-  }
-
-  const allowlistRefusal = refuseByAllowlist(origin, deps);
-  if (allowlistRefusal) {
-    return { refuse: allowlistRefusal, note: null };
   }
 
   const startOrigin = bareOrigin(config.application.startingUrl);
@@ -306,19 +311,6 @@ async function authorizeOrigin(
   };
 }
 
-/** The one rule the person wrote down themselves: which sites are allowed. */
-function refuseByAllowlist(
-  origin: string,
-  deps: ApplyExecutorDeps,
-): string | null {
-  const allowed = deps.config.authority.allowedOrigins
-    .map(bareOrigin)
-    .filter((value): value is string => value !== null);
-  return allowed.length > 0 && !allowed.includes(origin)
-    ? `This page is on ${origin}, which is outside the sites you allowed Job Finder to work on.`
-    : null;
-}
-
 /**
  * After a move that turned out to be refused: back to where the run was.
  */
@@ -350,9 +342,9 @@ function findControl(
  * Performs one write with the prepare-only guard watching.
  *
  * The value is declared to the guard first, so it can tell a request carrying
- * the answer from one that does not. When the person authorized the site to
- * save fields as they go, the short same-origin window is opened around this
- * one write and closed straight after, whatever happens.
+ * the answer from one that does not. When field saves are allowed, a short
+ * same-origin window is opened before the write and left to run out, so the
+ * save the site sends a moment later still gets through.
  */
 async function writeUnderGuard(
   deps: ApplyExecutorDeps,
@@ -370,22 +362,14 @@ async function writeUnderGuard(
   if (input.declaredValue) {
     await safety.registerPreparedValue(input.declaredValue);
   }
-  let windowOpen = false;
   if (deps.config.intermediateWritesAuthorized === true) {
-    try {
-      await safety.openIntermediateWriteWindow();
-      windowOpen = true;
-    } catch {
-      windowOpen = false;
-    }
+    // Opened before the write and left to expire on its own. Sites save a
+    // field a moment after it changes, not during the write; closing the
+    // window the instant the write returned blocked exactly those saves and
+    // left every select on the form reverting to empty.
+    await safety.openIntermediateWriteWindow().catch(() => undefined);
   }
-  try {
-    return await input.write();
-  } finally {
-    if (windowOpen) {
-      await safety.closeIntermediateWriteWindow().catch(() => undefined);
-    }
-  }
+  return input.write();
 }
 
 /** What the guard saw around one write: a reason to stop, or a tab to follow. */
@@ -543,6 +527,7 @@ export async function executeApplyProposal(
           .filter(Boolean)
           .join(" "),
         observation,
+        progress: true,
       };
     }
     case "follow_link": {
@@ -575,6 +560,7 @@ export async function executeApplyProposal(
           .filter(Boolean)
           .join(" "),
         observation,
+        progress: true,
       };
     }
     case "go_back": {
@@ -582,7 +568,12 @@ export async function executeApplyProposal(
       const observation = await config.hands.observe();
       if (moved.ok) deps.guardState.lastOnSiteUrl = observation.url;
       return moved.ok
-        ? { kind: "moved", note: `Went back to ${moved.url}.`, observation }
+        ? {
+            kind: "moved",
+            note: `Went back to ${moved.url}.`,
+            observation,
+            progress: true,
+          }
         : { kind: "refused", reason: moved.error, observation };
     }
     case "scroll": {
@@ -591,6 +582,7 @@ export async function executeApplyProposal(
         kind: "moved",
         note: `Scrolled ${proposal.direction}.`,
         observation: await config.hands.observe(),
+        progress: false,
       };
     }
     case "wait": {
@@ -599,6 +591,7 @@ export async function executeApplyProposal(
         kind: "moved",
         note: `Waited ${Math.round(proposal.milliseconds)}ms.`,
         observation: await config.hands.observe(),
+        progress: false,
       };
     }
     default:
@@ -607,12 +600,6 @@ export async function executeApplyProposal(
 
   const observation = await config.hands.observe();
   deps.guardState.lastOnSiteUrl = observation.url;
-  const allowlistRefusal = observation.origin
-    ? refuseByAllowlist(observation.origin, deps)
-    : null;
-  if (allowlistRefusal) {
-    return { kind: "refused", reason: allowlistRefusal, observation };
-  }
 
   if (proposal.tool === "suggest_answer") {
     const control = findControl(observation, proposal.ref);
@@ -732,6 +719,7 @@ export async function executeApplyProposal(
           kind: "moved",
           note: `Pressing ${describeRef(observation, proposal.ref)} opened ${followed.url} in a new tab. Job Finder works in one tab, so it opened that address here instead.${(before.note ?? landedOrigin.note) ? ` ${before.note ?? landedOrigin.note}` : ""}`,
           observation: landed,
+          progress: true,
         };
       }
       const after = await config.hands.observe();
@@ -739,7 +727,11 @@ export async function executeApplyProposal(
       // wanted to save before it would advance, and the page has not.
       const blockedOnThisMove =
         deps.guardState.blockedSaveCount > blockedSavesBefore;
+      // Only a run that is not allowed to let the site save can be stuck
+      // here. When saving is allowed a blocked save is a page quirk the
+      // agent works around, not a reason to stop.
       if (
+        deps.config.intermediateWritesAuthorized !== true &&
         (blockedOnThisMove || deps.guardState.lastBlockedSave !== null) &&
         after.signature === observation.signature
       ) {
@@ -767,6 +759,9 @@ export async function executeApplyProposal(
           .filter(Boolean)
           .join(" "),
         observation: after,
+        progress:
+          after.url !== observation.url ||
+          after.signature !== observation.signature,
       };
     }
 
@@ -940,28 +935,42 @@ export async function executeApplyProposal(
         };
       }
       // A declaration the person makes about themselves is theirs. This is the
-      // one place the model is overruled rather than advised.
+      // one place the model is overruled rather than advised. It is not,
+      // however, a reason to stop: the run used to end on the first such box
+      // with the rest of the form untouched, and the person came back to a
+      // half-filled page and a "Needs you" that never cleared. The box is left
+      // for them, the model carries on, and the question is handed back with
+      // the finished form ("1 question left for you", ADR 0022).
+      //
+      // A "Yes" the person saved for this exact question earlier counts as
+      // their approval: they answered it once and asked to keep it.
+      const savedDeclaration =
+        control.attestationKind !== null && proposal.checked
+          ? resolveReusableAnswer(control, config.sources.reusableAnswers)
+          : null;
+      const savedDeclarationSaysYes =
+        savedDeclaration !== null && /^(yes|true|agree|i agree|accept|checked|on|1)\b/iu.test(savedDeclaration.value.trim());
       if (
         control.attestationKind !== null &&
         proposal.checked &&
         !config.authority.preApprovedAttestationKinds.includes(
           control.attestationKind,
-        )
+        ) &&
+        !savedDeclarationSaysYes
       ) {
         return {
-          kind: "paused",
-          pause: {
-            code: "declaration_needs_you",
-            summary: `This form asks you to declare something: "${questionPrompt(control)}". Only you can answer that, so Job Finder left it blank.`,
-            question: buildPendingQuestion({
-              control,
-              jobId: config.application.jobId,
-              detectedAt: at,
-              suggestion: null,
-              siblings: observation.controls,
-            }),
-            blocker: null,
-          },
+          kind: "suggestion",
+          answer: null,
+          note: `"${questionPrompt(control)}" is a declaration only the person can make, and they have not approved that kind in advance. Job Finder left it unticked and will hand it to them with the finished form. Do not try to tick it again; carry on with the rest of the application, and when everything else is done call finish.`,
+          question: buildPendingQuestion({
+            control,
+            jobId: config.application.jobId,
+            detectedAt: at,
+            suggestion: null,
+            siblings: observation.controls,
+          }),
+          controlRef: control.ref,
+          observation,
         };
       }
       const write = await writeUnderGuard(deps, {
@@ -982,22 +991,24 @@ export async function executeApplyProposal(
           ref: control.ref,
           label: questionPrompt(control),
           questionKind: control.questionKind,
-          answer: {
-            value: proposal.checked ? "Yes" : "No",
-            kind: control.questionKind,
-            sourceKind: control.attestationKind ? "profile" : "generated",
-            sourceId: control.attestationKind
-              ? `authority.attestation.${control.attestationKind}`
-              : `chosen.${control.ref}`,
-            provenanceLabel: control.attestationKind
-              ? "a declaration you approved in advance"
-              : "chosen on the form",
-            groundedIn: [
-              control.attestationKind
-                ? "a declaration you approved in advance"
-                : "the form",
-            ],
-          },
+          answer: savedDeclarationSaysYes && savedDeclaration
+            ? savedDeclaration
+            : {
+                value: proposal.checked ? "Yes" : "No",
+                kind: control.questionKind,
+                sourceKind: control.attestationKind ? "profile" : "generated",
+                sourceId: control.attestationKind
+                  ? `authority.attestation.${control.attestationKind}`
+                  : `chosen.${control.ref}`,
+                provenanceLabel: control.attestationKind
+                  ? "a declaration you approved in advance"
+                  : "chosen on the form",
+                groundedIn: [
+                  control.attestationKind
+                    ? "a declaration you approved in advance"
+                    : "the form",
+                ],
+              },
           at,
         },
         observation: await config.hands.observe(),
