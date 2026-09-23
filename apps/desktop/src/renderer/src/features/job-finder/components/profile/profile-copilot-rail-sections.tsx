@@ -675,7 +675,7 @@ export function ProfileCopilotCollapsedBubble(props: {
         Assistant
         {badgeLabel ? (
           <span
-            className="absolute right-0.5 top-0.5 size-2 rounded-full border border-background bg-primary"
+            className="size-2 shrink-0 rounded-full border border-background bg-primary"
             title={badgeLabel}
           >
             <span className="sr-only">{badgeLabel}</span>

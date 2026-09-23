@@ -554,7 +554,7 @@ export function ProfileScreen(props: {
           />
         </>
       }
-      contentClassName="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2 pb-1 xl:overflow-hidden"
+      contentClassName="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2 pb-1 xl:overflow-clip"
       topClassName="grid gap-2 pb-1"
       topContent={
         <>
@@ -591,7 +591,9 @@ export function ProfileScreen(props: {
     >
       <section className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0">
         <div className="grid min-h-0 min-w-0 gap-2 xl:grid-rows-[auto_minmax(0,1fr)]">
-          <div className="sticky top-0 z-20 bg-(--surface-canvas)">
+          {/* Clip without creating a scroll owner between the tabs and the
+              route scroller, so the tabs stay pinned as the profile moves. */}
+          <div className="sticky top-0 z-30 bg-(--background) shadow-[0_6px_16px_rgba(0,0,0,0.12)]">
             <ProfileSectionTabs
               activeSection={activeSection}
               onSectionChange={handleSectionChange}
