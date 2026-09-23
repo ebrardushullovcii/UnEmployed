@@ -27,6 +27,7 @@ import {
   browserDisplayUrl,
   browserUserAgent,
   isBrowserNavigationAllowed,
+  isSameBrowserNavigation,
   normalizeBrowserNavigation,
 } from "./browser-navigation";
 
@@ -763,7 +764,14 @@ export class EmbeddedBrowser {
       this.closed = false;
       this.presentation = "peek";
       if (command.url) {
-        this.createPage(command.url);
+        const requestedUrl = command.url;
+        const existingPage = [...this.pageMap.values()].find(
+          (page) =>
+            !page.contents.isDestroyed() &&
+            isSameBrowserNavigation(page.contents.getURL(), requestedUrl),
+        );
+        if (existingPage) this.selectPage(existingPage.id);
+        else this.createPage(requestedUrl);
       }
     } else if (command.type === "minimize") {
       this.presentation = "minimized";
@@ -856,8 +864,7 @@ export class EmbeddedBrowser {
     const point = screen.getCursorScreenPoint();
     const now = Date.now();
     const previous = this.lastCursor;
-    const moved =
-      !previous || previous.x !== point.x || previous.y !== point.y;
+    const moved = !previous || previous.x !== point.x || previous.y !== point.y;
     this.lastCursor = {
       x: point.x,
       y: point.y,

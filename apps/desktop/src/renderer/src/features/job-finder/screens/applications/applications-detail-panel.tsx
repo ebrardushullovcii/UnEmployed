@@ -29,6 +29,7 @@ import { ApplicationsDetailFactStrip } from "./applications-detail-fact-strip";
 import {
   buildQueueEntries,
   applicationNeedsPrimaryRecovery,
+  findActionableApplicationAnswerRequest,
 } from "./applications-detail-panel-helpers";
 import { ApplicationsDetailPanelOverviewSections } from "./applications-detail-panel-overview-sections";
 import type {
@@ -193,7 +194,6 @@ export function ApplicationsDetailPanel({
   onSelectApplyRun,
   onStartApplyCopilot,
   onStartAutoApplyQueue,
-  applyMode = "fill_only",
   onOpenSafeguards,
   onOpenNeedsYou,
   userActionRequests,
@@ -216,23 +216,25 @@ export function ApplicationsDetailPanel({
   const pendingQuestions = selectedRecord
     ? listPendingApplicationQuestions({
         applicationAttempts,
+        applicationRecordId: selectedRecord.id,
         jobId: selectedRecord.jobId,
       })
     : [];
   const pendingQuestionCount = pendingQuestions.length;
+  const answerRun = effectiveSelectedApplyResult
+    ? (applyRunHistory.find(
+        ({ result }) => result.runId === effectiveSelectedApplyResult.runId,
+      )?.run ?? null)
+    : null;
   // The question step for this application, answerable right here.
   const answerRequest =
     selectedRecord && onPerformUserAction
-      ? ((userActionRequests ?? []).find(
-          (request) =>
-            request.kind === "manual_answer" &&
-            (request.state === "pending" ||
-              request.state === "page_opened" ||
-              request.state === "awaiting_user" ||
-              request.state === "verifying") &&
-            request.scope.type === "application" &&
-            request.scope.jobId === selectedRecord.jobId,
-        ) ?? null)
+      ? findActionableApplicationAnswerRequest({
+          applicationRecordId: selectedRecord.id,
+          jobId: selectedRecord.jobId,
+          requests: userActionRequests,
+          run: answerRun,
+        })
       : null;
   const answerStep: ApplicationAnswerStep | null =
     answerRequest && onPerformUserAction && pendingQuestions.length > 0
@@ -310,11 +312,21 @@ export function ApplicationsDetailPanel({
   const selectedApplyState =
     selectedRecord && visibleApplyResult
       ? resolveApplyStatePresentation({
-          mode: applyMode,
+          mode:
+            selectedRecord.automationMode === "autonomous_submit"
+              ? "apply_for_me"
+              : "fill_only",
           result: visibleApplyResult,
           pendingQuestionCount:
             selectedRecord.questionSummary.total -
             selectedRecord.questionSummary.answered,
+          recordFailure:
+            selectedRecord.lastAttemptState === "failed"
+              ? {
+                  lastActionLabel: selectedRecord.lastActionLabel,
+                  lastUpdatedAt: selectedRecord.lastUpdatedAt,
+                }
+              : null,
         })
       : null;
   const selectedStage = selectedApplyState
@@ -361,7 +373,8 @@ export function ApplicationsDetailPanel({
     selectedApplyRunDetails,
   );
   const pinnedApproval =
-    selectedRecord && awaitingPreparationApproval &&
+    selectedRecord &&
+    awaitingPreparationApproval &&
     selectedApplyRunDetails?.submitApproval
       ? {
           approval: selectedApplyRunDetails.submitApproval,
@@ -408,7 +421,9 @@ export function ApplicationsDetailPanel({
       pausedQuestionCount={pendingQuestionCount}
       selectedRecordJobId={selectedRecord.jobId}
       selectedApplicationRecordId={selectedRecord.id}
-      selectedRecordLatestBlockerCode={selectedRecord.latestBlocker?.code ?? null}
+      selectedRecordLatestBlockerCode={
+        selectedRecord.latestBlocker?.code ?? null
+      }
       selectedRun={selectedRun}
       visibleApplyResult={visibleApplyResult}
     />
@@ -520,7 +535,10 @@ export function ApplicationsDetailPanel({
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {showNotSubmittedPill ? (
-            <StatusBadge data-testid="applications-not-submitted-pill" tone="muted">
+            <StatusBadge
+              data-testid="applications-not-submitted-pill"
+              tone="muted"
+            >
               Not submitted
             </StatusBadge>
           ) : null}

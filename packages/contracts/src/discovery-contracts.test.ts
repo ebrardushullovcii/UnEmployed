@@ -612,6 +612,25 @@ describe("discovery contracts", () => {
     expect(persistedActivity.activity.at(-1)?.id).toBe("history_510");
   });
 
+  test("persists the exact request used to start a discovery run", () => {
+    const run = DiscoveryRunRecordSchema.parse({
+      id: "run_retry_request",
+      state: "running",
+      startedAt: "2026-09-21T10:00:00.000Z",
+      targetIds: ["source_one"],
+      searchIntent: "Staff frontend roles in climate software",
+      searchBreadth: "wide",
+      searchFreshness: "recent",
+    });
+
+    expect(run).toMatchObject({
+      targetIds: ["source_one"],
+      searchIntent: "Staff frontend roles in climate software",
+      searchBreadth: "wide",
+      searchFreshness: "recent",
+    });
+  });
+
   test("keeps the discovery run budget optional and hard-capped", () => {
     const preferences = JobDiscoveryPreferencesSchema.parse({});
 

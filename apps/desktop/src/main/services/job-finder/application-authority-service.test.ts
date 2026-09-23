@@ -42,6 +42,58 @@ function expectApplied(result: ApplicationAuthorityEnvelopeMutationResult) {
 }
 
 describe("Job Finder application authority service", () => {
+  it.each(["confirm_before_submit", "autonomous_submit"] as const)(
+    "approves an empty answer bank and creates the first %s permission",
+    async (mode) => {
+      const repository = createInMemoryJobFinderRepository(
+        createEmptyJobFinderRepositoryState(),
+      );
+      const service = createJobFinderApplicationAuthorityService({
+        repository,
+        now: () => NOW,
+        idFactory: () => "empty",
+      });
+      const profileState = await repository.getProfileWithRevision();
+      const approval = await service.approveCurrentAnswers({
+        expectedProfileRevision: profileState.revision,
+        confirmedCurrentAnswers: true,
+      });
+      expect(approval).toMatchObject({
+        status: "created",
+        snapshot: { entryCount: 0, kinds: [] },
+        readiness: { approvedSnapshot: { entryCount: 0 } },
+      });
+      await expect(service.getReadiness()).resolves.toMatchObject({
+        approvedSnapshot: { entryCount: 0 },
+      });
+      const created = expectApplied(
+        await service.create(
+          createPolicy({
+            mode,
+            scope: { campaignId: null, jobIds: ["job_first"] },
+            expiresAt: LATER,
+            intermediateMutationsAuthorized: true,
+          }),
+        ),
+      );
+      expect(created).toMatchObject({
+        mode,
+        allowedResumeSha256: [SHA],
+        accountCreationAuthorized: false,
+        decisionPolicy: {
+          answerPolicy: {
+            approvedAnswerSnapshot: {
+              revision: approval.snapshot?.revision,
+              digest: approval.snapshot?.digest,
+            },
+            unknownRequiredQuestion: "pause_for_user",
+            unknownEligibility: "pause_for_user",
+          },
+        },
+      });
+    },
+  );
+
   it("creates, reads, revision-updates, and revokes one prepare-only envelope", async () => {
     const repository = createInMemoryJobFinderRepository(
       createEmptyJobFinderRepositoryState(),

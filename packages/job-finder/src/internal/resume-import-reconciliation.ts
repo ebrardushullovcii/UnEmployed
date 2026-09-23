@@ -39,6 +39,14 @@ import {
   isLikelyPersonName as isLikelyPersonNameFromIdentity,
 } from "./resume-identity";
 
+function recordFieldText(value: unknown, key: string): string {
+  if (!isObject(value)) {
+    return "";
+  }
+  const field = value[key];
+  return typeof field === "string" ? normalizeText(field) : "";
+}
+
 export function candidateScore(candidate: ResumeImportFieldCandidate): number {
   const sourceBonus = (() => {
     switch (candidate.sourceKind) {
@@ -641,6 +649,41 @@ function enrichRecordCandidateFromSiblings(
   }
   const merged: Record<string, unknown> = { ...winner.value };
   let changed = false;
+  let keepEmployerEmpty = false;
+
+  if (winner.target.section === "experience") {
+    const winnerCompany = recordFieldText(winner.value, "companyName");
+    const winnerTitle = recordFieldText(winner.value, "title");
+    for (const sibling of siblings) {
+      if (!isObject(sibling.value)) {
+        continue;
+      }
+      const siblingCompany = recordFieldText(sibling.value, "companyName");
+      const siblingTitle = recordFieldText(sibling.value, "title");
+      if (
+        winnerCompany &&
+        winnerTitle &&
+        !siblingCompany &&
+        siblingTitle === `${winnerCompany} ${winnerTitle}`
+      ) {
+        merged.companyName = null;
+        merged.title = sibling.value.title;
+        keepEmployerEmpty = true;
+        changed = true;
+        break;
+      }
+      if (
+        !winnerCompany &&
+        winnerTitle &&
+        siblingCompany &&
+        siblingTitle &&
+        winnerTitle === `${siblingCompany} ${siblingTitle}`
+      ) {
+        keepEmployerEmpty = true;
+      }
+    }
+  }
+
   for (const sibling of siblings) {
     if (!isObject(sibling.value)) {
       continue;
@@ -649,6 +692,9 @@ function enrichRecordCandidateFromSiblings(
       // Prose (summary, notes) is never borrowed: the text reader's version
       // is the raw paragraph, often first person or a bare location line.
       if (!RECORD_FILLABLE_FIELDS.has(key)) {
+        continue;
+      }
+      if (key === "companyName" && keepEmployerEmpty) {
         continue;
       }
       const current = merged[key];
@@ -691,6 +737,19 @@ function enrichRecordCandidateFromSiblings(
     value: merged,
     valuePreview: buildValuePreview(merged),
   });
+}
+
+function hasMeaningfulRecordValue(candidate: ResumeImportFieldCandidate): boolean {
+  if (
+    !isRecordTarget(candidate) ||
+    candidate.target.section !== "education" ||
+    !isObject(candidate.value)
+  ) {
+    return true;
+  }
+  return ["schoolName", "degree", "fieldOfStudy"].some(
+    (key) => recordFieldText(candidate.value, key).length > 0,
+  );
 }
 
 const SHARED_MEMORY_SECTIONS = new Set([
@@ -1822,6 +1881,19 @@ export function reconcileCandidates(
   const candidatesForGrouping: ResumeImportFieldCandidate[] = [];
 
   for (const candidate of normalizedCandidates) {
+    if (!hasMeaningfulRecordValue(candidate)) {
+      resolved.push(
+        applyCandidateResolution(
+          profile,
+          searchPreferences,
+          candidate,
+          "rejected",
+          "empty_record_candidate",
+        ),
+      );
+      continue;
+    }
+
     if (
       candidate.target.key === "phone" &&
       isClearlyResumeDateRange(candidate.value)

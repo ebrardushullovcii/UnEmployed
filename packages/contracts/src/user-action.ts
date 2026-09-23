@@ -414,6 +414,22 @@ export type ConfirmUserActionDoneCommand = z.infer<
   typeof ConfirmUserActionDoneCommandSchema
 >;
 
+/**
+ * One-use credentials the person explicitly supplied for this exact sign-in
+ * step. The command crosses the typed bridge, but its secret fields are never
+ * copied into a user-action request, event, answer record, or repository.
+ */
+export const SubmitTaskLocalCredentialsCommandSchema =
+  UserActionCommandBaseSchema.extend({
+    action: z.literal("submit_task_local_credentials"),
+    identifier: z.string().trim().min(1).max(320),
+    password: z.string().min(1).max(4_096),
+    taskLocalUseAuthorized: z.literal(true),
+  });
+export type SubmitTaskLocalCredentialsCommand = z.infer<
+  typeof SubmitTaskLocalCredentialsCommandSchema
+>;
+
 export const userActionAccountPathValues = [
   "use_existing_account",
   "create_account_in_browser",
@@ -493,6 +509,7 @@ export type CancelUserActionCommand = z.infer<
 export const UserActionCommandSchema = z.discriminatedUnion("action", [
   OpenUserActionPageCommandSchema,
   ConfirmUserActionDoneCommandSchema,
+  SubmitTaskLocalCredentialsCommandSchema,
   ChooseUserActionAccountPathCommandSchema,
   SubmitUserActionManualAnswerCommandSchema,
   RecordUserActionLegalDecisionCommandSchema,
@@ -535,6 +552,7 @@ export const userActionEventOperationValues = [
   "created",
   "open_page",
   "confirm_done",
+  "submit_task_local_credentials",
   "choose_account_path",
   "submit_manual_answer",
   "record_legal_decision",

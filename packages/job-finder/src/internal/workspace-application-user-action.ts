@@ -1,5 +1,7 @@
 import {
   ApplicationRecordSchema,
+  ApplyJobResultSchema,
+  ApplyRunSchema,
   JOB_FINDER_BROWSER_LABEL,
   UserActionRequestSchema,
   type ApplicationAttemptBlocker,
@@ -14,6 +16,7 @@ import {
   isUserActionTerminal,
   reduceUserActionSuperseded,
 } from "../user-action-domain";
+import { reconcileApplyRunAfterConfirmedSubmission } from "./workspace-apply-run-support";
 
 const applicationAuthenticationKinds = new Set<UserActionRequestKind>([
   "login",
@@ -392,7 +395,8 @@ async function supersedeActionsClearedByNewerResult(input: {
     (request) =>
       request.scope.type === "application" &&
       request.scope.applicationRecordId === input.applicationRecordId &&
-      request.createdAt <= input.resultStartedAt &&
+      (request.scope.resultId === input.resultId ||
+        request.createdAt <= input.resultStartedAt) &&
       !isUserActionTerminal(request.state),
   );
 
@@ -419,6 +423,18 @@ export async function persistApplicationUserAction(input: {
   occurredAt: string;
 }): Promise<void> {
   if (!input.resultId || !input.replayCheckpointId) return;
+  if (input.resultState === "failed") {
+    if (input.resultStartedAt) {
+      await supersedeActionsClearedByNewerResult({
+        repository: input.repository,
+        applicationRecordId: input.applicationRecordId,
+        resultId: input.resultId,
+        resultStartedAt: input.resultStartedAt,
+        occurredAt: input.occurredAt,
+      });
+    }
+    return;
+  }
   if (!input.blocker) {
     if (input.resultState === "awaiting_review" && input.resultStartedAt) {
       await supersedeActionsClearedByNewerResult({
@@ -546,6 +562,136 @@ export async function persistApplicationUserAction(input: {
 export const persistApplicationLoginUserAction = persistApplicationUserAction;
 
 /**
+ * Marks one exact prepared application as retryable when its in-memory page
+ * binding is gone. Both a pending browser hand-off and a ready-for-review
+ * browser hand-off use this path, so neither can fall back to an arbitrary
+ * tab after restart or after another application opens.
+ */
+export async function terminalizeApplicationAfterPreparedPageLost(input: {
+  repository: JobFinderRepository;
+  runId: string;
+  jobId: string;
+  applicationRecordId: string;
+  resultId: string;
+  occurredAt: string;
+  eventId: string;
+  preserveRunningRun?: boolean;
+}): Promise<void> {
+  const [records, runResults, jobResults, runs] = await Promise.all([
+    input.repository.listApplicationRecords(),
+    input.repository.listApplyJobResults({ runId: input.runId }),
+    input.repository.listApplyJobResults({ jobId: input.jobId }),
+    input.repository.listApplyRuns(),
+  ]);
+  const result = runResults.find(
+    (entry) =>
+      entry.id === input.resultId &&
+      entry.jobId === input.jobId &&
+      entry.applicationRecordId === input.applicationRecordId,
+  );
+  if (
+    !result ||
+    result.state === "submitting" ||
+    result.state === "submitted" ||
+    result.privacyReceipt?.submissionOutcome?.outcome === "outcome_uncertain"
+  ) {
+    return;
+  }
+
+  // A result-bound button may still be on screen while a newer attempt for
+  // the same record starts. Losing the older page must not overwrite that
+  // newer attempt's record or run state.
+  const hasNewerResult = jobResults.some(
+    (entry) =>
+      entry.applicationRecordId === input.applicationRecordId &&
+      entry.id !== result.id &&
+      (entry.updatedAt.localeCompare(result.updatedAt) > 0 ||
+        (entry.updatedAt === result.updatedAt && entry.id > result.id)),
+  );
+  if (hasNewerResult) return;
+
+  const record = records.find(
+    (entry) =>
+      entry.id === input.applicationRecordId && entry.jobId === input.jobId,
+  );
+  const run = runs.find((entry) => entry.id === input.runId);
+  if (
+    !record ||
+    (record.lastAttemptState !== "paused" &&
+      record.lastAttemptState !== "ready") ||
+    !run
+  ) {
+    return;
+  }
+
+  await input.repository.upsertApplicationRecord(
+    ApplicationRecordSchema.parse({
+      ...record,
+      lastAttemptState: "failed",
+      lastActionLabel: "The prepared application page is no longer open.",
+      nextActionLabel: "Try again, or finish it yourself on the job site.",
+      lastUpdatedAt: input.occurredAt,
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      events: [
+        ...record.events,
+        {
+          id: input.eventId,
+          at: input.occurredAt,
+          title: "Prepared page closed",
+          detail:
+            "The exact prepared page could not be reopened. Nothing was sent, and you can choose Try again to prepare this application again.",
+          emphasis: "warning",
+        },
+      ],
+    }),
+  );
+
+  const terminalResult = ApplyJobResultSchema.parse({
+    ...result,
+    state: "failed",
+    summary: "The prepared application page is no longer open.",
+    detail:
+      "The exact prepared page could not be reopened. Nothing was sent; choose Try again to prepare this application again.",
+    updatedAt: input.occurredAt,
+    completedAt: input.occurredAt,
+    blockerReason: "unexpected_navigation",
+    blockerSummary: "The prepared application page is no longer open.",
+    latestQuestionCount: 0,
+  });
+  await input.repository.upsertApplyJobResult(terminalResult);
+
+  // A Home pause can park an approved queue between jobs. The prior prepared
+  // page is gone after restart, but its failed result must not terminate the
+  // untouched jobs that Resume will execute under the same approved run.
+  if (input.preserveRunningRun && run.state === "running") return;
+
+  const nextResults = runResults.map((entry) =>
+    entry.id === terminalResult.id ? terminalResult : entry,
+  );
+  const reconciledRun = reconcileApplyRunAfterConfirmedSubmission({
+    run,
+    results: nextResults,
+    submittedAt: input.occurredAt,
+    submittedSummary: "A prepared application page was no longer open",
+    submittedDetail:
+      "Nothing was sent. The affected application can be prepared again.",
+  });
+  await input.repository.upsertApplyRun(
+    ApplyRunSchema.parse({
+      ...reconciledRun,
+      summary: "A prepared application page was no longer open.",
+      detail:
+        "Nothing was sent. The affected application can be prepared again while any other work keeps its own state.",
+    }),
+  );
+}
+
+/**
  * Closing a browser step must also close the application waiting on it.
  *
  * Cancelling or skipping a step said "the step was closed" and stopped there:
@@ -562,10 +708,12 @@ export async function releaseApplicationRecordAfterDismissedUserAction(input: {
   occurredAt: string;
   eventId: string;
   dismissal: "cancelled" | "skipped";
+  unavailablePreparedPage?: boolean;
 }): Promise<void> {
   const { request } = input;
   if (request.scope.type !== "application") return;
-  const applicationRecordId = request.scope.applicationRecordId;
+  const applicationScope = request.scope;
+  const applicationRecordId = applicationScope.applicationRecordId;
   if (!applicationRecordId) return;
 
   const record = (await input.repository.listApplicationRecords()).find(
@@ -586,6 +734,20 @@ export async function releaseApplicationRecordAfterDismissedUserAction(input: {
   );
   if (stillOpen) return;
 
+  const unavailablePreparedPage = input.unavailablePreparedPage === true;
+  if (unavailablePreparedPage && applicationScope.resultId) {
+    await terminalizeApplicationAfterPreparedPageLost({
+      repository: input.repository,
+      runId: applicationScope.runId,
+      jobId: applicationScope.jobId,
+      applicationRecordId,
+      resultId: applicationScope.resultId,
+      occurredAt: input.occurredAt,
+      eventId: input.eventId,
+    });
+    return;
+  }
+
   const closedWord = input.dismissal === "skipped" ? "skipped" : "cancelled";
   await input.repository.upsertApplicationRecord(
     ApplicationRecordSchema.parse({
@@ -596,6 +758,12 @@ export async function releaseApplicationRecordAfterDismissedUserAction(input: {
       lastActionLabel: `You ${closedWord} the step Job Finder was waiting on.`,
       nextActionLabel: "Try again, or finish it yourself on the job site.",
       lastUpdatedAt: input.occurredAt,
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
       events: [
         ...record.events,
         {
@@ -607,6 +775,64 @@ export async function releaseApplicationRecordAfterDismissedUserAction(input: {
           emphasis: "warning",
         },
       ],
+    }),
+  );
+
+  if (!applicationScope.resultId) return;
+  const runResults = await input.repository.listApplyJobResults({
+    runId: applicationScope.runId,
+  });
+  const result = runResults.find(
+    (entry) => entry.id === applicationScope.resultId,
+  );
+  if (
+    !result ||
+    result.state === "submitted" ||
+    result.privacyReceipt?.submissionOutcome?.outcome === "outcome_uncertain"
+  ) {
+    return;
+  }
+
+  const terminalResult = ApplyJobResultSchema.parse({
+    ...result,
+    state: input.dismissal === "skipped" ? "skipped" : "failed",
+    summary: `The person ${closedWord} the step Job Finder was waiting on.`,
+    detail:
+      "Job Finder stopped working on this application. Nothing was sent; choose Try again to prepare it again.",
+    updatedAt: input.occurredAt,
+    completedAt: input.occurredAt,
+    blockerReason: result.blockerReason,
+    blockerSummary: result.blockerSummary,
+    latestQuestionCount: 0,
+  });
+  await input.repository.upsertApplyJobResult(terminalResult);
+
+  const run = (await input.repository.listApplyRuns()).find(
+    (entry) => entry.id === applicationScope.runId,
+  );
+  if (!run) return;
+  const nextResults = runResults.map((entry) =>
+    entry.id === terminalResult.id ? terminalResult : entry,
+  );
+  const pendingResults = nextResults.filter(
+    (entry) => entry.state === "awaiting_review",
+  );
+  await input.repository.upsertApplyRun(
+    ApplyRunSchema.parse({
+      ...run,
+      state: pendingResults.length > 0 ? "paused_for_user_review" : "completed",
+      currentJobId: pendingResults[0]?.jobId ?? null,
+      updatedAt: input.occurredAt,
+      completedAt: pendingResults.length > 0 ? null : input.occurredAt,
+      pendingJobs: pendingResults.length,
+      submittedJobs: nextResults.filter((entry) => entry.state === "submitted")
+        .length,
+      skippedJobs: nextResults.filter((entry) => entry.state === "skipped")
+        .length,
+      blockedJobs: nextResults.filter((entry) => entry.state === "blocked")
+        .length,
+      failedJobs: nextResults.filter((entry) => entry.state === "failed")
+        .length,
     }),
   );
 }

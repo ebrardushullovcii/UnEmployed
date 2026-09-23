@@ -447,6 +447,49 @@ function matchesOutcomeLineage(
   );
 }
 
+function hasDurableFinalSubmitAuthorization(
+  state: JobFinderRepositoryState,
+  outcome: SubmissionOutcomeRecord,
+): boolean {
+  const preflight =
+    state.submissionPreflights.find(
+      (value) => value.id === outcome.preflightId,
+    ) ?? null;
+  const authority =
+    state.applicationAuthorityEnvelopes.find(
+      (value) =>
+        value.id === outcome.authorityEnvelopeId &&
+        value.revision === outcome.authorityRevision,
+    ) ?? null;
+  const marker =
+    state.submissionArmedMarkers.find(
+      (value) =>
+        value.preflightId === outcome.preflightId &&
+        value.idempotencyKey === outcome.idempotencyKey,
+    ) ?? null;
+  if (
+    preflight === null ||
+    authority === null ||
+    marker === null ||
+    !matchesPreflightLineage(preflight, outcome) ||
+    !matchesMarkerLineage(marker, preflight)
+  ) {
+    return false;
+  }
+  if (authority.mode === "autonomous_submit") {
+    return true;
+  }
+  if (authority.mode !== "confirm_before_submit") {
+    return false;
+  }
+  return state.submissionExecutionGrants.some(
+    (grant) =>
+      grant.preflightId === preflight.id &&
+      grant.status === "consumed" &&
+      matchesPreflightLineage(preflight, grant),
+  );
+}
+
 interface ReconciledSubmissionOutcomeProjection {
   applicationRecord: ApplicationRecord;
   result: ApplyJobResult;
@@ -507,6 +550,10 @@ function buildReconciledSubmissionOutcomeProjection(
   }
 
   try {
+    const finalSubmitAuthorized = hasDurableFinalSubmitAuthorization(
+      state,
+      outcome,
+    );
     if (outcome.outcome === "submitted") {
       const verifiedAt = outcome.verifiedAt;
       if (verifiedAt === null) return null;
@@ -533,14 +580,14 @@ function buildReconciledSubmissionOutcomeProjection(
         ...current,
         state: "submitted",
         summary: "Application submitted",
-        detail:
-          "The employer site confirmed that it received the application.",
+        detail: "The employer site confirmed that it received the application.",
         updatedAt: verifiedAt,
         completedAt: verifiedAt,
         blockerReason: null,
         blockerSummary: null,
         privacyReceipt: {
           ...receipt,
+          finalSubmitAuthorized,
           finalSubmitOccurred: true,
           submissionOutcome: outcome,
         },
@@ -603,6 +650,7 @@ function buildReconciledSubmissionOutcomeProjection(
         : {}),
       privacyReceipt: {
         ...receipt,
+        finalSubmitAuthorized,
         submissionOutcome: outcome,
       },
     });
@@ -662,6 +710,9 @@ function buildResolvedSubmissionOutcomeProjection(
   }
 
   try {
+    const finalSubmitAuthorized =
+      receipt.finalSubmitAuthorized ||
+      hasDurableFinalSubmitAuthorization(state, outcome);
     const applicationRecord = ApplicationRecordSchema.parse({
       ...currentApplicationRecord,
       status: submitted ? "submitted" : currentApplicationRecord.status,
@@ -709,6 +760,7 @@ function buildResolvedSubmissionOutcomeProjection(
       blockerSummary: null,
       privacyReceipt: {
         ...receipt,
+        finalSubmitAuthorized,
         finalSubmitOccurred: submitted,
         submissionOutcome: outcome,
       },

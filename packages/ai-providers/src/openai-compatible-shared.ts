@@ -1124,10 +1124,10 @@ const DETERMINISTIC_TAILORER_NOTE =
 /**
  * The model answered, so the draft is no longer a plain deterministic draft
  * even when every proposal was rejected. Record what actually happened: an
- * `ai` draft when at least one rewrite survived evidence verification, or a
- * deterministic draft with the `provider_output_unverified` reason when the
- * model's proposals could not be grounded. The note list is rewritten in
- * place so the human-readable trail matches the structured provenance.
+ * `ai` draft when the completed model task proposed a grounded rewrite,
+ * shaped the structure while rejected wording stayed out, or deliberately
+ * kept an already-strong draft unchanged. The note list is rewritten in place
+ * so the human-readable trail matches the structured provenance.
  */
 function describeUnconfirmedListingSkills(
   addedListingSkills: readonly string[],
@@ -1176,16 +1176,13 @@ function describeModelDraftProvenance(
     notes.unshift(detail);
     return { method: "ai", reason: null, detail };
   }
-  const detail =
-    "AI could not produce usable rewrite suggestions this time." +
-    describeUnconfirmedListingSkills(addedListingSkills);
-  if (!notes.includes(DETERMINISTIC_TAILORER_NOTE)) {
-    notes.unshift(DETERMINISTIC_TAILORER_NOTE);
+  const deterministicNoteIndex = notes.indexOf(DETERMINISTIC_TAILORER_NOTE);
+  if (deterministicNoteIndex >= 0) {
+    notes.splice(deterministicNoteIndex, 1);
   }
-  notes.push(detail);
-  return {
-    method: "deterministic",
-    reason: "provider_output_unverified",
-    detail,
-  };
+  const detail =
+    "AI completed the review without proposing wording changes, so your wording stayed unchanged." +
+    describeUnconfirmedListingSkills(addedListingSkills);
+  notes.unshift(detail);
+  return { method: "ai", reason: null, detail };
 }

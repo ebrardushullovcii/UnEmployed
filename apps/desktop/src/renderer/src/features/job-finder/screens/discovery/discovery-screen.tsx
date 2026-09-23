@@ -42,9 +42,7 @@ import {
 import { LockedScreenLayout } from "@renderer/features/job-finder/components/locked-screen-layout";
 import { PageHeaderStack } from "@renderer/features/job-finder/components/page-header";
 import { OPEN_JOB_FINDER_BROWSER_ACTION } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
-import {
-  JOB_FINDER_ROUTE_PATHS,
-} from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
+import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
 import { formatCountLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
   formatDiscoveryRunReportLabel,
@@ -324,6 +322,7 @@ export function DiscoveryScreen(props: {
   /** Search plans the page can switch between; Search now runs the current one. */
   campaigns?: readonly JobSearchCampaign[];
   safeguardPauses?: readonly PlanSafeguardPause[];
+  pendingApplicationReviewCount?: number;
   activeCampaignId?: string | null;
   isPlanSwitchPending?: boolean;
   onSelectCampaign?: (campaignId: string) => void;
@@ -387,6 +386,7 @@ export function DiscoveryScreen(props: {
     reviewQueue = [],
     campaigns,
     safeguardPauses = [],
+    pendingApplicationReviewCount = 0,
     activeCampaignId = null,
     isPlanSwitchPending = false,
     onSelectCampaign,
@@ -487,9 +487,7 @@ export function DiscoveryScreen(props: {
   // navigation act and never hides a finished search behind a tab.
   // Results own the page from the first visit too: the goal box and Search
   // now are the whole setup a person needs; the defaults panel is one click.
-  const [openSetupChipId, setOpenSetupChipId] = useState<string | null>(
-    null,
-  );
+  const [openSetupChipId, setOpenSetupChipId] = useState<string | null>(null);
   const isSetupOpen = openSetupChipId !== null;
   const selectedPlanLatestRun = useMemo(
     () => getNewestRunForCampaign(recentRuns, activeCampaignId),
@@ -545,9 +543,17 @@ export function DiscoveryScreen(props: {
     selectedPlanRunReportLabel,
     selectedPlanSafeguardRoute,
   ]);
+  const failureSupersededByCompletedRun =
+    discoveryRunFeedback?.status === "failed" &&
+    discoveryRunFeedback.recordedAtMs !== undefined &&
+    selectedPlanLatestRun?.state === "completed" &&
+    selectedPlanLatestRun.completedAt !== null &&
+    Date.parse(selectedPlanLatestRun.completedAt) >
+      discoveryRunFeedback.recordedAtMs;
   const currentDiscoveryRunFeedback =
     discoveryRunFeedback &&
-    (discoveryRunFeedback.status === "failed" ||
+    ((discoveryRunFeedback.status === "failed" &&
+      !failureSupersededByCompletedRun) ||
       selectedPlanLatestRun === null ||
       (discoveryRunFeedback.status === "started" &&
         (activeRun == null || activeRun.campaignId === activeCampaignId)))
@@ -899,7 +905,12 @@ export function DiscoveryScreen(props: {
         setIsStopSearchRequested(false);
       }
     });
-  }, [activeRunId, isActiveRunRunning, isStopSearchRequested, onCancelDiscovery]);
+  }, [
+    activeRunId,
+    isActiveRunRunning,
+    isStopSearchRequested,
+    onCancelDiscovery,
+  ]);
   const isAnyDiscoveryRunActive =
     !isStopUnacknowledged &&
     (activeRun?.state === "running" || isDiscoveryAllPending);
@@ -986,6 +997,23 @@ export function DiscoveryScreen(props: {
         ) : null}
       </span>
     );
+  const headerStatusWithReview =
+    discoveryHeaderStatus ??
+    (pendingApplicationReviewCount > 0 ? (
+      <span
+        className="flex w-full min-w-0 flex-wrap items-center gap-2 text-(length:--text-description) leading-5 text-foreground-soft"
+        role="status"
+      >
+        {pendingApplicationReviewCount === 1
+          ? "A prepared application sample needs review before more applications can be prepared. Searching is available."
+          : `${pendingApplicationReviewCount} prepared application samples need review before more applications can be prepared. Searching is available.`}
+        <Button asChild size="sm" type="button" variant="outline">
+          <Link to="/job-finder/safeguards?tab=reviews">
+            Review prepared sample
+          </Link>
+        </Button>
+      </span>
+    ) : null);
 
   const filtersPanel = (
     <DiscoveryFiltersPanel
@@ -1196,7 +1224,7 @@ export function DiscoveryScreen(props: {
               }
               description="Search your job sources, then shortlist the jobs you want to apply to."
               layout="stacked-until-xl"
-              status={discoveryHeaderStatus}
+              status={headerStatusWithReview}
               subnav={
                 // The search settings used to be a peer tab whose whole content
                 // was four read-only summary rows. They are now an interactive

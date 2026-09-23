@@ -159,10 +159,7 @@ function getModuleOption(
   return option;
 }
 
-const SIDEBAR_SECONDARY_DESTINATIONS = [
-  "Documents",
-  "Settings",
-] as const;
+const SIDEBAR_SECONDARY_DESTINATIONS = ["Settings"] as const;
 
 /**
  * Only the compact top navigation renders a More trigger; the expanded sidebar
@@ -975,13 +972,13 @@ describe("JobFinderShell section navigation", () => {
     );
     expect(eyebrow?.className).toContain("sr-only");
 
-    const documents = within(secondary).getByRole("button", {
-      name: /^Documents/u,
+    const settings = within(secondary).getByRole("button", {
+      name: /^Settings/u,
     });
-    fireEvent.pointerEnter(documents, { pointerType: "mouse" });
-    fireEvent.pointerMove(documents, { pointerType: "mouse" });
+    fireEvent.pointerEnter(settings, { pointerType: "mouse" });
+    fireEvent.pointerMove(settings, { pointerType: "mouse" });
     const tooltip = await screen.findByRole("tooltip");
-    expect(tooltip.textContent).toContain("Documents");
+    expect(tooltip.textContent).toContain("Settings");
     expect(screen.queryByRole("navigation", { name: "More" })).toBeNull();
   });
 
@@ -1377,6 +1374,25 @@ describe("JobFinderShell section navigation", () => {
     expect(scrollToMock).toHaveBeenCalledWith({ top: 0 });
   });
 
+  it("lets an anchored destination keep its own scroll and focus", () => {
+    render(
+      <MemoryRouter
+        initialEntries={[
+          "/job-finder/settings#settings-application-authority",
+        ]}
+      >
+        <JobFinderShell platform="win32" workspace={createWorkspace()}>
+          <div>Anchored settings section</div>
+        </JobFinderShell>
+      </MemoryRouter>,
+    );
+
+    const main = screen.getByRole("main", { name: "Settings" });
+    expect(document.title).toBe("Settings | Job Finder | UnEmployed");
+    expect(document.activeElement).not.toBe(main);
+    expect(scrollToMock).not.toHaveBeenCalled();
+  });
+
   it("labels the analytics route Outcomes across title, announcement, and main", () => {
     render(
       <MemoryRouter initialEntries={["/job-finder/analytics"]}>
@@ -1469,13 +1485,13 @@ describe("JobFinderShell section navigation", () => {
     });
     expect(menu).toBeTruthy();
     expect(
-      within(menu).getByRole("button", { name: /Documents/ }),
+      within(menu).getByRole("button", { name: /Settings/ }),
     ).toBeTruthy();
     expect(
       within(menu).getByRole("group", { name: "Workspace" }),
     ).toBeTruthy();
     expect(document.activeElement).toBe(
-      within(menu).getByRole("button", { name: /^Documents/ }),
+      within(menu).getByRole("button", { name: /^Settings/ }),
     );
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -1523,7 +1539,7 @@ describe("JobFinderShell section navigation", () => {
     expect(
       getDestinationButton(/^Keyboard shortcuts/).getAttribute("tabindex"),
     ).toBe("0");
-    expect(getDestinationButton(/^Documents/).getAttribute("tabindex")).toBe(
+    expect(getDestinationButton(/^Settings/).getAttribute("tabindex")).toBe(
       "-1",
     );
 
@@ -1540,7 +1556,7 @@ describe("JobFinderShell section navigation", () => {
     fireEvent.keyDown(document.activeElement as HTMLElement, {
       key: "ArrowDown",
     });
-    expect(document.activeElement).toBe(getDestinationButton(/^Documents/));
+    expect(document.activeElement).toBe(getDestinationButton(/^Settings/));
     fireEvent.keyDown(document.activeElement as HTMLElement, {
       key: "ArrowUp",
     });
@@ -1549,7 +1565,7 @@ describe("JobFinderShell section navigation", () => {
     );
 
     fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Home" });
-    expect(document.activeElement).toBe(getDestinationButton(/^Documents/));
+    expect(document.activeElement).toBe(getDestinationButton(/^Settings/));
     fireEvent.keyDown(document.activeElement as HTMLElement, { key: "End" });
     expect(document.activeElement).toBe(
       getDestinationButton(/^Keyboard shortcuts/),
@@ -1572,7 +1588,7 @@ describe("JobFinderShell section navigation", () => {
     expect(nextControlFocus).toHaveBeenCalledTimes(1);
 
     fireEvent.click(moreButton);
-    expect(document.activeElement).toBe(getDestinationButton(/^Documents/));
+    expect(document.activeElement).toBe(getDestinationButton(/^Settings/));
     const previousControl = within(
       screen.getByRole("navigation", { name: "Job Finder sections" }),
     ).getByRole("button", { name: /^Applications/ });
@@ -1742,7 +1758,7 @@ describe("JobFinderShell section navigation", () => {
         }),
       );
     }
-    for (const destination of ["Documents", "Settings"]) {
+    for (const destination of ["Settings"]) {
       fireEvent.click(
         within(navigation).getByRole("button", {
           name: "More",
@@ -1763,15 +1779,14 @@ describe("JobFinderShell section navigation", () => {
       }),
     );
 
-    expect(onNavigate).toHaveBeenCalledTimes(8);
+    expect(onNavigate).toHaveBeenCalledTimes(7);
     expect(onNavigate).toHaveBeenNthCalledWith(1, "/job-finder/home");
     expect(onNavigate).toHaveBeenNthCalledWith(2, "/job-finder/profile/setup");
     expect(onNavigate).toHaveBeenNthCalledWith(3, "/job-finder/discovery");
     expect(onNavigate).toHaveBeenNthCalledWith(4, "/job-finder/review-queue");
     expect(onNavigate).toHaveBeenNthCalledWith(5, "/job-finder/applications");
-    expect(onNavigate).toHaveBeenNthCalledWith(6, "/job-finder/documents");
-    expect(onNavigate).toHaveBeenNthCalledWith(7, "/job-finder/settings");
-    expect(onNavigate).toHaveBeenNthCalledWith(8, "/job-finder/actions");
+    expect(onNavigate).toHaveBeenNthCalledWith(6, "/job-finder/settings");
+    expect(onNavigate).toHaveBeenNthCalledWith(7, "/job-finder/actions");
   });
 
   it("does not expose retired search plans in the More menu", () => {
@@ -1797,7 +1812,7 @@ describe("JobFinderShell section navigation", () => {
     expect(campaignsButton).toBeNull();
   });
 
-  it("keeps the compact menu focused on documents and settings", () => {
+  it("keeps the compact menu focused on settings", () => {
     const workspace = createWorkspace();
     workspace.campaigns = [
       { id: "campaign_default", name: "My job search" },
@@ -1813,8 +1828,8 @@ describe("JobFinderShell section navigation", () => {
 
     fireEvent.click(getCompactMoreButton());
     const menu = screen.getByRole("navigation", { name: "More" });
-    expect(within(menu).getByRole("button", { name: "Documents" })).toBeTruthy();
     expect(within(menu).getByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(within(menu).queryByRole("button", { name: "Documents" })).toBeNull();
   });
 
   it("keeps the Task center launcher in header flow instead of over page content", () => {
@@ -2158,7 +2173,7 @@ describe("JobFinderShell compact nav responsive contract", () => {
     expect(
       within(screen.getByRole("navigation", { name: "More" })).getByRole(
         "button",
-        { name: "Documents" },
+        { name: "Settings" },
       ),
     ).toBeTruthy();
 
@@ -3177,7 +3192,7 @@ describe("JobFinderShell responsive shell contract", () => {
     // Arrow keys still walk the whole list, footer entry included, so the
     // scrolled-out rows stay reachable from the keyboard.
     const items = within(menu).getAllByRole("button");
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(SIDEBAR_SECONDARY_DESTINATIONS.length + 1);
   });
 
   it("flips the More menu above its trigger and stays inside a short window", () => {

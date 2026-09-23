@@ -68,7 +68,9 @@ export interface SyntheticSubmissionExecutorInput {
   now: string;
 }
 
-export type SyntheticSubmissionExecutorResult =
+export type SyntheticSubmissionExecutorResult = {
+  browserAction?: SubmissionOutcomeRecord["browserAction"];
+} & (
   | {
       outcome: "submitted";
       verifiedAt: string;
@@ -82,7 +84,8 @@ export type SyntheticSubmissionExecutorResult =
   | {
       outcome: "outcome_uncertain";
       evidence?: readonly SubmissionOutcomeEvidenceEntry[];
-    };
+    }
+);
 
 export interface SyntheticSubmissionExecutor {
   execute(
@@ -436,6 +439,9 @@ function buildOutcome(
       attemptedAt: now,
       verifiedAt: executorResult.verifiedAt,
       evidence: [...executorResult.evidence],
+      ...(executorResult.browserAction
+        ? { browserAction: executorResult.browserAction }
+        : {}),
       retry: { eligible: false, blockReason: "submission_confirmed" },
       outcome: "submitted",
     });
@@ -455,6 +461,9 @@ function buildOutcome(
       attemptedAt: now,
       verifiedAt: null,
       evidence: [...(executorResult.evidence ?? [])],
+      ...(executorResult.browserAction
+        ? { browserAction: executorResult.browserAction }
+        : {}),
       retry: executorResult.retry,
       outcome: "not_submitted",
     });
@@ -473,6 +482,9 @@ function buildOutcome(
     attemptedAt: now,
     verifiedAt: null,
     evidence: [...(executorResult.evidence ?? [])],
+    ...(executorResult.browserAction
+      ? { browserAction: executorResult.browserAction }
+      : {}),
     retry: { eligible: false, blockReason: "outcome_uncertain" },
     outcome: "outcome_uncertain",
   });

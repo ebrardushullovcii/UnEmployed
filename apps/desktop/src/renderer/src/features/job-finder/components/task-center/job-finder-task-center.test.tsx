@@ -79,7 +79,61 @@ function createQuietWorkspace(): JobFinderWorkspaceSnapshot {
 describe("JobFinderTaskCenter", () => {
   afterEach(() => {
     cleanup();
+    window.localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  test("clears finished history and keeps it cleared after reopening", () => {
+    const workspace = createQuietWorkspace();
+    workspace.recentDiscoveryRuns = [
+      {
+        id: "finished_search",
+        state: "completed",
+        startedAt: "2026-07-31T10:00:00.000Z",
+        completedAt: "2026-07-31T10:00:02.000Z",
+        targetIds: ["source_1"],
+        targetExecutions: [],
+        activity: [],
+        summary: {
+          targetsPlanned: 1,
+          targetsCompleted: 1,
+          validJobsFound: 2,
+          durationMs: 2_000,
+        },
+      } as unknown as DiscoveryRunRecord,
+    ];
+    workspace.searchPreferences.discovery.targets = [
+      {
+        id: "source_1",
+        label: "Example jobs",
+      } as JobFinderWorkspaceSnapshot["searchPreferences"]["discovery"]["targets"][number],
+    ];
+    const first = render(
+      <JobFinderTaskCenter
+        isDiscoveryPending={false}
+        isResumeImportPending={false}
+        workspace={workspace}
+      />,
+    );
+
+    fireEvent.click(document.querySelector("summary") as HTMLElement);
+    expect(
+      document.querySelector('[data-task-kind="discovery"]'),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear finished" }));
+    expect(document.querySelector('[data-task-kind="discovery"]')).toBeNull();
+    expect(screen.getByText(/Nothing is running/)).toBeTruthy();
+
+    first.unmount();
+    render(
+      <JobFinderTaskCenter
+        isDiscoveryPending={false}
+        isResumeImportPending={false}
+        workspace={workspace}
+      />,
+    );
+    fireEvent.click(document.querySelector("summary") as HTMLElement);
+    expect(document.querySelector('[data-task-kind="discovery"]')).toBeNull();
   });
 
   test("exposes native keyboard focus and dispatches only supported cancel actions once", () => {
@@ -129,9 +183,9 @@ describe("JobFinderTaskCenter", () => {
       ).disabled,
     ).toBe(true);
     expect(discoveryTask?.getAttribute("data-task-status")).toBe("stopping");
-    expect(within(discoveryTask as HTMLElement).getAllByText("Stopping")).toHaveLength(
-      2,
-    );
+    expect(
+      within(discoveryTask as HTMLElement).getAllByText("Stopping"),
+    ).toHaveLength(2);
     expect(
       within(applyTask as HTMLElement).getByRole<HTMLButtonElement>("button")
         .disabled,

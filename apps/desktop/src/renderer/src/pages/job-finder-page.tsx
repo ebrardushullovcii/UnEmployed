@@ -78,7 +78,6 @@ export {
   JobFinderCompaniesRoute,
   JobFinderCompanyDetailRoute,
   JobFinderDiscoveryRoute,
-  JobFinderDocumentsRoute,
   JobFinderHomeRoute,
   JobFinderProfileRoute,
   JobFinderProfileSetupRoute,
@@ -202,11 +201,6 @@ const openingShellSecondaryGroups: readonly {
   {
     label: "Workspace",
     destinations: [
-      {
-        icon: FileText,
-        label: "Documents",
-        path: "/job-finder/documents",
-      },
       {
         icon: Settings,
         label: "Settings",

@@ -44,6 +44,8 @@ export interface ListingHtmlFetchResult {
   status: number;
   html: string;
   finalUrl: string;
+  /** Server-requested pause after a 429, already parsed and bounded. */
+  retryAfterMs?: number;
 }
 
 export type ListingHtmlFetcher = (
@@ -91,6 +93,9 @@ export interface EnrichSavedJobListingDetailsResult {
 
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_PER_REQUEST_TIMEOUT_MS = 8_000;
+const DEFAULT_RATE_LIMIT_PAUSE_MS = 1_000;
+const MAX_RATE_LIMIT_PAUSE_MS = 30_000;
+const MAX_DEFERRED_RATE_LIMIT_MS = 24 * 60 * 60 * 1_000;
 /** Exported so the run log can say how many of the candidates this pass reads. */
 export const LISTING_DETAIL_READS_PER_RUN = 60;
 const DEFAULT_MAX_JOBS = LISTING_DETAIL_READS_PER_RUN;
@@ -122,8 +127,54 @@ export function createDefaultListingHtmlFetcher(): ListingHtmlFetcher {
           ? text.slice(0, MAX_RESPONSE_CHARACTERS)
           : text,
       finalUrl: response.url || url,
+      ...(response.status === 429
+        ? {
+            retryAfterMs: parseRetryAfterMs(
+              response.headers.get("retry-after"),
+            ),
+          }
+        : {}),
     };
   };
+}
+
+function parseRetryAfterMs(value: string | null): number {
+  if (!value) {
+    return DEFAULT_RATE_LIMIT_PAUSE_MS;
+  }
+  const seconds = Number(value);
+  const requestedMs = Number.isFinite(seconds)
+    ? seconds * 1_000
+    : Date.parse(value) - Date.now();
+  if (!Number.isFinite(requestedMs)) {
+    return DEFAULT_RATE_LIMIT_PAUSE_MS;
+  }
+  return Math.min(
+    MAX_DEFERRED_RATE_LIMIT_MS,
+    Math.max(0, Math.round(requestedMs)),
+  );
+}
+
+async function waitForRateLimitPause(
+  delayMs: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (delayMs <= 0) return;
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(resolve, delayMs);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        reject(
+          signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException("The listing read was cancelled.", "AbortError"),
+        );
+      },
+      { once: true },
+    );
+  });
 }
 
 function isHttpUrl(value: string | null | undefined): boolean {
@@ -165,6 +216,12 @@ export function jobNeedsListingDetail(
     return true;
   }
   if (attempt.outcome === "unsupported_url") {
+    return false;
+  }
+  if (
+    attempt.retryAfterAt &&
+    Date.parse(nowIso) < Date.parse(attempt.retryAfterAt)
+  ) {
     return false;
   }
   const since = Date.parse(nowIso) - Date.parse(attempt.attemptedAt);
@@ -317,9 +374,9 @@ export function applyListingDetailToJob(input: {
         ? "The page's record carried only a sentence or two, not a listing body."
         : detail.descriptionLikelyTruncated
           ? "Read partial listing text; the page response ended before the description was complete."
-        : detail.method === "json_ld"
-          ? "Read the listing's structured JobPosting record from its page."
-          : "Read the visible text of the listing page; no structured record was published.",
+          : detail.method === "json_ld"
+            ? "Read the listing's structured JobPosting record from its page."
+            : "Read the visible text of the listing page; no structured record was published.",
   };
   const enrichedPosting = enrichDiscoveredPosting(
     { ...candidate, detailQuality: quality, listingDetailFetch: fetchRecord },
@@ -350,12 +407,14 @@ function recordFailedAttempt(
   attemptedAt: string,
   outcome: Exclude<ListingDetailFetchOutcome, "enriched" | "partial">,
   detail: string,
+  retryAfterAt?: string,
 ): SavedJob {
   const listingDetailFetch = {
     attemptedAt,
     outcome,
     method: null,
     detail,
+    ...(retryAfterAt ? { retryAfterAt } : {}),
   } as const;
   return SavedJobSchema.parse({
     ...job,
@@ -420,6 +479,38 @@ export async function enrichSavedJobListingDetails(
     elapsedMs: 0,
   };
   const updated = new Map<string, SavedJob>();
+  let rateLimitPauseUntilMs = 0;
+  let rateLimitRetryAfterAtMs = 0;
+  let rateLimitRetryAvailable = true;
+  let deferRemainingForRateLimit = false;
+  const registerRateLimit = (response: ListingHtmlFetchResult): number => {
+    const pauseMs = Math.min(
+      MAX_DEFERRED_RATE_LIMIT_MS,
+      Math.max(0, response.retryAfterMs ?? DEFAULT_RATE_LIMIT_PAUSE_MS),
+    );
+    rateLimitPauseUntilMs = Math.max(
+      rateLimitPauseUntilMs,
+      Date.now() + pauseMs,
+    );
+    const responseAtMs = Date.parse(now());
+    rateLimitRetryAfterAtMs = Math.max(
+      rateLimitRetryAfterAtMs,
+      (Number.isFinite(responseAtMs) ? responseAtMs : Date.now()) + pauseMs,
+    );
+    if (pauseMs > MAX_RATE_LIMIT_PAUSE_MS) {
+      deferRemainingForRateLimit = true;
+    }
+    return pauseMs;
+  };
+  const waitForSharedRateLimit = async (): Promise<boolean> => {
+    while (!deferRemainingForRateLimit) {
+      input.signal?.throwIfAborted();
+      const delayMs = rateLimitPauseUntilMs - Date.now();
+      if (delayMs <= 0) return true;
+      await waitForRateLimitPause(delayMs, input.signal);
+    }
+    return false;
+  };
   const queue = input.jobs.filter((job) => {
     const needs = input.ignoreRetryBackoff
       ? !(
@@ -438,7 +529,7 @@ export async function enrichSavedJobListingDetails(
   let cursor = 0;
   const worker = async (): Promise<void> => {
     while (cursor < capped.length) {
-      if (input.signal?.aborted) {
+      if (input.signal?.aborted || deferRemainingForRateLimit) {
         return;
       }
       const job = capped[cursor];
@@ -446,12 +537,28 @@ export async function enrichSavedJobListingDetails(
       if (!job) {
         return;
       }
-      summary.attempted += 1;
-      const attemptedAt = now();
+      let attemptedAt: string | null = null;
       try {
-        const response = await input.fetchHtml(job.canonicalUrl, {
+        if (!(await waitForSharedRateLimit())) return;
+        summary.attempted += 1;
+        attemptedAt = now();
+        let response = await input.fetchHtml(job.canonicalUrl, {
           signal: combineSignals(input.signal, perRequestTimeoutMs),
         });
+        if (response.status === 429) {
+          const pauseMs = registerRateLimit(response);
+          if (pauseMs <= MAX_RATE_LIMIT_PAUSE_MS && rateLimitRetryAvailable) {
+            rateLimitRetryAvailable = false;
+            if (await waitForSharedRateLimit()) {
+              response = await input.fetchHtml(job.canonicalUrl, {
+                signal: combineSignals(input.signal, perRequestTimeoutMs),
+              });
+              if (response.status === 429) {
+                registerRateLimit(response);
+              }
+            }
+          }
+        }
         if (
           response.status === 401 ||
           response.status === 403 ||
@@ -464,7 +571,12 @@ export async function enrichSavedJobListingDetails(
               job,
               attemptedAt,
               "blocked",
-              `The page answered ${response.status}; it wants a signed-in visitor or is rate-limited.`,
+              response.status === 429
+                ? "The page answered 429 because it rate-limited listing reads. Job Finder will try again later."
+                : `The page answered ${response.status}; it may require access or a signed-in visitor.`,
+              response.status === 429
+                ? new Date(rateLimitRetryAfterAtMs).toISOString()
+                : undefined,
             ),
           );
           continue;
@@ -487,10 +599,16 @@ export async function enrichSavedJobListingDetails(
           url: response.finalUrl,
           expectedTitle: job.title,
         });
-        if (detail?.descriptionLikelyTruncated) {
+        if (
+          detail?.descriptionLikelyTruncated &&
+          (await waitForSharedRateLimit())
+        ) {
           const retryResponse = await input.fetchHtml(job.canonicalUrl, {
             signal: combineSignals(input.signal, perRequestTimeoutMs),
           });
+          if (retryResponse.status === 429) {
+            registerRateLimit(retryResponse);
+          }
           if (retryResponse.status < 400) {
             const retryDetail = extractListingDetailFromHtml({
               html: retryResponse.html,
@@ -542,7 +660,7 @@ export async function enrichSavedJobListingDetails(
           job.id,
           recordFailedAttempt(
             job,
-            attemptedAt,
+            attemptedAt ?? now(),
             "fetch_failed",
             describeError(error),
           ),
@@ -556,6 +674,8 @@ export async function enrichSavedJobListingDetails(
       worker(),
     ),
   );
+
+  summary.skipped += capped.length - summary.attempted;
 
   summary.elapsedMs = Date.now() - startedAtMs;
   return {
@@ -581,7 +701,9 @@ export function describeListingDetailEnrichment(
     parts.push(`${summary.noDetail} had no listing text`);
   }
   if (summary.blocked > 0) {
-    parts.push(`${summary.blocked} wanted a sign-in`);
+    parts.push(
+      `${summary.blocked} ${summary.blocked === 1 ? "was" : "were"} blocked or rate-limited`,
+    );
   }
   if (summary.failed > 0) {
     parts.push(`${summary.failed} could not be reached`);

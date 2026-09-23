@@ -1540,7 +1540,13 @@ describe("collectListingRequestedSkills", () => {
     });
 
     expect(collected).toEqual(
-      expect.arrayContaining(["TypeScript", "React", "Terraform", "Kubernetes", "Postgres"]),
+      expect.arrayContaining([
+        "TypeScript",
+        "React",
+        "Terraform",
+        "Kubernetes",
+        "Postgres",
+      ]),
     );
     expect(collected.join(" | ")).not.toMatch(
       /kitchen display|restaurant operations|manifests reviewable|delivery pipeline|storefronts|settlement|typescript services/i,
@@ -1606,6 +1612,26 @@ describe("mergeAggressiveVisibleSkills", () => {
 });
 
 describe("buildGroundedResumeRewriteModelPayload", () => {
+  it("does not turn clear communication into a requested technology", () => {
+    const payload = buildGroundedResumeRewriteModelPayload({
+      profile: createProfile(),
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job: {
+        ...createJobPosting(),
+        keySkills: ["TypeScript"],
+        minimumQualifications: [
+          "Professional software development experience.",
+          "Clear communication and an interest in learning.",
+        ],
+      },
+      resumeText: "Resume text",
+    });
+
+    expect(payload.targetJob.listingRequestedSkills).toContain("TypeScript");
+    expect(payload.targetJob.listingRequestedSkills).not.toContain("Clear");
+  });
+
   it("puts qualification-only listing skills on the target job for the model", () => {
     const payload = buildGroundedResumeRewriteModelPayload({
       profile: createProfile(),
@@ -1642,7 +1668,9 @@ describe("describeAggressiveResumeEditPolicy", () => {
     const policy = describeAggressiveResumeEditPolicy("aggressive");
     expect(policy).toMatch(/first interview/);
     expect(policy).toMatch(/listing asks for/);
-    expect(policy).not.toMatch(/\b(lie|lies|lying|liar|dishonest|unethical|fraud)\b/i);
+    expect(policy).not.toMatch(
+      /\b(lie|lies|lying|liar|dishonest|unethical|fraud)\b/i,
+    );
     expect(describeAggressiveResumeEditPolicy("conservative")).toBeNull();
     expect(describeAggressiveResumeEditPolicy("balanced")).toBeNull();
   });

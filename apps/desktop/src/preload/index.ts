@@ -70,6 +70,7 @@ import type {
   JobFinderApplyRunActionInput,
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
+  JobFinderPreparedApplicationPageInput,
   JobFinderDiscoveryCancellationInput,
   JobFinderOpenBrowserSessionInput,
   JobFinderSetResumeClaimConfirmationInput,
@@ -139,6 +140,7 @@ import type {
   UpdateWorkspaceBehaviorInput,
   UpdateAiBehaviorInput,
   WorkspaceRevision,
+  WriteClipboardTextResult,
   UserActionCommandInput,
 } from "@unemployed/contracts";
 import { SYSTEM_THEME_CHANGE_EVENT } from "../shared/system-theme";
@@ -1230,6 +1232,10 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:reveal-saved-file", {
         path,
       }) as Promise<RevealSavedFileResult>,
+    writeClipboardText: (text: string) =>
+      ipcRenderer.invoke("job-finder:write-clipboard-text", {
+        text,
+      }) as Promise<WriteClipboardTextResult>,
     approveResume: (jobId: string, exportId: string) =>
       ipcRenderer.invoke("job-finder:approve-resume", {
         jobId,
@@ -1322,6 +1328,13 @@ const desktopApi = {
     revokeApplyRunApproval: (input: JobFinderApplyRunActionInput) =>
       ipcRenderer.invoke(
         "job-finder:revoke-apply-run-approval",
+        input,
+      ) as Promise<JobFinderWorkspaceSnapshot>,
+    focusPreparedApplicationPage: (
+      input: JobFinderPreparedApplicationPageInput,
+    ) =>
+      ipcRenderer.invoke(
+        "job-finder:focus-prepared-application-page",
         input,
       ) as Promise<JobFinderWorkspaceSnapshot>,
     submitPreparedApplication: (input: { jobId: string }) =>

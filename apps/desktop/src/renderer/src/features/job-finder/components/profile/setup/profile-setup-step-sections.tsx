@@ -14,6 +14,7 @@ import {
   isValidProfileSetupSourceUrl,
   PROFILE_SETUP_SOURCE_PAGE_SIZE,
 } from "./profile-setup-screen-helpers";
+import { deriveJobSourceLabel } from "../../../lib/job-source-display-name";
 import {
   type CandidateProfile,
   type JobDiscoveryTarget,
@@ -79,7 +80,6 @@ const SETUP_EMPLOYMENT_TYPE_OPTIONS = [
   "Internship",
   "Temporary",
 ] as const;
-
 
 function getImportConflictSummary(
   candidate: ResumeImportFieldCandidateSummary,
@@ -158,7 +158,9 @@ export type RenderFooter = (options?: FooterOptions) => ReactNode;
 
 function describeImportedProfile(profile: CandidateProfile): string[] {
   const parts: string[] = [];
-  const hasName = Boolean(profile.fullName?.trim() || profile.firstName?.trim());
+  const hasName = Boolean(
+    profile.fullName?.trim() || profile.firstName?.trim(),
+  );
   const hasContact = Boolean(profile.email?.trim() || profile.phone?.trim());
   if (hasName && hasContact) {
     parts.push("Name and contact");
@@ -244,8 +246,8 @@ export function ProfileSetupImportStep(props: {
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
         <CardTitle>Start with your resume</CardTitle>
         <CardDescription>
-          Your resume fills in the profile. Anything unclear or missing shows
-          up as a short list to confirm, so you never start from a blank form.
+          Your resume fills in the profile. Anything unclear or missing shows up
+          as a short list to confirm, so you never start from a blank form.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 pt-6">
@@ -553,15 +555,7 @@ export function ProfileSetupTargetingStep(props: {
   // typed, the same as the paste box on Profile › Job sources.
   const isManualSourceComplete = isValidProfileSetupSourceUrl(manualSourceUrl);
   const manualSourceDerivedLabel = (() => {
-    try {
-      const host = new URL(manualSourceUrl.trim()).hostname.replace(
-        /^www\./,
-        "",
-      );
-      return host || manualSourceUrl.trim();
-    } catch {
-      return manualSourceUrl.trim();
-    }
+    return deriveJobSourceLabel(manualSourceUrl);
   })();
   const isManualSourceUrlInvalid =
     manualSourceUrl.trim().length > 0 &&
@@ -739,8 +733,8 @@ export function ProfileSetupTargetingStep(props: {
               values={parseListInput(props.preferencesForm.watch("locations"))}
             />
             <p className="px-1 text-(length:--text-body) leading-6 text-foreground">
-              Enter one place at a time, or separate places with semicolons. Keep
-              a city, region, or country together with commas.
+              Enter one place at a time, or separate places with semicolons.
+              Keep a city, region, or country together with commas.
             </p>
           </div>
         </div>
@@ -966,8 +960,8 @@ export function ProfileSetupTargetingStep(props: {
             </h3>
             <p className="max-w-2xl text-sm leading-6 text-foreground-soft">
               Paste a careers page or job board you already browse. A site you
-              add is turned on for search right away; turn one off in its row
-              to leave it out.
+              add is turned on for search right away; turn one off in its row to
+              leave it out.
             </p>
           </div>
 

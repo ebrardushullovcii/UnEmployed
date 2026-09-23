@@ -43,7 +43,11 @@ function DetailFactCell({ fact }: { fact: DetailFact }) {
       : (note ?? undefined));
 
   return (
-    <div className={wide ? "min-w-0 sm:col-span-2 @[32rem]/detail:col-span-3" : "min-w-0"}>
+    <div
+      className={
+        wide ? "min-w-0 sm:col-span-2 @[32rem]/detail:col-span-3" : "min-w-0"
+      }
+    >
       <dt className={APPLICATION_DETAIL_FACT_LABEL_CLASS}>{label}</dt>
       <dd
         className={`mt-1 block min-w-0 break-words text-(length:--text-field) leading-6 ${muted ? "font-normal text-foreground-muted" : "font-semibold text-foreground"}`}
@@ -89,13 +93,42 @@ export function ApplicationsDetailFactStrip(props: {
       visibleApplyResult.state === "submitting");
   const selectedAttemptBelongsToVisibleRun =
     selectedAttempt?.userActionResumption?.runId === resolvedRunId;
-  const attemptStateLabel = visibleRunIsActive && !selectedAttemptBelongsToVisibleRun
-    ? "In progress"
-    : selectedAttempt
-    ? getAttemptLabel(selectedAttempt.state)
-    : selectedRecord.lastAttemptState
-      ? getAttemptLabel(selectedRecord.lastAttemptState)
-      : null;
+  const submissionOutcome =
+    visibleApplyResult?.privacyReceipt?.submissionOutcome?.outcome ?? null;
+  const isResolvedAwaitingReview =
+    visibleApplyResult?.state === "awaiting_review" &&
+    !visibleApplyResult.blockerReason;
+  const persistedAttemptState =
+    selectedRecord.lastAttemptState === "failed"
+      ? "failed"
+      : (selectedAttempt?.state ?? selectedRecord.lastAttemptState);
+  const fallbackAttemptLabel =
+    persistedAttemptState === "paused" ||
+    persistedAttemptState === "unsupported"
+      ? "Needs you"
+      : persistedAttemptState === "failed"
+        ? "Could not apply"
+        : persistedAttemptState
+          ? getAttemptLabel(persistedAttemptState)
+          : null;
+  const attemptStateLabel =
+    submissionOutcome === "submitted"
+      ? "Submitted (verified)"
+      : submissionOutcome === "outcome_uncertain"
+        ? "Outcome needs verification"
+        : visibleApplyResult?.state === "submitted"
+          ? "Submitted"
+          : visibleApplyResult?.state === "failed"
+            ? "Could not apply"
+            : visibleRunIsActive && !selectedAttemptBelongsToVisibleRun
+              ? "In progress"
+              : isResolvedAwaitingReview
+                ? "Ready to send"
+                : visibleApplyResult?.state === "blocked" ||
+                    (visibleApplyResult?.state === "awaiting_review" &&
+                      visibleApplyResult.blockerReason)
+                  ? "Needs you"
+                  : fallbackAttemptLabel;
 
   const replayNoteSegments = [
     replaySummary.evidenceCount > 0
@@ -125,13 +158,17 @@ export function ApplicationsDetailFactStrip(props: {
     selectedRecord.lastActionLabel !== undefined &&
     (visibleApplyResult?.detail === selectedRecord.lastActionLabel ||
       visibleApplyResult?.summary === selectedRecord.lastActionLabel);
-  const latestActivityContent = isFieldSavePause
-    ? FIELD_SAVE_PAUSE_ACTIVITY
-    : selectedRecord.lastActionLabel && !repeatsStatusBlock
-      ? isSiteBlockedPause
-        ? "Automatic prep paused"
-        : selectedRecord.lastActionLabel
-      : null;
+  const latestActivityContent = isResolvedAwaitingReview
+    ? null
+    : visibleRunIsActive
+      ? getCustomerFacingApplyText(visibleApplyResult.detail)
+      : isFieldSavePause
+        ? FIELD_SAVE_PAUSE_ACTIVITY
+        : selectedRecord.lastActionLabel && !repeatsStatusBlock
+          ? isSiteBlockedPause
+            ? "Automatic prep paused"
+            : selectedRecord.lastActionLabel
+          : null;
   // On a finish-yourself pause the Next step callout directly above already
   // prints the whole sentence — the site acted, Job Finder stopped, finish in
   // the browser. "Latest activity" and "What stopped progress" were its two
@@ -200,8 +237,6 @@ export function ApplicationsDetailFactStrip(props: {
   ];
 
   if (visibleApplyResult) {
-    const submissionOutcome =
-      visibleApplyResult.privacyReceipt?.submissionOutcome?.outcome ?? null;
     const runNote = [
       resolvedRunId ? `Run ${formatVisibleRunId(resolvedRunId)}` : null,
       `${visibleApplyResult.latestQuestionCount} questions found`,

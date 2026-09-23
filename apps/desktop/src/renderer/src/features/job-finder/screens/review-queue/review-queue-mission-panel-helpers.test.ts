@@ -344,7 +344,8 @@ describe("buildMissionPanelState", () => {
     expect(state.isGenerating).toBe(true);
     expect(state.primaryApplicationAction.kind).toBe("waiting");
     expect(state.readinessDescription).toContain("taking longer than usual");
-    expect(state.readinessDescription).not.toMatch(/failed/i);
+    expect(state.readinessDescription).toContain("will update here when ready");
+    expect(state.readinessDescription).not.toMatch(/failed|reload/i);
   });
 
   it("says a safeguard is what is stopping the run", () => {
@@ -352,7 +353,8 @@ describe("buildMissionPanelState", () => {
       browserSession: createBrowserSession("unknown"),
       isApplyPending: false,
       isJobPending: () => false,
-      safeguardBlocker: "Automatic runs are paused (abnormal_failure_pause: x).",
+      safeguardBlocker:
+        "Automatic runs are paused (abnormal_failure_pause: x).",
       selectedAsset: createReadyAsset(),
       selectedItem: createApprovedItem(),
       selectedJob: createJob(),

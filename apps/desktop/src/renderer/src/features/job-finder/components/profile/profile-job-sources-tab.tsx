@@ -32,6 +32,7 @@ import { ProfileDiscoveryTargetRow } from "./profile-discovery-target-row";
 import { ProfileInput } from "./profile-form-primitives";
 import { ProfileTextarea } from "./profile-form-primitives";
 import { ProfileSectionHeader } from "./profile-section-header";
+import { deriveJobSourceLabel } from "../../lib/job-source-display-name";
 
 type DiscoveryTarget =
   SearchPreferencesEditorValues["discoveryTargets"][number];
@@ -51,11 +52,7 @@ const sourceFilterOptions: ReadonlyArray<{
 ];
 
 function getSourceHost(startingUrl: string): string {
-  try {
-    return new URL(startingUrl).hostname.replace(/^www\./, "");
-  } catch {
-    return startingUrl.trim() || "URL not set";
-  }
+  return deriveJobSourceLabel(startingUrl);
 }
 
 function canonicalSourceUrl(value: string): string | null {
@@ -330,11 +327,12 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
     return `target_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   };
 
-
   const parsedSourceDraft = parseJobSourceUrls(sourceUrlDraft);
   const existingSourceUrls = new Set(
     discoveryTargets
-      .map((target) => canonicalSourceUrl(target.startingUrl)?.toLocaleLowerCase())
+      .map((target) =>
+        canonicalSourceUrl(target.startingUrl)?.toLocaleLowerCase(),
+      )
       .filter((value): value is string => Boolean(value)),
   );
   const newSourceUrls = parsedSourceDraft.urls.filter(
@@ -414,46 +412,48 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
         {isAddOpen ? (
-        <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-3">
-          <div className="grid gap-1">
-            <FieldLabel htmlFor={`${searchInputId}-add-sources`}>
-              Add sources
-            </FieldLabel>
-            <p className="text-sm leading-5 text-foreground-soft">
-              Paste one or many careers pages or job boards, one per line or
-              separated by commas. They are saved and turned on straight away.
-            </p>
-          </div>
-          <ProfileTextarea
-            id={`${searchInputId}-add-sources`}
-            onChange={(event) => {
-              setSourceUrlDraft(event.target.value);
-              setSourceAddMessage(null);
-            }}
-            placeholder={"https://company.example/careers\nhttps://jobs.example/your-team"}
-            value={sourceUrlDraft}
-          />
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Button
-              disabled={newSourceUrls.length === 0}
-              onClick={addSourceUrls}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              {`Add ${newSourceUrls.length} source${newSourceUrls.length === 1 ? "" : "s"}`}
-            </Button>
-            {parsedSourceDraft.invalid.length > 0 ? (
-              <p className="text-sm text-destructive" role="alert">
-                {`${parsedSourceDraft.invalid.length} entr${parsedSourceDraft.invalid.length === 1 ? "y is" : "ies are"} not a web address.`}
+          <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-3">
+            <div className="grid gap-1">
+              <FieldLabel htmlFor={`${searchInputId}-add-sources`}>
+                Add sources
+              </FieldLabel>
+              <p className="text-sm leading-5 text-foreground-soft">
+                Paste one or many careers pages or job boards, one per line or
+                separated by commas. They are saved and turned on straight away.
               </p>
-            ) : sourceAddMessage ? (
-              <p className="text-sm text-foreground-soft" role="status">
-                {sourceAddMessage}
-              </p>
-            ) : null}
+            </div>
+            <ProfileTextarea
+              id={`${searchInputId}-add-sources`}
+              onChange={(event) => {
+                setSourceUrlDraft(event.target.value);
+                setSourceAddMessage(null);
+              }}
+              placeholder={
+                "https://company.example/careers\nhttps://jobs.example/your-team"
+              }
+              value={sourceUrlDraft}
+            />
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Button
+                disabled={newSourceUrls.length === 0}
+                onClick={addSourceUrls}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                {`Add ${newSourceUrls.length} source${newSourceUrls.length === 1 ? "" : "s"}`}
+              </Button>
+              {parsedSourceDraft.invalid.length > 0 ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {`${parsedSourceDraft.invalid.length} entr${parsedSourceDraft.invalid.length === 1 ? "y is" : "ies are"} not a web address.`}
+                </p>
+              ) : sourceAddMessage ? (
+                <p className="text-sm text-foreground-soft" role="status">
+                  {sourceAddMessage}
+                </p>
+              ) : null}
+            </div>
           </div>
-        </div>
         ) : null}
 
         <div className="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_auto] lg:items-end">

@@ -153,7 +153,9 @@ function stageReadyTailoredJob(
   ];
 }
 
-function createConsentQueueHarness() {
+function createConsentQueueHarness(options?: {
+  resumeConsentOnApproval?: boolean;
+}) {
   const seed = createSeed();
   stageReadyTailoredJob(seed, "job_ready", "linkedin_signal_ready", {
     filePath: "/tmp/job-ready-resume.pdf",
@@ -168,13 +170,29 @@ function createConsentQueueHarness() {
   });
   const baseRuntime = createBrowserRuntime();
   const flowedJobIds: string[] = [];
+  let consentJobFlowCount = 0;
   const executeApplicationFlow: ExecuteFlow = async (
     source,
     input,
     flowOptions,
   ) => {
     flowedJobIds.push(input.job.id);
-    return baseRuntime.executeApplicationFlow(source, input, flowOptions);
+    if (input.job.id === "job_consent_queue") {
+      consentJobFlowCount += 1;
+    }
+    return baseRuntime.executeApplicationFlow(
+      source,
+      options?.resumeConsentOnApproval && consentJobFlowCount > 1
+        ? {
+            ...input,
+            job: {
+              ...input.job,
+              description: "Design the workflow system.",
+            },
+          }
+        : input,
+      flowOptions,
+    );
   };
   const harness = createWorkspaceServiceHarness({
     seed,
@@ -467,6 +485,60 @@ describe("apply run cancellation and application record concurrency", () => {
       id: "application_job_ready",
       lastActionLabel: "Automatic apply run cancelled.",
     });
+  });
+
+  test("copilot resume approval closes the prerequisite run without manufacturing a review-ready result", async () => {
+    const seed = createSeed();
+    const baseRuntime = createBrowserRuntime();
+    const executeApplicationFlow = vi.fn(
+      (...args: Parameters<typeof baseRuntime.executeApplicationFlow>) =>
+        baseRuntime.executeApplicationFlow(...args),
+    );
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: {
+        ...baseRuntime,
+        executeApplicationFlow,
+      },
+    });
+
+    const blocked = await workspaceService.startApplyCopilotRun("job_ready");
+    const runId = blocked.selectedApplyRunId;
+    if (!runId) throw new Error("Expected the blocked copilot run.");
+    const request = (
+      await repository.listApplicationConsentRequests({
+        runId,
+        jobId: "job_ready",
+      })
+    )[0];
+    if (!request) throw new Error("Expected the resume-use request.");
+
+    const resolved = await workspaceService.resolveApplyConsentRequest(
+      request.id,
+      "approve",
+    );
+
+    expect(executeApplicationFlow).not.toHaveBeenCalled();
+    expect(
+      resolved.applyJobResults.find((result) => result.runId === runId),
+    ).toMatchObject({
+      state: "failed",
+      blockerReason: null,
+      summary: "Resume approval recorded. Retrying application preparation.",
+    });
+    expect(resolved.applyRuns.find((run) => run.id === runId)).toMatchObject({
+      state: "completed",
+      pendingJobs: 0,
+      failedJobs: 1,
+    });
+    expect(
+      resolved.applyRuns.find((run) => run.id === runId)?.completedAt,
+    ).not.toBeNull();
+    expect(
+      resolved.applicationRecords.find(
+        (record) => record.id === "application_job_ready",
+      )?.lastAttemptState,
+    ).toBe("failed");
   });
 
   test("direct approve cancellation writes no late result, job status, or user action", async () => {
@@ -870,6 +942,56 @@ describe("apply run cancellation and application record concurrency", () => {
         event.title.includes("Automatic apply run cancelled"),
       ),
     ).toBe(true);
+  });
+
+  test("resume-use approval continues the exact blocked job instead of manufacturing review-ready state", async () => {
+    const { workspaceService, repository, flowedJobIds } =
+      createConsentQueueHarness({ resumeConsentOnApproval: true });
+    const staged = await workspaceService.startAutoApplyQueueRun([
+      "job_consent_queue",
+    ]);
+    const runId = staged.applyRuns[0]?.id;
+    if (!runId) throw new Error("Expected a staged queue run.");
+
+    await workspaceService.approveApplyRun(runId);
+    const consentRequest = (
+      await repository.listApplicationConsentRequests({
+        runId,
+        jobId: "job_consent_queue",
+      })
+    )[0];
+    if (!consentRequest) throw new Error("Expected a pending consent request.");
+    await repository.upsertApplicationConsentRequest({
+      ...consentRequest,
+      kind: "resume_use",
+      linkedConsentKind: "resume_use",
+    });
+    const callsBeforeApproval = flowedJobIds.filter(
+      (jobId) => jobId === "job_consent_queue",
+    ).length;
+
+    const snapshot = await workspaceService.resolveApplyConsentRequest(
+      consentRequest.id,
+      "approve",
+    );
+
+    expect(
+      flowedJobIds.filter((jobId) => jobId === "job_consent_queue"),
+    ).toHaveLength(callsBeforeApproval + 1);
+    expect(
+      snapshot.applyJobResults.find(
+        (result) =>
+          result.applicationRecordId === "application_job_consent_queue",
+      ),
+    ).toMatchObject({
+      state: "awaiting_review",
+      blockerReason: null,
+    });
+    expect(
+      snapshot.applyJobResults.some((result) =>
+        result.summary.includes("stayed prepared for review"),
+      ),
+    ).toBe(false);
   });
 
   test("cancelling a partially finished run keeps finished labels and truthful counters", async () => {

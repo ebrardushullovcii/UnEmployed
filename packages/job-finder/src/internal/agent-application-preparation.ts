@@ -64,6 +64,8 @@ export interface AgentApplicationPreparationInput {
    * never crosses this boundary: the browser layer keeps it.
    */
   session: ApplyPageSession;
+  /** The runtime's live URL for this exact bound page. */
+  currentUrl?: string;
   /** The saved permission this run works inside, when there is one. */
   envelope?: ApplicationAuthorityEnvelope | null;
   executionInput: ApplyPreparationInput;
@@ -115,8 +117,9 @@ function toApplyAuthority(
     preApprovedAttestationKinds: [
       ...new Set([
         ...(executionInput.preApprovedAttestationKinds ?? []),
-        ...AiBehaviorPreferenceSchema.parse(executionInput.settings.aiBehavior ?? {})
-          .applying.preApprovedDeclarations,
+        ...AiBehaviorPreferenceSchema.parse(
+          executionInput.settings.aiBehavior ?? {},
+        ).applying.preApprovedDeclarations,
       ]),
     ],
     salaryDisclosure: executionInput.salaryDisclosure ?? "pause_for_user",
@@ -124,25 +127,59 @@ function toApplyAuthority(
   };
 }
 
-function toApplyDocuments(
+export function resolveApplicationDocumentMimeType(fileName: string): string {
+  const extension = fileName.trim().toLowerCase().split(".").at(-1);
+  switch (extension) {
+    case "pdf":
+      return "application/pdf";
+    case "doc":
+      return "application/msword";
+    case "docx":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case "txt":
+      return "text/plain";
+    case "rtf":
+      return "application/rtf";
+    case "odt":
+      return "application/vnd.oasis.opendocument.text";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+export function toApplyDocuments(
   executionInput: ApplyPreparationInput,
 ): ApplyDocument[] {
   const resume: ApplyDocument = {
     id: `document_resume_${executionInput.resumeArtifact.id}`,
     fileName: executionInput.resumeArtifact.fileName,
-    mimeType: "application/pdf",
+    mimeType: resolveApplicationDocumentMimeType(
+      executionInput.resumeArtifact.fileName,
+    ),
     label: "Your CV",
     kind: "resume",
     loadBytes: () => loadVerifiedResumeBytes(executionInput.resumeArtifact),
   };
 
+  // The person's own files keep their kind. Every one of them used to arrive
+  // as "other", so a cover letter added under Profile › Files was never
+  // "already available" to the agent, and it wrote a fresh letter beside the
+  // one the person had chosen.
   const attachments = (executionInput.applicationAttachments ?? []).map(
     (attachment): ApplyDocument => ({
       id: `document_asset_${attachment.assetId}`,
       fileName: attachment.fileName,
       mimeType: attachment.mime,
       label: attachment.prompt,
-      kind: "other",
+      kind:
+        attachment.assetKind ??
+        (attachment.questionKind === "cover_letter"
+          ? "cover_letter"
+          : attachment.questionKind === "resume"
+            ? "resume"
+            : attachment.questionKind === "portfolio"
+              ? "portfolio"
+              : "other"),
       loadBytes: () => attachment.loadVerifiedBytes(),
     }),
   );
@@ -200,7 +237,11 @@ function toBlocker(
   if (blocked?.blocker) {
     return {
       code: BLOCKER_CODES[blocked.blocker.code],
-      userActionKind: null,
+      userActionKind:
+        blocked.blocker.code === "security_challenge" &&
+        blocked.blocker.requiresPerson === true
+          ? "captcha"
+          : null,
       // The agent's own sentence is the report the person acts on. Keep the
       // page-derived blocker detail as supporting evidence, but do not replace
       // the agent's explanation with a generic wrapper.
@@ -219,7 +260,11 @@ function toBlocker(
   if (questions.length > 0) {
     return {
       code: "missing_candidate_answer",
-      userActionKind: null,
+      userActionKind: questions.some(
+        (question) => question.answerControlType === "file",
+      )
+        ? "manual_upload"
+        : null,
       summary: result.reason,
       detail: result.reason,
       questionIds: questions.map((question) => question.id),
@@ -368,6 +413,52 @@ function hostnameOf(url: string): string | null {
   }
 }
 
+function originOf(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveApplicationPreparationTarget(input: {
+  executionInput: ApplyPreparationInput;
+  currentUrl?: string;
+}): { targetUrl: string; isContinuation: boolean } {
+  const configuredUrl =
+    input.executionInput.job.applicationUrl ??
+    input.executionInput.job.canonicalUrl;
+  const isContinuation = Boolean(input.executionInput.startingUrl?.trim());
+  const permittedOrigins = new Set(
+    [
+      originOf(configuredUrl),
+      ...(input.executionInput.applyAllowedOrigins ?? []).map(originOf),
+    ].filter((origin): origin is string => origin !== null),
+  );
+  const currentUrl = input.currentUrl?.trim() ?? "";
+  const currentOrigin = originOf(currentUrl);
+
+  // The browser runtime owns the exact Page binding. Its live URL, observed
+  // after an authorized sign-in or other setup, is newer than the persisted
+  // checkpoint and listing URLs. Only trust it inside this application's
+  // already-authorized origins.
+  if (currentOrigin && permittedOrigins.has(currentOrigin)) {
+    return { targetUrl: currentUrl, isContinuation };
+  }
+
+  const persistedStart = input.executionInput.startingUrl?.trim();
+  return {
+    targetUrl:
+      persistedStart && originOf(persistedStart)
+        ? persistedStart
+        : configuredUrl,
+    isContinuation,
+  };
+}
+
 export async function runAgentApplicationPreparation(
   input: AgentApplicationPreparationInput,
 ): Promise<ApplyExecutionResult> {
@@ -382,8 +473,8 @@ export async function runAgentApplicationPreparation(
     allowedOrigins: executionInput.applyAllowedOrigins ?? [],
   });
 
-  const targetUrl =
-    executionInput.job.applicationUrl ?? executionInput.job.canonicalUrl;
+  const { targetUrl, isContinuation } =
+    resolveApplicationPreparationTarget(input);
   const authority = toApplyAuthority(executionInput);
   const allowedOrigins = [...authority.allowedOrigins];
   const activeAuthority: ApplyAuthority = {
@@ -393,7 +484,9 @@ export async function runAgentApplicationPreparation(
   let activeEnvelope = input.envelope ?? null;
   const moveReviewer = createMoveReviewer({
     llmClient: input.llmClient,
-    goal: `Apply for ${executionInput.job.title} at ${executionInput.job.company}, starting from the listing at ${targetUrl}. Fill in the employer's application form; nothing is sent.`,
+    goal: isContinuation
+      ? `Continue the ${executionInput.job.title} application at ${executionInput.job.company} on the currently open retained page at ${targetUrl}. Confirm that the open page is still this employer's application. Keep working on that current form; do not return to the listing or reload it. Nothing is sent.`
+      : `Apply for ${executionInput.job.title} at ${executionInput.job.company} on the open page at ${targetUrl}. Confirm that the open page is this employer's application, then fill in the form; nothing is sent.`,
     homeLabel: input.siteLabel,
     homeHosts: [hostnameOf(targetUrl) ?? input.siteLabel],
     ...(input.signal ? { signal: input.signal } : {}),
@@ -404,6 +497,8 @@ export async function runAgentApplicationPreparation(
     safety: input.session,
     intermediateWritesAuthorized:
       executionInput.intermediateMutationsAuthorized === true,
+    accountCreationAuthorized:
+      executionInput.accountCreationAuthorized === true,
     authority: activeAuthority,
     sources: {
       profile: executionInput.profile,
@@ -421,6 +516,20 @@ export async function runAgentApplicationPreparation(
       jobId: executionInput.job.id,
       applicationId: executionInput.idempotencyKey ?? executionInput.job.id,
       startingUrl: targetUrl,
+      ...(isContinuation
+        ? {
+            continuation: {
+              sourceUrls: [
+                executionInput.startingUrl,
+                executionInput.job.applicationUrl,
+                executionInput.job.canonicalUrl,
+              ].filter(
+                (url): url is string =>
+                  typeof url === "string" && url.trim().length > 0,
+              ),
+            },
+          }
+        : {}),
     },
     siteLabel: input.siteLabel,
     writing: AiBehaviorPreferenceSchema.parse(
@@ -530,9 +639,11 @@ export async function runAgentApplicationPreparation(
   // them to read over and send. Recording it as "paused" put every finished
   // application in the Waiting-on-you count beside the ones that were stuck.
   const attemptState: ApplyExecutionResult["state"] =
-    blocker === null && questions.length === 0 && result.outcome !== "stuck"
-      ? "ready"
-      : "paused";
+    result.outcome === "stuck"
+      ? "failed"
+      : blocker === null && questions.length === 0
+        ? "ready"
+        : "paused";
 
   return buildPreparationResult({
     executionInput,
@@ -617,26 +728,21 @@ export function createApplyFormPreparer(input: {
   onProgress?: AgentApplicationPreparationInput["onProgress"];
   now?: () => Date;
 }): NonNullable<ExecuteApplicationFlowInput["prepareApplicationForm"]> {
-  return async ({ session, startedAt, signal, onProgress }) => {
+  return async ({ session, currentUrl, startedAt, signal, onProgress }) => {
     const llmClient = toApplyLlmClient(input.aiClient);
     if (!llmClient) {
       const detail =
         "Job Finder could not fill this application in because its assistant is unavailable right now. Nothing was changed on the site. Try again shortly.";
       return buildPreparationResult({
         executionInput: input.executionInput,
-        state: "paused",
+        // The person cannot resolve a missing model. Persist this as a failed
+        // attempt so recovery offers Try again without adding a Needs-you
+        // blocker or pretending a form is ready.
+        state: "failed",
         summary: "Job Finder could not fill this application in",
         detail,
         questions: [],
-        blocker: {
-          code: "requires_manual_review",
-          userActionKind: null,
-          summary: "Job Finder could not fill this application in.",
-          detail,
-          questionIds: [],
-          sourceDebugEvidenceRefIds: [],
-          url: null,
-        },
+        blocker: null,
         checkpoints: [],
         checkpointLabel: "Stopped before filling anything in",
         checkpointDetail: detail,
@@ -661,6 +767,7 @@ export function createApplyFormPreparer(input: {
         : undefined;
     return runAgentApplicationPreparation({
       session,
+      currentUrl,
       executionInput: input.executionInput,
       llmClient,
       startedAt,

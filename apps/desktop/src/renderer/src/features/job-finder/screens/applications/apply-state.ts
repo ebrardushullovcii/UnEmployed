@@ -11,6 +11,7 @@ import {
   applyResultBlockedBySiteSaves,
   applyResultIsStillRunning,
   applyResultHasQuestionForPerson,
+  applyResultNeedsSecurityCheck,
   applyResultStoppedStructurally,
   formatElapsedMinutes,
   getApplicationStopReasonSentence,
@@ -19,9 +20,7 @@ import {
   TRY_AGAIN_ACTION,
 } from "./applications-recovery-state";
 
-type ApplyResult =
-  | JobFinderWorkspaceSnapshot["applyJobResults"][number]
-  | null;
+type ApplyResult = JobFinderWorkspaceSnapshot["applyJobResults"][number] | null;
 
 /** The only button an apply state is ever allowed to draw. */
 export type ApplyStateAction = "none" | "open_browser" | "try_again";
@@ -76,14 +75,13 @@ export function resolveApplyStatePresentation(input: {
   mode: ApplyMode;
   now?: number;
   pendingQuestionCount?: number;
+  recordFailure?: {
+    lastActionLabel: string;
+    lastUpdatedAt: string;
+  } | null;
   result: ApplyResult;
 }): ApplyStatePresentation {
-  const {
-    mode,
-    now = Date.now(),
-    pendingQuestionCount = 0,
-    result,
-  } = input;
+  const { mode, now = Date.now(), pendingQuestionCount = 0, result } = input;
   const questionsLeftLabel = formatQuestionsLeft(pendingQuestionCount);
   const reason = getApplicationStopReasonSentence(result);
 
@@ -114,7 +112,40 @@ export function resolveApplyStatePresentation(input: {
     };
   }
 
+  if (
+    submissionOutcome === "outcome_uncertain" ||
+    result?.blockerReason === "submission_outcome_uncertain"
+  ) {
+    return {
+      kind: "needs_you",
+      title: "Needs you",
+      sentence:
+        "Job Finder could not confirm whether this application was sent. Check the employer site before trying to send it again.",
+      action: "open_browser",
+      actionLabel: OPEN_THE_BROWSER_ACTION,
+      questionsLeftLabel: null,
+    };
+  }
+
+  const recordFailureIsLatest =
+    input.recordFailure !== null &&
+    input.recordFailure !== undefined &&
+    (!result ||
+      Date.parse(input.recordFailure.lastUpdatedAt) >=
+        Date.parse(result.updatedAt));
+  if (recordFailureIsLatest) {
+    return {
+      kind: "could_not_apply",
+      title: "Could not apply",
+      sentence: input.recordFailure?.lastActionLabel ?? null,
+      action: "try_again",
+      actionLabel: TRY_AGAIN_ACTION,
+      questionsLeftLabel: null,
+    };
+  }
+
   const needsPerson =
+    applyResultNeedsSecurityCheck(result) ||
     looksLikeSignInWall({
       blockerCode: result?.blockerReason ?? null,
       text: `${result?.blockerSummary ?? ""} ${result?.detail ?? ""}`,
@@ -153,7 +184,7 @@ export function resolveApplyStatePresentation(input: {
     };
   }
 
-  if (result?.state === "awaiting_review" || submissionOutcome !== null) {
+  if (result?.state === "awaiting_review") {
     return {
       kind: "ready_to_send",
       title: "Ready to send",
@@ -185,7 +216,8 @@ export function resolveApplyStatePresentation(input: {
   return {
     kind: "ready_to_send",
     title: "Ready to send",
-    sentence: "Job Finder filled it in. Read it over and click Apply on the site.",
+    sentence:
+      "Job Finder filled it in. Read it over and click Apply on the site.",
     action: "open_browser",
     actionLabel: OPEN_THE_BROWSER_ACTION,
     questionsLeftLabel,

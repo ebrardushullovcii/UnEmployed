@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   buildCoverLetterRequest,
+  coverLetterPolicyAllows,
   coverLetterDeliveryFor,
   detectPostingLanguage,
   isCoverLetterControl,
@@ -94,6 +95,16 @@ describe("the letter one application sends", () => {
     expect(coverLetterDeliveryFor(textBox)).toBe("text");
   });
 
+  test("the saved letter policy distinguishes required and optional fields", () => {
+    const required = control({ label: "Cover letter", required: true });
+    const optional = control({ label: "Cover letter", required: false });
+
+    expect(coverLetterPolicyAllows(required, "when_required")).toBe(true);
+    expect(coverLetterPolicyAllows(optional, "when_required")).toBe(false);
+    expect(coverLetterPolicyAllows(optional, "when_possible")).toBe(true);
+    expect(coverLetterPolicyAllows(required, "never")).toBe(false);
+  });
+
   test("a form that names one file type is taken at its word", () => {
     expect(
       requiredLetterFileType(
@@ -161,6 +172,12 @@ describe("the letter one application sends", () => {
     expect(request.prompt).toContain("Direct and brief");
     expect(request.prompt).toContain("Match the voice, not the content");
     expect(request.prompt).toContain("Do not state anything else as fact");
+    expect(request.prompt).toContain(
+      "must be supported by their resume or profile",
+    );
+    expect(request.prompt).toContain(
+      "never turn a job requirement into a claim that the person has done it",
+    );
   });
 
   test("a letter with a gap where a person should have typed is refused", () => {

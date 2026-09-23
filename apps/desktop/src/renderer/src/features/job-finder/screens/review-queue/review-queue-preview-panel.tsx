@@ -187,7 +187,7 @@ export function ReviewQueuePreviewPanel({
                 </p>
                 <p className="text-(length:--text-small) leading-5 text-foreground-muted">
                   {isPendingTooLong
-                    ? "This is taking longer than usual. Open the resume and reload it to check for a saved result."
+                    ? "This is taking longer than usual. It is still running and will update here when ready. You can leave this page."
                     : "You can leave this page. The resume keeps writing and finishes on its own."}
                 </p>
               </div>
@@ -206,7 +206,7 @@ export function ReviewQueuePreviewPanel({
                 ? `The last attempt for ${selectedItem.title} did not finish. Try again for a fresh one.`
                 : isGenerating
                   ? isPendingTooLong
-                    ? `The resume for ${selectedItem.title} is still being written. Open it and reload to check for a saved result; do not start it again yet.`
+                    ? `The resume for ${selectedItem.title} is still being written. It will update here when ready; you can leave this page.`
                     : `Job Finder is writing the resume for ${selectedItem.title}.`
                   : needsGeneration
                     ? `Create the resume for ${selectedItem.title} at the level you picked above.`
@@ -218,7 +218,7 @@ export function ReviewQueuePreviewPanel({
                 type="button"
                 variant="secondary"
               >
-                Open the resume to reload
+                Open the resume
               </Button>
             ) : null}
             {!isGenerating ? (
@@ -291,8 +291,8 @@ export function ReviewQueuePreviewPanel({
                 Check sensitive personal details before attaching
               </strong>
               Original resumes can include a home address, date of birth,
-              nationality, or other details you may not want to share with
-              every employer. Read the preview below before applying.
+              nationality, or other details you may not want to share with every
+              employer. Read the preview below before applying.
             </div>
             <dl className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 px-4 py-3 text-sm sm:grid-cols-2">
               <div className="grid gap-1">

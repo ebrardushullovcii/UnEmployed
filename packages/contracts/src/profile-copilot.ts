@@ -246,32 +246,64 @@ export type ProfileCopilotReviewResolutionStatus = z.infer<
   typeof ProfileCopilotReviewResolutionStatusSchema
 >;
 
-const UpsertCandidateExperienceInputSchema = CandidateExperienceSchema.extend({
-  id: NonEmptyStringSchema.nullable().default(null),
-});
-const UpsertCandidateEducationInputSchema = CandidateEducationSchema.extend({
-  id: NonEmptyStringSchema.nullable().default(null),
-});
-const UpsertCandidateCertificationInputSchema =
-  CandidateCertificationSchema.extend({
-    id: NonEmptyStringSchema.nullable().default(null),
-  });
-const UpsertCandidateLinkInputSchema = CandidateLinkSchema.extend({
-  id: NonEmptyStringSchema.nullable().default(null),
-});
-const UpsertCandidateProjectInputSchema = CandidateProjectSchema.extend({
-  id: NonEmptyStringSchema.nullable().default(null),
-});
-const UpsertCandidateLanguageInputSchema = CandidateLanguageSchema.extend({
-  id: NonEmptyStringSchema.nullable().default(null),
-});
+function createPartialRecordUpsertSchema<TShape extends z.ZodRawShape>(
+  schema: z.ZodObject<TShape>,
+  label: string,
+) {
+  return schema
+    .partial()
+    .extend({ id: NonEmptyStringSchema.nullable().default(null) })
+    .superRefine((value, context) => {
+      if (
+        !Object.entries(value).some(
+          ([key, fieldValue]) => key !== "id" && fieldValue !== undefined,
+        )
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${label} upserts must include at least one changed field.`,
+        });
+      }
+    });
+}
+
+const UpsertCandidateExperienceInputSchema = createPartialRecordUpsertSchema(
+  CandidateExperienceSchema,
+  "Experience",
+);
+const UpsertCandidateEducationInputSchema = createPartialRecordUpsertSchema(
+  CandidateEducationSchema,
+  "Education",
+);
+const UpsertCandidateCertificationInputSchema = createPartialRecordUpsertSchema(
+  CandidateCertificationSchema,
+  "Certification",
+);
+const UpsertCandidateLinkInputSchema = createPartialRecordUpsertSchema(
+  CandidateLinkSchema,
+  "Link",
+);
+const UpsertCandidateProjectInputSchema = createPartialRecordUpsertSchema(
+  CandidateProjectSchema,
+  "Project",
+);
+const UpsertCandidateLanguageInputSchema = createPartialRecordUpsertSchema(
+  CandidateLanguageSchema,
+  "Language",
+);
 const UpsertCandidateProofBankEntryInputSchema =
-  CandidateProofBankEntrySchema.extend({
-    id: NonEmptyStringSchema.nullable().default(null),
-  });
+  createPartialRecordUpsertSchema(CandidateProofBankEntrySchema, "Proof-point");
 const UpsertCandidateReusableAnswerInputSchema =
-  CandidateReusableAnswerSchema.extend({
-    id: NonEmptyStringSchema.nullable().default(null),
+  createPartialRecordUpsertSchema(
+    CandidateReusableAnswerSchema,
+    "Reusable-answer",
+  );
+const OrderedProfileRecordIdsSchema = z
+  .array(NonEmptyStringSchema)
+  .min(1)
+  .max(50)
+  .refine((recordIds) => new Set(recordIds).size === recordIds.length, {
+    message: "Ordered record ids must not contain duplicates.",
   });
 
 export const ProfileCopilotPatchOperationSchema = z.discriminatedUnion(
@@ -342,6 +374,10 @@ export const ProfileCopilotPatchOperationSchema = z.discriminatedUnion(
     z.object({
       operation: z.literal("remove_education_record"),
       recordId: NonEmptyStringSchema,
+    }),
+    z.object({
+      operation: z.literal("reorder_education_records"),
+      orderedRecordIds: OrderedProfileRecordIdsSchema,
     }),
     z.object({
       operation: z.literal("upsert_certification_record"),

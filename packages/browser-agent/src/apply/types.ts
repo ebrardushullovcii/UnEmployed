@@ -12,6 +12,7 @@ import type {
   ApplicationQuestionKind,
   ApplicationSalaryDisclosureRule,
   CandidateProfile,
+  CandidateAssetKind,
   CandidateReusableAnswer,
 } from "@unemployed/contracts";
 
@@ -45,12 +46,16 @@ export interface ApplyFormControl {
   kind: ApplyControlKind;
   label: string;
   groupLabel: string;
+  /** Stable identity shared by controls that belong to one choice group. */
+  choiceGroupKey?: string;
   placeholder: string;
   required: boolean;
   disabled: boolean;
   readOnly: boolean;
   visible: boolean;
   value: string;
+  /** Credential meaning without exposing the secret value to the model. */
+  credentialRole?: "identifier" | "password" | null;
   checked: boolean;
   options: string[];
   selectedOptionLabel: string;
@@ -76,6 +81,8 @@ export interface ApplyFormAction {
   kind: ApplyActionKind;
   visible: boolean;
   disabled: boolean;
+  formAction?: string;
+  formMethod?: string;
 }
 
 /** What a link on the page opens, read from the address itself. */
@@ -120,6 +127,8 @@ export type ApplyBlockerCode =
 
 export interface ApplyBlocker {
   code: ApplyBlockerCode;
+  /** True when this page cannot progress until the person completes the step. */
+  requiresPerson?: boolean;
   /** One plain sentence about what the page is showing. */
   summary: string;
   detail: string;
@@ -194,7 +203,7 @@ export interface ApplyDocument {
   mimeType: string;
   /** What the file is, in the person's words ("Your CV", "Cover letter"). */
   label: string;
-  kind: "resume" | "cover_letter" | "other";
+  kind: CandidateAssetKind;
   loadBytes: () => Promise<Uint8Array>;
 }
 
@@ -237,6 +246,7 @@ export interface ApplyPageHands {
 export type ApplyAnswerSourceKind =
   | "profile"
   | "resume"
+  | "posting"
   | "answer_library"
   | "generated"
   | "document";
@@ -434,10 +444,18 @@ export interface ApplyAgentConfig {
    * When false, nothing is transmitted at all.
    */
   intermediateWritesAuthorized?: boolean;
+  /** Whether this exact run may enter an account-creation flow. */
+  accountCreationAuthorized?: boolean;
   authority: ApplyAuthority;
   sources: ApplyAnswerSources;
   /** Identity of the application record every write is bound to. */
-  application: { jobId: string; applicationId: string; startingUrl: string };
+  application: {
+    jobId: string;
+    applicationId: string;
+    startingUrl: string;
+    /** The live page belongs to a paused application that is being continued. */
+    continuation?: { sourceUrls: readonly string[] };
+  };
   /** Site name in the person's words, used in the copy: "Greenhouse", "the careers site". */
   siteLabel: string;
   /**

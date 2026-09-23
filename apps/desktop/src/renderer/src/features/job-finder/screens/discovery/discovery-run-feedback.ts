@@ -201,6 +201,8 @@ export interface DiscoveryRunRecovery {
 
 export interface DiscoveryRunFeedback {
   status: DiscoveryRunFeedbackStatus;
+  /** Distinguishes immediate failure copy from a later completed continuation. */
+  recordedAtMs?: number;
   /** Classified service detail kept verbatim so failures stay truthful. */
   detail: string | null;
   headline: string;
@@ -218,7 +220,7 @@ const NO_JOB_SITES_FAILURE_RE = /no job sites to search/i;
 const SOURCE_SETUP_FAILURE_RE =
   /single_target|not found or unavailable|missing, disabled|no runnable|no enabled|enable at least one|add at least one|add or enable/i;
 const CONNECTION_FAILURE_RE =
-  /fetch failed|network|offline|\bdns\b|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|timed?\s?out|unreachable|socket|provider (is )?(unavailable|unreachable)/i;
+  /fetch failed|network|offline|\bdns\b|ENOTFOUND|ECONNREFUSED|ERR_CONNECTION_REFUSED|ECONNRESET|ETIMEDOUT|timed?\s?out|unreachable|socket|provider (is )?(unavailable|unreachable)/i;
 const SITE_PROTECTION_FAILURE_RE =
   /human-verification check|verification check|verify you are human|\bcaptcha\b|are you a robot/i;
 const SIGN_IN_WALL_FAILURE_RE =
@@ -288,15 +290,8 @@ export function getDiscoveryRunFailureRecovery(
     };
   }
 
-  if (BROWSER_RUNTIME_FAILURE_RE.test(detail)) {
-    return {
-      kind: "browser_session",
-      headline: `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} could not start or stay reachable.`,
-      actionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
-      nextStep: `Open ${JOB_FINDER_BROWSER_NAME}, sign in if the source asks, then search again.`,
-    };
-  }
-
+  // A navigation error can mention the dedicated browser while the browser
+  // itself is healthy. Prefer the concrete transport cause in that case.
   if (CONNECTION_FAILURE_RE.test(detail)) {
     return {
       kind: "connection",
@@ -304,6 +299,15 @@ export function getDiscoveryRunFailureRecovery(
       actionLabel: null,
       nextStep:
         "Check your internet connection, then search again. Nothing was submitted anywhere.",
+    };
+  }
+
+  if (BROWSER_RUNTIME_FAILURE_RE.test(detail)) {
+    return {
+      kind: "browser_session",
+      headline: `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} could not start or stay reachable.`,
+      actionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+      nextStep: `Open ${JOB_FINDER_BROWSER_NAME}, sign in if the source asks, then search again.`,
     };
   }
 
@@ -491,6 +495,7 @@ export function createDiscoveryRunInterruptedFeedback(input: {
 
   return {
     status: "failed",
+    recordedAtMs: Date.now(),
     detail,
     headline: input.targetLabel
       ? `The search for ${input.targetLabel} stopped before it could finish.`
@@ -547,6 +552,7 @@ export function createDiscoveryRunFailedFeedback(input: {
 
   return {
     status: "failed",
+    recordedAtMs: Date.now(),
     detail,
     headline: input.targetLabel
       ? `Search could not start for ${input.targetLabel}.`

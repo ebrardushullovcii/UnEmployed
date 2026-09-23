@@ -1,5 +1,4 @@
 import {
-  isPreparedApplicationStatus,
   type ApplicationAttemptState,
   type ApplicationStatus,
   type BrowserSessionState,
@@ -98,13 +97,21 @@ export function getReviewQueueWorkflowStatus(
     };
   }
 
+  if (preparedJobIds?.has(item.jobId)) {
+    return {
+      label: "In Applications",
+      tone: "positive",
+    };
+  }
+
   if (item.assetStatus === "not_started") {
     return {
       label:
         item.resumeApplicationMode === "original_resume"
           ? "Ready to apply"
           : "No resume yet",
-      tone: item.resumeApplicationMode === "original_resume" ? "positive" : "muted",
+      tone:
+        item.resumeApplicationMode === "original_resume" ? "positive" : "muted",
     };
   }
 
@@ -112,13 +119,6 @@ export function getReviewQueueWorkflowStatus(
     return {
       label: "Writing resume",
       tone: "active",
-    };
-  }
-
-  if (preparedJobIds?.has(item.jobId)) {
-    return {
-      label: "In Applications",
-      tone: "positive",
     };
   }
 
@@ -171,6 +171,7 @@ export function needsPersonResumeReview(item: ReviewQueueItem | null): boolean {
     item !== null &&
     item.resumeApplicationMode !== "original_resume" &&
     item.resumeTailoringMode === "aggressive" &&
+    Boolean(item.resumeAssetId) &&
     item.resumeReview.status !== "approved"
   );
 }
@@ -206,29 +207,21 @@ export function hasResumeGenerationFailure(
 }
 
 /**
- * Jobs whose application has already been prepared, read from the workspace's
- * application records. A prepared job must stop advertising itself as ready to
- * prepare: the Shortlisted list kept offering ten already-prepared jobs back to
- * the user, who re-prepared eight of them by accident. Only records that
- * reached preparation count — a run stopped before the draft existed leaves a
- * staged record behind, and that row has to stay preparable.
+ * Jobs that have moved to Applications, including a failed or staged attempt.
+ * ADR 0026 excludes them from Shortlisted's Apply to all count. Their next
+ * action belongs to the existing record in Applications, where Try again
+ * preserves its history instead of starting another batch entry here.
  */
 export function collectPreparedApplicationJobIds(
   applicationRecords:
     | readonly {
         jobId: string;
         status: ApplicationStatus;
-        lastAttemptState?: Parameters<
-          typeof isPreparedApplicationStatus
-        >[0]["lastAttemptState"];
+        lastAttemptState?: ApplicationAttemptState | null;
       }[]
     | undefined,
 ): ReadonlySet<string> {
-  return new Set(
-    (applicationRecords ?? [])
-      .filter((record) => isPreparedApplicationStatus(record))
-      .map((record) => record.jobId),
-  );
+  return new Set((applicationRecords ?? []).map((record) => record.jobId));
 }
 
 export function collectInProgressApplicationJobIds(

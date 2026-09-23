@@ -17,6 +17,7 @@ import {
   hasResumeGenerationFailure,
   isQueueStageReady,
   isTailoredDraftPreparationEligible,
+  needsPersonResumeReview,
   prepareTailoredDraftsSequentially,
   type TailoredDraftPreparationViewState,
 } from "./review-queue-status";
@@ -50,6 +51,22 @@ it("holds an Aggressive draft back for the person's review before Apply", () => 
   expect(getReviewQueueResumePolicyCaption(draft)).toBe(
     "Resume ready — review it before applying",
   );
+});
+
+it("does not describe an Aggressive resume as ready before a draft exists", () => {
+  const draft = createItem("aggressive_missing", {
+    assetStatus: "not_started",
+    resumeAssetId: null,
+    resumeTailoringMode: "aggressive",
+    resumeReview: { status: "not_started" },
+  });
+
+  expect(needsPersonResumeReview(draft)).toBe(false);
+  expect(getReviewQueueWorkflowStatus(draft)).toEqual({
+    label: "No resume yet",
+    tone: "muted",
+  });
+  expect(getReviewQueueResumePolicyCaption(draft)).toBe("No resume yet");
 });
 
 function createItem(
@@ -531,9 +548,7 @@ describe("getTailoredDraftPreparationResultMessage", () => {
           totalCount: 1,
         }),
       ),
-    ).toBe(
-      "Wrote 1 resume. Nothing was sent.",
-    );
+    ).toBe("Wrote 1 resume. Nothing was sent.");
   });
 
   it("singularizes the remainder sentence for exactly one eligible job left over", () => {
@@ -643,9 +658,7 @@ describe("getTailoredDraftPreparationResultMessage", () => {
           totalCount: 2,
         }),
       ),
-    ).toBe(
-      "Stopped after 1 resume. Nothing was sent.",
-    );
+    ).toBe("Stopped after 1 resume. Nothing was sent.");
     expect(
       getTailoredDraftPreparationResultMessage(
         createState({
@@ -655,9 +668,7 @@ describe("getTailoredDraftPreparationResultMessage", () => {
           totalCount: 5,
         }),
       ),
-    ).toBe(
-      "Stopped after 3 resumes. Nothing was sent.",
-    );
+    ).toBe("Stopped after 3 resumes. Nothing was sent.");
   });
 });
 
@@ -684,28 +695,51 @@ describe("already prepared applications", () => {
 
     expect(countQueueStageReady(queue)).toBe(3);
     expect(countQueueStageReady(queue, prepared)).toBe(1);
-    expect(getReviewQueueWorkflowStatus(queue[0]!, null, false, prepared).label)
-      .toBe("In Applications");
-    expect(getReviewQueueWorkflowStatus(queue[2]!, null, false, prepared).label)
-      .toBe("Ready to apply");
+    expect(
+      getReviewQueueWorkflowStatus(queue[0]!, null, false, prepared).label,
+    ).toBe("In Applications");
+    expect(
+      getReviewQueueWorkflowStatus(queue[2]!, null, false, prepared).label,
+    ).toBe("Ready to apply");
   });
 
-  it("keeps a job preparable when its record never reached preparation", () => {
+  it("keeps staged applications out of the Shortlisted apply batch", () => {
     const queue = [readyItem("a"), readyItem("b"), readyItem("c")];
-    // A run stopped before the draft existed leaves a staged record behind.
+    // A staged record already has a destination and recovery in Applications.
     const prepared = collectPreparedApplicationJobIds([
       { jobId: "a", status: "shortlisted" },
       { jobId: "b", status: "drafting" },
       { jobId: "c", status: "discovered" },
     ]);
 
-    expect(prepared.size).toBe(0);
-    expect(countQueueStageReady(queue, prepared)).toBe(3);
-    expect(getReviewQueueWorkflowStatus(queue[0]!, null, false, prepared).label)
-      .toBe("Ready to apply");
+    expect(prepared.size).toBe(3);
+    expect(countQueueStageReady(queue, prepared)).toBe(0);
+    expect(
+      getReviewQueueWorkflowStatus(queue[0]!, null, false, prepared).label,
+    ).toBe("In Applications");
   });
 
-  it("does not treat failed, paused, or merely staged approved records as prepared", () => {
+  it("shows an Original resume job in Applications even though no generated asset exists", () => {
+    const item = createItem("original-prepared", {
+      assetStatus: "not_started",
+      resumeAssetId: null,
+      resumeApplicationMode: "original_resume",
+    });
+    const prepared = collectPreparedApplicationJobIds([
+      {
+        jobId: item.jobId,
+        status: "ready_for_review",
+        lastAttemptState: "ready",
+      },
+    ]);
+    expect(getReviewQueueWorkflowStatus(item, null, false, prepared)).toEqual({
+      label: "In Applications",
+      tone: "positive",
+    });
+    expect(countQueueStageReady([item], prepared)).toBe(0);
+  });
+
+  it("routes failed, paused, and staged applications to their existing records", () => {
     const prepared = collectPreparedApplicationJobIds([
       { jobId: "failed", status: "approved", lastAttemptState: "failed" },
       { jobId: "paused", status: "approved", lastAttemptState: "paused" },
@@ -713,7 +747,23 @@ describe("already prepared applications", () => {
       { jobId: "ready", status: "ready_for_review", lastAttemptState: null },
     ]);
 
-    expect([...prepared]).toEqual(["ready"]);
+    expect([...prepared]).toEqual(["failed", "paused", "staged", "ready"]);
+  });
+
+  it("counts only new jobs when failed and paused applications remain shortlisted", () => {
+    const queue = [readyItem("failed"), readyItem("paused"), readyItem("new")];
+    const prepared = collectPreparedApplicationJobIds([
+      { jobId: "failed", status: "approved", lastAttemptState: "failed" },
+      { jobId: "paused", status: "approved", lastAttemptState: "paused" },
+    ]);
+
+    expect(countQueueStageReady(queue, prepared)).toBe(1);
+    expect(
+      getReviewQueueWorkflowStatus(queue[0]!, null, false, prepared).label,
+    ).toBe("In Applications");
+    expect(
+      getReviewQueueWorkflowStatus(queue[2]!, null, false, prepared).label,
+    ).toBe("Ready to apply");
   });
 
   it("shows an active application run instead of the older prepared label", () => {
@@ -764,9 +814,7 @@ describe("a shortlist that is all on the original resume", () => {
   });
 
   it("keeps the tailored-draft batch honest about having no draft to write", () => {
-    expect(
-      describeTailoredDraftPreparationBlocker(originalResumeQueue),
-    ).toBe(
+    expect(describeTailoredDraftPreparationBlocker(originalResumeQueue)).toBe(
       "Every job here uses your original resume, so there is nothing to write.",
     );
   });

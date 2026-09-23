@@ -213,7 +213,7 @@ export function describeSubmissionOutcome(input: {
       };
     case "outcome_uncertain":
       return {
-        summary: "Sent — check it arrived",
+        summary: "Check whether this application was sent",
         detail: `Job Finder sent this application to ${input.siteLabel}. Its site did not confirm it arrived, and Job Finder will not send it again. Open ${input.siteLabel} to check, then tell Job Finder what you found.`,
         nextActionLabel: "Check the site and confirm",
       };

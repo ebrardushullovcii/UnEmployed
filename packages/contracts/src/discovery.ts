@@ -77,6 +77,19 @@ export const JobDiscoveryTargetSchema = z.object({
 });
 export type JobDiscoveryTarget = z.infer<typeof JobDiscoveryTargetSchema>;
 
+export const JobFinderSearchRequestSchema = z.object({
+  intent: z.string().trim().max(1_000).default(""),
+  /** A run-scoped override of the saved search selectivity. */
+  breadth: z.enum(["best_only", "wide"]).optional(),
+  freshness: z.enum(["any", "recent"]).default("any"),
+  sourceIds: z
+    .union([z.literal("all"), z.array(NonEmptyStringSchema).min(1).max(1_000)])
+    .default("all"),
+});
+export type JobFinderSearchRequest = z.infer<
+  typeof JobFinderSearchRequestSchema
+>;
+
 /** Returns true only when a saved source can actually be used for discovery. */
 export function isRunnableJobDiscoveryTarget(
   target: Pick<JobDiscoveryTarget, "enabled" | "startingUrl">,
@@ -929,6 +942,8 @@ export const ListingDetailFetchSchema = z.object({
   outcome: ListingDetailFetchOutcomeSchema,
   method: z.enum(["json_ld", "page_text"]).nullable().default(null),
   detail: NonEmptyStringSchema.nullable().default(null),
+  /** A server-requested earliest retry time after rate limiting. */
+  retryAfterAt: IsoDateTimeSchema.nullable().optional(),
 });
 export type ListingDetailFetch = z.infer<typeof ListingDetailFetchSchema>;
 
@@ -1936,7 +1951,9 @@ export const ApplyExecutionModelUseSchema = z.object({
   occurredAt: IsoDateTimeSchema,
   turns: z.number().int().nonnegative().default(0),
 });
-export type ApplyExecutionModelUse = z.infer<typeof ApplyExecutionModelUseSchema>;
+export type ApplyExecutionModelUse = z.infer<
+  typeof ApplyExecutionModelUseSchema
+>;
 
 export const ApplyExecutionResultSchema = z.object({
   state: ApplicationAttemptStateSchema,
@@ -1989,8 +2006,7 @@ export const DiscoveryAgentMetadataSchema = z.object({
   phaseCompletionReason: NonEmptyStringSchema.nullable().default(null),
   phaseEvidence: SourceDebugPhaseEvidenceSchema.nullable().default(null),
   debugFindings: AgentDebugFindingsSchema.nullable().default(null),
-  accessBlockerReason:
-    DiscoveryAccessBlockerReasonSchema.nullable().optional(),
+  accessBlockerReason: DiscoveryAccessBlockerReasonSchema.nullable().optional(),
   parkedTab: ParkedBrowserTabReferenceSchema.nullable().optional(),
 });
 export type DiscoveryAgentMetadata = z.infer<
@@ -2147,8 +2163,7 @@ export const DiscoveryTargetExecutionSchema = z.object({
   invalidSkipped: z.number().int().nonnegative().default(0),
   changeDigest: DiscoveryChangeDigestSchema.default({}),
   warning: NonEmptyStringSchema.nullable().default(null),
-  accessBlockerReason:
-    DiscoveryAccessBlockerReasonSchema.nullable().optional(),
+  accessBlockerReason: DiscoveryAccessBlockerReasonSchema.nullable().optional(),
   parkedTab: ParkedBrowserTabReferenceSchema.nullable().optional(),
   compactionState: SharedAgentCompactionSnapshotSchema.nullable().default(null),
   compactionUsedFallbackTrigger: z.boolean().default(false),
@@ -2289,7 +2304,6 @@ export function appendDiscoveryLiveActivityEvent(
   );
 }
 
-
 export const DiscoveryRunSummarySchema = z.object({
   targetsPlanned: z.number().int().nonnegative().default(0),
   targetsCompleted: z.number().int().nonnegative().default(0),
@@ -2348,6 +2362,9 @@ export const DiscoveryRunRecordSchema = z.object({
   startedAt: IsoDateTimeSchema,
   completedAt: IsoDateTimeSchema.nullable().default(null),
   targetIds: z.array(NonEmptyStringSchema).default([]),
+  searchIntent: z.string().trim().max(1_000).optional(),
+  searchBreadth: z.enum(["best_only", "wide"]).nullable().optional(),
+  searchFreshness: z.enum(["any", "recent"]).optional(),
   targetExecutions: z.array(DiscoveryTargetExecutionSchema).default([]),
   activity: z.array(DiscoveryActivityEventSchema).default([]),
   summary: DiscoveryRunSummarySchema.default({}),

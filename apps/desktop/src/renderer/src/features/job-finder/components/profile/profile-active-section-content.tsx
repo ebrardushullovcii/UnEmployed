@@ -11,6 +11,7 @@ import type { UseFieldArrayReturn, UseFormReturn } from "react-hook-form";
 import { ProfileBackgroundTab } from "./profile-background-tab";
 import { ProfileCoreTab } from "./profile-core-tab";
 import { ProfileExperienceTab } from "./profile-experience-tab";
+import { ProfileFilesTab } from "./profile-files-tab";
 import { ProfileJobSourcesTab } from "./profile-job-sources-tab";
 import { ProfilePreferencesTab } from "./profile-preferences-tab";
 import type {
@@ -107,6 +108,7 @@ export function ProfileActiveSectionContent({
         customAnswerArray={backgroundArrays.customAnswerArray}
       />
     ),
+    files: <ProfileFilesTab />,
     sources: (
       <ProfileJobSourcesTab
         activeDiscoveryRun={activeDiscoveryRun}

@@ -14,6 +14,7 @@ import {
   type ApplyJobResult,
   type ApplyRun,
   type ApplicationPrivacyReceipt,
+  type ApplicationReviewCard,
   type ApplicationResumeArtifact,
   type BrowserVisualEvidenceSummary,
   type JobFinderWorkspaceSnapshot,
@@ -21,6 +22,124 @@ import {
 } from "@unemployed/contracts";
 
 import { createUniqueId } from "./shared";
+
+const PENDING_APPLY_JOB_STATES = new Set<ApplyJobResult["state"]>([
+  "planned",
+  "question_capture",
+  "filling",
+  "awaiting_review",
+  "submitting",
+]);
+
+export function summarizeApplyJobResultStates(
+  results: readonly ApplyJobResult[],
+): {
+  submittedJobs: number;
+  awaitingReviewJobs: number;
+  blockedJobs: number;
+  failedJobs: number;
+  skippedJobs: number;
+} {
+  const latestByJob = new Map<string, ApplyJobResult>();
+  for (const result of results) {
+    const current = latestByJob.get(result.jobId);
+    if (!current || result.updatedAt.localeCompare(current.updatedAt) > 0) {
+      latestByJob.set(result.jobId, result);
+    }
+  }
+  const latestResults = [...latestByJob.values()];
+  return {
+    submittedJobs: latestResults.filter(
+      (result) => result.state === "submitted",
+    ).length,
+    awaitingReviewJobs: latestResults.filter(
+      (result) => result.state === "awaiting_review",
+    ).length,
+    blockedJobs: latestResults.filter((result) => result.state === "blocked")
+      .length,
+    failedJobs: latestResults.filter((result) => result.state === "failed")
+      .length,
+    skippedJobs: latestResults.filter((result) => result.state === "skipped")
+      .length,
+  };
+}
+
+export function reconcileApplyRunAfterConfirmedSubmission(input: {
+  run: ApplyRun;
+  results: readonly ApplyJobResult[];
+  submittedAt: string;
+  submittedSummary: string;
+  submittedDetail: string;
+}): ApplyRun {
+  const latestByJob = new Map<string, ApplyJobResult>();
+  for (const result of input.results) {
+    const current = latestByJob.get(result.jobId);
+    if (!current || result.updatedAt.localeCompare(current.updatedAt) > 0) {
+      latestByJob.set(result.jobId, result);
+    }
+  }
+  const orderedResults = input.run.jobIds.map(
+    (jobId) => latestByJob.get(jobId) ?? null,
+  );
+  const pendingResults = orderedResults.filter(
+    (result) => result === null || PENDING_APPLY_JOB_STATES.has(result.state),
+  );
+  const blockedResults = orderedResults.filter(
+    (result) => result?.state === "blocked",
+  );
+  const pendingJobs = pendingResults.length;
+  const submittedJobs = orderedResults.filter(
+    (result) => result?.state === "submitted",
+  ).length;
+  const skippedJobs = orderedResults.filter(
+    (result) => result?.state === "skipped",
+  ).length;
+  const blockedJobs = blockedResults.length;
+  const failedJobs = orderedResults.filter(
+    (result) => result?.state === "failed",
+  ).length;
+  const remainsRunning =
+    input.run.state === "running" &&
+    pendingResults.some((result) => result?.state !== "awaiting_review");
+  const completed = pendingJobs === 0 && blockedJobs === 0;
+  const state = completed
+    ? "completed"
+    : remainsRunning
+      ? "running"
+      : "paused_for_user_review";
+  const currentJobId = completed
+    ? null
+    : input.run.currentJobId !== null &&
+        (pendingResults.some(
+          (result) => result?.jobId === input.run.currentJobId,
+        ) ||
+          blockedResults.some(
+            (result) => result?.jobId === input.run.currentJobId,
+          ))
+      ? input.run.currentJobId
+      : (pendingResults.find((result) => result !== null)?.jobId ??
+        blockedResults[0]?.jobId ??
+        null);
+
+  return ApplyRunSchema.parse({
+    ...input.run,
+    state,
+    currentJobId,
+    updatedAt: input.submittedAt,
+    completedAt: completed ? input.submittedAt : null,
+    summary: completed
+      ? input.submittedSummary
+      : `${input.submittedSummary}; ${pendingJobs + blockedJobs} ${pendingJobs + blockedJobs === 1 ? "application is" : "applications are"} still waiting for review.`,
+    detail: completed
+      ? input.submittedDetail
+      : "The confirmed application is recorded. The remaining prepared applications keep their own review state.",
+    pendingJobs,
+    submittedJobs,
+    skippedJobs,
+    blockedJobs,
+    failedJobs,
+  });
+}
 
 export function enforcePrepareOnlyExecutionResult(
   input: ApplyExecutionResult,
@@ -167,7 +286,9 @@ export function buildMissingResumeCopilotArtifacts(input: {
       unansweredRequired: 1,
     },
     latestBlocker: {
-      code: needsWorkHistoryReview ? "requires_manual_review" : "missing_resume",
+      code: needsWorkHistoryReview
+        ? "requires_manual_review"
+        : "missing_resume",
       summary: result.blockerSummary,
     },
     consentSummary: {
@@ -398,6 +519,9 @@ export function mapExecutionResultToApplyBlockerReason(
   if (!blocker) {
     return null;
   }
+  if (blocker.userActionKind === "captcha") {
+    return "site_protection";
+  }
 
   switch (blocker.code) {
     case "missing_resume":
@@ -551,6 +675,7 @@ export function buildApplyCopilotArtifacts(input: {
   detectedAt: string;
   runId?: string;
   resultId?: string;
+  reviewCard?: ApplicationReviewCard | null;
   visualCheckpointsEnabled?: boolean;
 }): {
   run: ApplyRun;
@@ -864,6 +989,7 @@ export function buildApplyCopilotArtifacts(input: {
     artifactCount: artifactRefs.length,
     latestCheckpointId: checkpoints.at(-1)?.id ?? null,
     privacyReceipt,
+    reviewCard: input.reviewCard ?? null,
   });
 
   const run = ApplyRunSchema.parse({

@@ -20,6 +20,7 @@ import type {
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
   JobFinderOpenBrowserSessionInput,
+  JobFinderPreparedApplicationPageInput,
   JobFinderSearchRequest,
   JobFinderResumePreview,
   JobFinderResumeWorkspace,
@@ -113,8 +114,11 @@ export interface JobFinderPageContext {
   onStartAutoApplyQueue: (
     jobIds: JobFinderApplyQueueActionInput["jobIds"],
     applicationAutomationMode?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
+    options?: { stayOnCurrentPage?: boolean },
   ) => Promise<JobFinderAutoApplyQueueStartOutcome>;
   onStartApplyCopilot: (input: JobFinderApplicationStartTarget) => void;
+  /** Sends one finished application after the person presses Send. */
+  onSubmitPreparedApplication: (jobId: string) => Promise<void>;
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
@@ -225,6 +229,10 @@ export interface JobFinderPageContext {
 
   onOpenBrowserSession: (
     input?: JobFinderOpenBrowserSessionInput,
+    options?: JobFinderActionFailureReporting,
+  ) => Promise<boolean>;
+  onFocusPreparedApplicationPage: (
+    input: JobFinderPreparedApplicationPageInput,
     options?: JobFinderActionFailureReporting,
   ) => Promise<boolean>;
   onOpenProfile: () => void;

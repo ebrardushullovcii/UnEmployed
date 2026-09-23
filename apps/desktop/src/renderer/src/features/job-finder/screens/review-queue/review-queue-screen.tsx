@@ -272,11 +272,15 @@ export function ReviewQueueScreen(props: {
       return;
     }
     setApplyAllPending(true);
-    void onStartAutoApplyQueue(readyJobIds).finally(() => {
+    void onStartAutoApplyQueue(
+      readyJobIds,
+      applicationAutomationMode,
+    ).finally(() => {
       setApplyAllPending(false);
     });
   }, [
     applicationPreparingJobIds,
+    applicationAutomationMode,
     onStartAutoApplyQueue,
     preparedJobIds,
     queue,

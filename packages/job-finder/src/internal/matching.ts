@@ -36,6 +36,7 @@ import {
 import {
   createJobIdentityDigest,
   createJobIdentityIndex,
+  hasEquivalentListingContentIdentity,
 } from "./job-identity";
 import { assessJobPostingDetailQuality } from "./job-posting-detail-quality";
 import {
@@ -1071,6 +1072,22 @@ function preserveRicherExistingDetail(
   };
 }
 
+function isLikelyAccessGateListingUrl(value: string): boolean {
+  try {
+    const pathSegments = new URL(value).pathname
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => segment.toLowerCase());
+    return pathSegments.some((segment) =>
+      /^(?:auth|captcha|challenge|login|security|sign-?in|verify|verification)$/u.test(
+        segment,
+      ),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function enrichDiscoveredPosting(
   posting: JobPosting,
   existingJob: SavedJob | undefined,
@@ -1084,6 +1101,12 @@ export function enrichDiscoveredPosting(
 
   const enrichedPosting: JobPosting = {
     ...posting,
+    title:
+      existingJob &&
+      hasEquivalentListingContentIdentity(posting, existingJob) &&
+      normalizeText(existingJob.title).length > normalizeText(posting.title).length
+        ? existingJob.title
+        : posting.title,
     providerUpdatedAt: selectLatestProviderUpdate(
       posting.providerUpdatedAt,
       existingJob?.providerUpdatedAt,
@@ -1171,6 +1194,19 @@ export function enrichDiscoveredPosting(
         : buildKeywordSignals(posting),
     ),
   };
+
+  if (
+    existingJob &&
+    isLikelyAccessGateListingUrl(posting.canonicalUrl) &&
+    !isLikelyAccessGateListingUrl(existingJob.canonicalUrl)
+  ) {
+    return {
+      ...preserveRicherExistingDetail(enrichedPosting, existingJob),
+      title: existingJob.title,
+      canonicalUrl: existingJob.canonicalUrl,
+      applicationUrl: existingJob.applicationUrl,
+    };
+  }
 
   if (existingJob && hasWeakerIncomingDetailEvidence(posting, existingJob)) {
     return preserveRicherExistingDetail(enrichedPosting, existingJob);

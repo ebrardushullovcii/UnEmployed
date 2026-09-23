@@ -329,7 +329,7 @@ describe("shell chrome ownership", () => {
     expect(getSidebar().className).toBe(SHELL_SIDEBAR_CLASS);
     expect(
       within(getSidebar())
-        .getByRole("button", { name: /^Documents/ })
+        .getByRole("button", { name: /^Settings/ })
         .className.startsWith(SHELL_SIDEBAR_ROW_CLASS),
     ).toBe(true);
   });

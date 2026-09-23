@@ -784,7 +784,9 @@ export function DiscoveryDetailPanel({
         </p>
         {/* "Discovered" is the state of every row on this page; the badge
             only earns its place once the job has moved on to Shortlisted. */}
-        {selectedJob && readinessStatus && selectedJob.status !== "discovered" ? (
+        {selectedJob &&
+        readinessStatus &&
+        selectedJob.status !== "discovered" ? (
           <StatusBadge tone={readinessStatus.tone}>
             {readinessStatus.label}
           </StatusBadge>
@@ -1093,7 +1095,6 @@ export function DiscoveryDetailPanel({
                   />
                 ) : null}
 
-
                 {selectedJob.screeningHints.remoteGeographies.length > 0 ? (
                   <PreferenceList
                     compact
@@ -1195,7 +1196,8 @@ export function DiscoveryDetailPanel({
                         ) : null}
                       </div>
                       {selectedJob.applicationUrl &&
-                      selectedJob.applicationUrl !== selectedJob.canonicalUrl ? (
+                      selectedJob.applicationUrl !==
+                        selectedJob.canonicalUrl ? (
                         <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
                           <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
                             Application route
@@ -1476,8 +1478,8 @@ export function DiscoveryDetailPanel({
               )}
               <Button
                 onClick={() => {
-                  void navigator.clipboard
-                    .writeText(selectedJob.canonicalUrl)
+                  void window.unemployed.jobFinder
+                    .writeClipboardText(selectedJob.canonicalUrl)
                     .then(() => {
                       setCopiedListingJobId(selectedJob.id);
                       setListingCopyFailedJobId(null);

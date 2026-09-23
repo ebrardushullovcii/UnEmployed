@@ -35,6 +35,7 @@ import type {
   JobFinderApplyRunActionInput,
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
+  JobFinderPreparedApplicationPageInput,
   JobFinderDiscoveryCancellationInput,
   JobFinderSearchRequest,
   CandidateProfile,
@@ -73,6 +74,7 @@ import type {
   SaveInterviewSetupInput,
   SendInterviewChatMessageInput,
   UpdateInterviewOverlayPreferenceInput,
+  WriteClipboardTextResult,
   JobFinderOpenBrowserSessionInput,
   JobFinderSetResumeClaimConfirmationInput,
   JobFinderSetWorkHistoryReviewAcknowledgmentInput,
@@ -545,6 +547,7 @@ declare global {
           intent?: ResumePdfExportIntent,
         ) => Promise<JobFinderResumePdfExportResult>;
         revealSavedFile: (path: string) => Promise<RevealSavedFileResult>;
+        writeClipboardText: (text: string) => Promise<WriteClipboardTextResult>;
         approveResume: (
           jobId: string,
           exportId: string,
@@ -597,6 +600,9 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
         revokeApplyRunApproval: (
           input: JobFinderApplyRunActionInput,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        focusPreparedApplicationPage: (
+          input: JobFinderPreparedApplicationPageInput,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         submitPreparedApplication: (input: {
           jobId: string;

@@ -221,9 +221,8 @@ export const ApplicationAuthorityAnswerPolicySchema = z
         (values) => new Set(values).size === values.length,
         "Pre-approved declaration kinds must be unique.",
       ),
-    salaryDisclosure: ApplicationSalaryDisclosureRuleSchema.default(
-      "pause_for_user",
-    ),
+    salaryDisclosure:
+      ApplicationSalaryDisclosureRuleSchema.default("pause_for_user"),
   })
   .strict();
 export type ApplicationAuthorityAnswerPolicy = z.infer<
@@ -1169,6 +1168,21 @@ export type SubmissionOutcomeRetryEligibility = z.infer<
   typeof SubmissionOutcomeRetryEligibilitySchema
 >;
 
+/** Browser execution diagnostics are not employer confirmation evidence. */
+export const SubmissionBrowserActionDiagnosticsSchema = z
+  .object({
+    reason: NonEmptyStringSchema.max(80),
+    detail: NonEmptyStringSchema.max(500).optional(),
+    actionAttempted: z.boolean().optional(),
+    actionIssued: z.boolean().optional(),
+    actionCompleted: z.boolean().optional(),
+    requestsObservedDuringAction: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export type SubmissionBrowserActionDiagnostics = z.infer<
+  typeof SubmissionBrowserActionDiagnosticsSchema
+>;
+
 /**
  * Refinement matrix enforced here and relied upon by receipts/packets:
  * - `submitted`: retry permanently blocked as `submission_confirmed`,
@@ -1197,6 +1211,7 @@ export const SubmissionOutcomeRecordSchema = z
       .array(SubmissionOutcomeEvidenceEntrySchema)
       .max(submissionOutcomeMaxEvidenceEntries),
     retry: SubmissionOutcomeRetryEligibilitySchema,
+    browserAction: SubmissionBrowserActionDiagnosticsSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

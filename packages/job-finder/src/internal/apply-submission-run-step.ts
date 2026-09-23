@@ -29,6 +29,8 @@ import type { WorkspaceServiceContext } from "./workspace-service-context";
 export interface ApplySendAttempt {
   /** True only when a send was actually attempted. */
   sent: boolean;
+  /** True only when the employer site confirmed receipt. */
+  confirmedSubmitted: boolean;
   /**
    * True when the browser was no longer holding the page. Nothing was sent and
    * the application has to be prepared again before it can be.
@@ -47,6 +49,7 @@ export interface ApplySendAttempt {
  */
 const PAGE_CLOSED_ATTEMPT: ApplySendAttempt = {
   sent: false,
+  confirmedSubmitted: false,
   pageClosed: true,
   summary: "The application page was closed",
   detail:
@@ -70,7 +73,19 @@ export async function sendPreparedApplicationIfAllowed(input: {
 
   // The runtime keeps its own page; these stay bound to it.
   const runtime = input.ctx.browserRuntime;
-  if (!runtime.observeApplicationForm || !runtime.executeExactlyOneFinalAction) {
+  if (
+    !runtime.observeApplicationForm ||
+    !runtime.executeExactlyOneFinalAction
+  ) {
+    return PAGE_CLOSED_ATTEMPT;
+  }
+  if (
+    runtime.hasApplicationPageBinding &&
+    !(await runtime.hasApplicationPageBinding(
+      input.source,
+      input.lineage.resultId,
+    ))
+  ) {
     return PAGE_CLOSED_ATTEMPT;
   }
 
@@ -100,6 +115,7 @@ export async function sendPreparedApplicationIfAllowed(input: {
   return {
     sent:
       result.status === "submitted" || result.status === "outcome_uncertain",
+    confirmedSubmitted: result.status === "submitted",
     pageClosed: false,
     ...told,
   };

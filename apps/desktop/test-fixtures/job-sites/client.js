@@ -34,7 +34,7 @@ for (const zone of document.querySelectorAll('[data-drop]')) {
 }
 
 const lever = document.querySelector('form[data-site="lever"]');
-lever?.addEventListener('submit', event => {
+if (lever?.elements.human) lever.addEventListener('submit', event => {
   const error = document.getElementById('captcha-error');
   error.hidden = lever.elements.human.checked;
   if (!lever.elements.human.checked) event.preventDefault();

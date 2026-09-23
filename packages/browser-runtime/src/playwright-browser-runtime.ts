@@ -47,10 +47,12 @@ import {
   buildPreparationResult,
   createApplicationRunServiceWorkerSentinel,
   ensurePrepareOnlyMutationGuard,
+  closePrepareOnlyAuthorizedFormActionWindow,
   installServiceWorkerRegisterGuardInPage,
   type ServiceWorkerSafetyFinding,
 } from "./playwright-application-flow";
 import {
+  armPlaywrightApplicationFormAction,
   createPlaywrightApplyPageMechanics,
   createPlaywrightApplyPageSession,
   readRawApplyPage,
@@ -66,6 +68,7 @@ import type {
 import {
   createInconclusiveSourceAccessProbeResult,
   inspectSourceAccessPage,
+  selectUniqueSourceAccessPage,
 } from "./source-access-probe";
 import {
   areStructurallyEquivalentHttpUrls,
@@ -93,6 +96,57 @@ export interface JobPageExtractionInput {
 export type JobPageExtractor = (
   input: JobPageExtractionInput,
 ) => Promise<JobPosting[]>;
+
+export function selectPreparedApplicationPage<
+  TPage extends Pick<Page, "isClosed">,
+>(preparedPages: ReadonlyMap<string, TPage>, pageBindingKey: string): TPage {
+  const preparedPage = preparedPages.get(pageBindingKey) ?? null;
+  if (!preparedPage) {
+    throw new Error("The exact prepared application page is no longer open.");
+  }
+  if (preparedPage.isClosed()) {
+    throw new Error("The prepared application page was closed.");
+  }
+  return preparedPage;
+}
+
+export async function focusPreparedApplicationPage<
+  TPage extends Pick<Page, "isClosed" | "bringToFront">,
+>(
+  preparedPages: ReadonlyMap<string, TPage>,
+  pageBindingKey: string,
+): Promise<boolean> {
+  let page: TPage;
+  try {
+    page = selectPreparedApplicationPage(preparedPages, pageBindingKey);
+  } catch {
+    return false;
+  }
+  await bringPageToFrontBestEffort(page);
+  return true;
+}
+
+const NAVIGATION_CONNECTION_FAILURE_RE =
+  /ERR_(?:CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_TIMED_OUT|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED)|\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT)\b/iu;
+
+/** Keep a healthy browser usable when only the requested site is unreachable. */
+export function classifyBrowserNavigationFailure(
+  detail: string,
+): Pick<BrowserSessionState, "status" | "label" | "detail"> {
+  if (NAVIGATION_CONNECTION_FAILURE_RE.test(detail)) {
+    return {
+      status: "ready",
+      label: "Browser open",
+      detail:
+        "The browser is open, but the requested site could not be reached. Check the connection or site, then try again.",
+    };
+  }
+  return {
+    status: "blocked",
+    label: "Browser navigation failed",
+    detail,
+  };
+}
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -165,6 +219,29 @@ function parseHttpOrigin(urlString: string): string | null {
       : null;
   } catch {
     return null;
+  }
+}
+
+function assertRetainedApplicationPageOrigin(
+  pageUrl: string,
+  input: ExecuteApplicationFlowInput,
+): void {
+  const observedOrigin = parseHttpOrigin(pageUrl);
+  const allowedOrigins = new Set(
+    [
+      ...(input.applyAllowedOrigins ?? []),
+      input.startingUrl,
+      input.job.applicationUrl,
+      input.job.canonicalUrl,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map(parseHttpOrigin)
+      .filter((value): value is string => value !== null),
+  );
+  if (!observedOrigin || !allowedOrigins.has(observedOrigin)) {
+    throw new Error(
+      "The exact prepared application page left the allowed application origins. Prepare the application again before continuing.",
+    );
   }
 }
 
@@ -846,12 +923,32 @@ async function getPrimaryPage(context: BrowserContext): Promise<Page> {
   return openPages[openPages.length - 1] ?? context.newPage();
 }
 
+function areExactHttpUrls(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  try {
+    const leftUrl = new URL(left ?? "");
+    const rightUrl = new URL(right ?? "");
+    return (
+      (leftUrl.protocol === "http:" || leftUrl.protocol === "https:") &&
+      leftUrl.toString() === rightUrl.toString()
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function navigatePageToTarget(input: {
   page: Page;
   targetUrl: string;
   timeout?: number;
+  requireExactTarget?: boolean;
 }): Promise<boolean> {
-  if (areStructurallyEquivalentHttpUrls(input.page.url(), input.targetUrl)) {
+  const alreadyAtTarget = input.requireExactTarget
+    ? areExactHttpUrls(input.page.url(), input.targetUrl)
+    : areStructurallyEquivalentHttpUrls(input.page.url(), input.targetUrl);
+  if (alreadyAtTarget) {
     return false;
   }
 
@@ -878,7 +975,7 @@ async function resolveLivePageForContext(
   return page;
 }
 
-async function resolveAutomationPageForContext(
+export async function resolveAutomationPageForContext(
   context: BrowserContext,
   options: {
     targetUrl?: string | null;
@@ -886,6 +983,9 @@ async function resolveAutomationPageForContext(
     closeOtherPages?: boolean;
     reuseExistingPage?: boolean;
     protectedPageUrls?: readonly string[];
+    protectedPages?: readonly Page[];
+    preferredPage?: Page | null;
+    requireExactTarget?: boolean;
     onPageResolved?: (page: Page) => void;
   } = {},
 ): Promise<Page> {
@@ -893,17 +993,28 @@ async function resolveAutomationPageForContext(
     typeof options.targetUrl === "string" ? options.targetUrl.trim() : "";
   const currentPages = context.pages();
   const openPages = currentPages.filter((page) => !page.isClosed());
+  const preferredTargetPage =
+    options.preferredPage &&
+    openPages.includes(options.preferredPage) &&
+    areExactHttpUrls(options.preferredPage.url(), normalizedTargetUrl)
+      ? options.preferredPage
+      : null;
   const protectedPages = new Set(
-    openPages.filter((page) =>
-      (options.protectedPageUrls ?? []).some((url) =>
-        areStructurallyEquivalentHttpUrls(page.url(), url),
-      ),
+    openPages.filter(
+      (page) =>
+        page !== preferredTargetPage &&
+        ((options.protectedPages ?? []).includes(page) ||
+          (options.protectedPageUrls ?? []).some((url) =>
+            areStructurallyEquivalentHttpUrls(page.url(), url),
+          )),
     ),
   );
   const selectablePages = openPages.filter((page) => !protectedPages.has(page));
   const exactTargetPage = isHttpUrlLike(normalizedTargetUrl)
     ? selectablePages.find((page) =>
-        areStructurallyEquivalentHttpUrls(page.url(), normalizedTargetUrl),
+        options.requireExactTarget
+          ? areExactHttpUrls(page.url(), normalizedTargetUrl)
+          : areStructurallyEquivalentHttpUrls(page.url(), normalizedTargetUrl),
       )
     : null;
   const blankPage =
@@ -912,7 +1023,8 @@ async function resolveAutomationPageForContext(
   const page =
     options.reuseExistingPage === false
       ? await context.newPage()
-      : (exactTargetPage ??
+      : (preferredTargetPage ??
+        exactTargetPage ??
         blankPage ??
         reusableLivePage ??
         (await context.newPage()));
@@ -946,6 +1058,9 @@ async function prepareAutomationPageForTarget(
     closeOtherPages?: boolean;
     reuseExistingPage?: boolean;
     protectedPageUrls?: readonly string[];
+    protectedPages?: readonly Page[];
+    preferredPage?: Page | null;
+    requireExactTarget?: boolean;
     signal?: AbortSignal;
     onPageResolved?: (page: Page) => void;
   },
@@ -967,15 +1082,21 @@ async function prepareAutomationPageForTarget(
     ...(options.protectedPageUrls
       ? { protectedPageUrls: options.protectedPageUrls }
       : {}),
+    ...(options.protectedPages
+      ? { protectedPages: options.protectedPages }
+      : {}),
+    ...(options.preferredPage ? { preferredPage: options.preferredPage } : {}),
+    ...(options.requireExactTarget !== undefined
+      ? { requireExactTarget: options.requireExactTarget }
+      : {}),
     ...(options.onPageResolved
       ? { onPageResolved: options.onPageResolved }
       : {}),
   });
   options.signal?.throwIfAborted();
-  const alreadyAtTarget = areStructurallyEquivalentHttpUrls(
-    page.url(),
-    options.targetUrl,
-  );
+  const alreadyAtTarget = options.requireExactTarget
+    ? areExactHttpUrls(page.url(), options.targetUrl)
+    : areStructurallyEquivalentHttpUrls(page.url(), options.targetUrl);
   let navigatedToTarget = false;
 
   if (!alreadyAtTarget) {
@@ -985,6 +1106,9 @@ async function prepareAutomationPageForTarget(
         targetUrl: options.targetUrl,
         ...(options.navigationTimeoutMs
           ? { timeout: options.navigationTimeoutMs }
+          : {}),
+        ...(options.requireExactTarget !== undefined
+          ? { requireExactTarget: options.requireExactTarget }
           : {}),
       });
       options.signal?.throwIfAborted();
@@ -1076,6 +1200,14 @@ export function createBrowserAgentRuntime(
   let launchedChromeProcess: ChildProcess | null = null;
   let ownsChromeProcess = false;
   let applicationExecutionTail: Promise<void> = Promise.resolve();
+  // A person can prepare several Ask-before-sending forms or open unrelated
+  // tabs. Keep every final action bound to its exact preparation identity.
+  const preparedApplicationPages = new Map<string, Page>();
+  const getLivePreparedApplicationPages = (): Page[] => [
+    ...new Set(
+      [...preparedApplicationPages.values()].filter((page) => !page.isClosed()),
+    ),
+  ];
   const windowBoundsPath = join(
     options.userDataDir,
     "unemployed-browser-window-bounds.json",
@@ -1206,6 +1338,7 @@ export function createBrowserAgentRuntime(
   }
 
   function resetBrowserConnection(): void {
+    preparedApplicationPages.clear();
     browserPromise = null;
     launchedChromeProcess = null;
     ownsChromeProcess = false;
@@ -1482,6 +1615,19 @@ export function createBrowserAgentRuntime(
     return page;
   }
 
+  async function getPreparedApplicationPage(
+    source: JobSource,
+    pageBindingKey?: string,
+  ): Promise<Page> {
+    if (pageBindingKey) {
+      return selectPreparedApplicationPage(
+        preparedApplicationPages,
+        pageBindingKey,
+      );
+    }
+    return getReadyPage(source);
+  }
+
   async function getAgentRunPage(
     source: JobSource,
     agentOptions: AgentDiscoveryOptions,
@@ -1495,6 +1641,7 @@ export function createBrowserAgentRuntime(
     }
 
     const context = await getContext();
+    const retainedApplicationPages = getLivePreparedApplicationPages();
     const prepared = await prepareAutomationPageForTarget(context, {
       targetUrl: navigationTarget,
       bringToFront: currentSessionState.status !== "ready",
@@ -1507,10 +1654,14 @@ export function createBrowserAgentRuntime(
             ),
           }
         : {}),
+      ...(retainedApplicationPages.length > 0
+        ? { protectedPages: retainedApplicationPages }
+        : {}),
       ...(agentOptions.signal ? { signal: agentOptions.signal } : {}),
       ...(onPageResolved ? { onPageResolved } : {}),
       setBlockedState: (detail) => {
-        setSessionState(source, "blocked", "Browser navigation failed", detail);
+        const failure = classifyBrowserNavigationFailure(detail);
+        setSessionState(source, failure.status, failure.label, failure.detail);
       },
     });
     setSessionState(
@@ -1530,6 +1681,7 @@ export function createBrowserAgentRuntime(
     const normalizedTargetUrl =
       typeof input.targetUrl === "string" ? input.targetUrl.trim() : "";
     if (isHttpUrlLike(normalizedTargetUrl)) {
+      const retainedApplicationPages = getLivePreparedApplicationPages();
       await prepareAutomationPageForTarget(await getContext(), {
         targetUrl: normalizedTargetUrl,
         ...(input.reuseExistingPage !== undefined
@@ -1537,14 +1689,18 @@ export function createBrowserAgentRuntime(
           : {}),
         bringToFront: true,
         closeOtherPages: true,
+        ...(retainedApplicationPages.length > 0
+          ? { protectedPages: retainedApplicationPages }
+          : {}),
         navigationTimeoutMs: 8_000,
         acceptTargetOriginAfterTimeout: true,
         setBlockedState: (detail) => {
+          const failure = classifyBrowserNavigationFailure(detail);
           setSessionState(
             input.source,
-            "blocked",
-            "Browser navigation failed",
-            detail,
+            failure.status,
+            failure.label,
+            failure.detail,
           );
         },
       });
@@ -1669,7 +1825,7 @@ export function createBrowserAgentRuntime(
     observeOptions?: ObserveApplicationFormOptions,
   ) {
     return observeApplicationFormOnPage(
-      await getReadyPage(source),
+      await getPreparedApplicationPage(source, observeOptions?.pageBindingKey),
       observeOptions,
     );
   }
@@ -1680,7 +1836,7 @@ export function createBrowserAgentRuntime(
    * bounded operations on it and nothing else.
    */
   function applyPageMechanicsForSource(source: JobSource): ApplyRawPageHands {
-    const onReadyPage = async <TResult,>(
+    const onReadyPage = async <TResult>(
       operation: (page: Page) => Promise<TResult>,
     ): Promise<TResult> => operation(await getReadyPage(source));
 
@@ -1692,7 +1848,10 @@ export function createBrowserAgentRuntime(
         ),
       chooseOption: (ref, optionLabel) =>
         onReadyPage((page) =>
-          createPlaywrightApplyPageMechanics(page).chooseOption(ref, optionLabel),
+          createPlaywrightApplyPageMechanics(page).chooseOption(
+            ref,
+            optionLabel,
+          ),
         ),
       setToggle: (ref, checked) =>
         onReadyPage((page) =>
@@ -1757,7 +1916,7 @@ export function createBrowserAgentRuntime(
     },
   ): Promise<void> {
     await ensurePrepareOnlyMutationGuard(
-      await getReadyPage(source),
+      await getPreparedApplicationPage(source),
       guardInput.intermediateMutationsAuthorized,
       guardInput.allowedOrigins,
     );
@@ -1769,7 +1928,7 @@ export function createBrowserAgentRuntime(
   ) {
     actionInput.signal?.throwIfAborted();
     return executeExactlyOneFinalActionOnPage(
-      await getReadyPage(source),
+      await getPreparedApplicationPage(source, actionInput.pageBindingKey),
       actionInput,
     );
   }
@@ -1868,12 +2027,71 @@ export function createBrowserAgentRuntime(
       }
 
       const pages = browser.contexts().flatMap((context) => context.pages());
-      const page = selectLiveHttpPage(pages);
+      const page = selectUniqueSourceAccessPage(pages, input.expectedOrigin);
       return page
         ? inspectSourceAccessPage(page, input)
         : createInconclusiveSourceAccessProbeResult(input);
     },
     observeApplicationForm: observeApplicationFormForSource,
+    hasApplicationPageBinding(_source, pageBindingKey) {
+      try {
+        selectPreparedApplicationPage(preparedApplicationPages, pageBindingKey);
+        return Promise.resolve(true);
+      } catch {
+        return Promise.resolve(false);
+      }
+    },
+    async focusApplicationPageBinding(_source, pageBindingKey) {
+      return focusPreparedApplicationPage(
+        preparedApplicationPages,
+        pageBindingKey,
+      );
+    },
+    async readApplicationPageBinding(_source, pageBindingKey) {
+      const page = selectPreparedApplicationPage(
+        preparedApplicationPages,
+        pageBindingKey,
+      );
+      const raw = await readRawApplyPage(page);
+      return {
+        ...raw,
+        controls: raw.controls.map((control) =>
+          control.inputType.toLowerCase() === "password"
+            ? { ...control, value: "" }
+            : control,
+        ),
+      };
+    },
+    async armApplicationFormAction(_source, input) {
+      const page = selectPreparedApplicationPage(
+        preparedApplicationPages,
+        input.pageBindingKey,
+      );
+      await closePrepareOnlyAuthorizedFormActionWindow(page);
+      const raw = await readRawApplyPage(page);
+      const action = raw.actions.find(
+        (candidate) => (candidate.ref ?? `a${candidate.index}`) === input.ref,
+      );
+      if (
+        raw.url !== input.pageUrl ||
+        !action ||
+        !action.visible ||
+        action.disabled ||
+        action.label.trim() !== input.label ||
+        action.formAction !== input.formAction ||
+        action.formMethod?.toUpperCase() !== input.formMethod
+      ) {
+        throw new Error(
+          "The exact observed form action changed before handoff.",
+        );
+      }
+      await armPlaywrightApplicationFormAction(page, input.ref);
+    },
+    async closeApplicationFormAction(_source, pageBindingKey) {
+      const page = preparedApplicationPages.get(pageBindingKey);
+      if (!page || page.isClosed()) return;
+      await closePrepareOnlyAuthorizedFormActionWindow(page);
+    },
     applyPageMechanics: applyPageMechanicsForSource,
     installApplyPrepareOnlyGuard: installApplyPrepareOnlyGuardForSource,
     executeExactlyOneFinalAction: executeExactlyOneFinalActionForSource,
@@ -1931,10 +2149,34 @@ export function createBrowserAgentRuntime(
             durationMs: Math.max(0, completedAtMs - stageStartedAtMs),
           });
         };
-        // A continued run opens on the page it stopped on and keeps that
-        // tab; otherwise the job's own link.
+        // A continued run owns one exact prepared Page. Its live URL is more
+        // authoritative than a persisted checkpoint URL: the form can move
+        // from a listing through several wizard URLs before the checkpoint is
+        // written. Requiring the binding also prevents restart recovery from
+        // creating a fresh, empty same-URL form and calling it continuation.
+        const isContinuation = isHttpUrlLike(input.startingUrl ?? "");
+        const retainedContinuationPage =
+          isContinuation && input.applicationPageBindingKey
+            ? selectPreparedApplicationPage(
+                preparedApplicationPages,
+                input.applicationPageBindingKey,
+              )
+            : null;
+        if (retainedContinuationPage) {
+          await closePrepareOnlyAuthorizedFormActionWindow(
+            retainedContinuationPage,
+          );
+          assertRetainedApplicationPageOrigin(
+            retainedContinuationPage.url(),
+            input,
+          );
+        }
         const targetUrl =
-          (isHttpUrlLike(input.startingUrl ?? "") ? input.startingUrl : null) ??
+          (retainedContinuationPage &&
+          isHttpUrlLike(retainedContinuationPage.url())
+            ? retainedContinuationPage.url()
+            : null) ??
+          (isContinuation ? input.startingUrl : null) ??
           input.job.applicationUrl ??
           input.job.canonicalUrl;
         const resumeFilePath = input.resumeArtifact.filePath.trim();
@@ -2011,10 +2253,49 @@ export function createBrowserAgentRuntime(
                   finding: preNavigationFinding,
                 });
               } else {
+                const boundPage =
+                  retainedContinuationPage ??
+                  (input.applicationPageBindingKey
+                    ? (preparedApplicationPages.get(
+                        input.applicationPageBindingKey,
+                      ) ?? null)
+                    : null);
+                const otherPreparedPages = [
+                  ...preparedApplicationPages.entries(),
+                ]
+                  .filter(
+                    ([key, page]) =>
+                      key !== input.applicationPageBindingKey &&
+                      !page.isClosed(),
+                  )
+                  .map(([, page]) => page);
+                const boundPageMatchesTarget =
+                  boundPage !== null &&
+                  !boundPage.isClosed() &&
+                  areExactHttpUrls(boundPage.url(), targetUrl);
+                const protectedPreparedPages = [
+                  ...otherPreparedPages,
+                  ...(boundPage && !boundPageMatchesTarget ? [boundPage] : []),
+                ];
+                const exactTargetOwnedByAnotherPreparation =
+                  !boundPageMatchesTarget &&
+                  otherPreparedPages.some((page) =>
+                    areExactHttpUrls(page.url(), targetUrl),
+                  );
                 const prepared = await prepareAutomationPageForTarget(context, {
                   targetUrl,
+                  requireExactTarget: true,
                   bringToFront: true,
                   closeOtherPages: true,
+                  ...(boundPageMatchesTarget
+                    ? { preferredPage: boundPage }
+                    : {}),
+                  ...(protectedPreparedPages.length > 0
+                    ? { protectedPages: protectedPreparedPages }
+                    : {}),
+                  ...(exactTargetOwnedByAnotherPreparation
+                    ? { reuseExistingPage: false }
+                    : {}),
                   ...(options?.signal ? { signal: options.signal } : {}),
                   onPageResolved: (page) => {
                     workingPage = page;
@@ -2032,6 +2313,12 @@ export function createBrowserAgentRuntime(
                     );
                   },
                 });
+                if (input.applicationPageBindingKey) {
+                  preparedApplicationPages.set(
+                    input.applicationPageBindingKey,
+                    prepared.page,
+                  );
+                }
                 options?.signal?.throwIfAborted();
                 const postNavigationFinding =
                   await runSentinel.check("post_navigation");
@@ -2054,15 +2341,24 @@ export function createBrowserAgentRuntime(
                   setSessionState(
                     source,
                     "ready",
-                    "Application preparation paused safely",
-                    "The dedicated browser profile is open at the current application checkpoint. Final submission remains disabled.",
+                    "Application page ready",
+                    "The Job Finder browser is open at the current application checkpoint.",
                   );
                   formPreparationStartedAtMs = Date.now();
+                  const applicationSession = createPlaywrightApplyPageSession({
+                    page: prepared.page,
+                    sentinel: runSentinel,
+                  });
+                  if (input.prepareTaskLocalCredentials) {
+                    await input.prepareTaskLocalCredentials({
+                      session: applicationSession,
+                      ...(options?.signal ? { signal: options.signal } : {}),
+                    });
+                    options?.signal?.throwIfAborted();
+                  }
                   executionResult = await input.prepareApplicationForm({
-                    session: createPlaywrightApplyPageSession({
-                      page: prepared.page,
-                      sentinel: runSentinel,
-                    }),
+                    session: applicationSession,
+                    currentUrl: prepared.page.url(),
                     startedAt,
                     ...(options?.signal ? { signal: options.signal } : {}),
                   });
@@ -2251,18 +2547,46 @@ export function createBrowserAgentRuntime(
           pageAbortBinding.onPageResolved(resolvedPage);
         });
 
-        if (
-          !isWarmPageReusable({ pageUrl: page.url(), options: agentOptions })
-        ) {
-          const navigationTarget =
-            agentOptions.startingUrls.find((url) => isHttpUrlLike(url)) ??
-            agentOptions.startingUrls[0] ??
-            null;
+        const navigationTarget =
+          agentOptions.startingUrls.find((url) => isHttpUrlLike(url)) ??
+          agentOptions.startingUrls[0] ??
+          null;
+        const warmPageReusable = isWarmPageReusable({
+          pageUrl: page.url(),
+          options: agentOptions,
+        });
+        if (warmPageReusable && navigationTarget) {
+          // A source check may have left its starting URL open even when that
+          // URL returned 404. Reusing the page must not bypass the same
+          // failure check a fresh navigation would make.
+          const warmStatus = await page
+            .evaluate(() => {
+              const navigation = performance
+                .getEntriesByType("navigation")
+                .at(-1);
+              return navigation && "responseStatus" in navigation
+                ? Number(navigation.responseStatus)
+                : null;
+            })
+            .catch(() => null);
+          if (warmStatus === 404 || warmStatus === 410) {
+            throw new Error(
+              `Starting page returned HTTP ${warmStatus}: ${navigationTarget}`,
+            );
+          }
+        }
 
+        if (!warmPageReusable) {
           if (navigationTarget) {
-            await page.goto(navigationTarget, {
+            const response = await page.goto(navigationTarget, {
               waitUntil: "domcontentloaded",
             });
+            const status = response?.status() ?? null;
+            if (status === 404 || status === 410) {
+              throw new Error(
+                `Starting page returned HTTP ${status}: ${navigationTarget}`,
+              );
+            }
           }
         }
 
@@ -2452,7 +2776,9 @@ export function createBrowserAgentRuntime(
               }));
             },
           },
-          ...(agentOptions.onProgress ? { onProgress: agentOptions.onProgress } : {}),
+          ...(agentOptions.onProgress
+            ? { onProgress: agentOptions.onProgress }
+            : {}),
           ...(agentOptions.signal ? { signal: agentOptions.signal } : {}),
         });
 

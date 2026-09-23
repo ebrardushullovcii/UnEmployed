@@ -24,6 +24,7 @@ import {
   type JobSearchPreferences,
   type ResumeDraft,
   type ResumeTemplateDefinition,
+  type ResumeValidationIssue,
   ResumeStrategyCoveragePolicySchema,
   ResumeStrategyEvidenceBoundariesSchema,
   ResumeStrategyHeadlinePolicySchema,
@@ -362,6 +363,8 @@ export interface CreateResumeDraftInput extends TailorResumeInput {
     pageCount: number | null;
     warnings: readonly string[];
     fileName: string | null;
+    requiredModelRepairs?: readonly ResumeValidationIssue[];
+    personConfirmationCount?: number;
   }>;
   strategy?: ResumeGenerationStrategyPolicy | null;
   evidence?: {
@@ -438,6 +441,10 @@ export function describeProfileAssistantBehavior(
       : "Reply briefly: one or two plain sentences that say what changed or what you found, with no preamble.",
   ];
 }
+
+/** User-facing Settings names that differ from stored preference values. */
+export const PROFILE_RESUME_APPROACH_VOCABULARY =
+  "When the person asks to change the default resume approach, map the Settings names Light to tailoringMode conservative, Tailored to tailoringMode balanced, and Aggressive to tailoringMode aggressive. Original is a separate Settings choice and cannot be changed through a profile search-preference patch.";
 
 export interface AssessJobFitInput {
   profile: CandidateProfile;

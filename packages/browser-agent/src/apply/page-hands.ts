@@ -135,17 +135,37 @@ export function buildApplyFormObservation(
 ): ApplyFormObservation {
   const controls: ApplyFormControl[] = raw.controls.map((rawControl) => {
     const kind = toControlKind(rawControl);
+    const inputType = rawControl.inputType.toLowerCase();
+    const credentialRole =
+      inputType === "password"
+        ? ("password" as const)
+        : inputType === "email" ||
+            /\b(?:email|e-mail|username|user name|user id)\b/iu.test(
+              `${rawControl.label} ${rawControl.placeholder} ${rawControl.autocomplete}`,
+            )
+          ? ("identifier" as const)
+          : null;
     const base = {
       ref: rawControl.ref ?? `c${rawControl.index}`,
       kind,
       label: rawControl.label.trim(),
       groupLabel: rawControl.groupLabel.trim(),
+      ...(kind === "radio"
+        ? {
+            choiceGroupKey: rawControl.name.trim()
+              ? `${rawControl.scopeKey ?? "root"}:name:${rawControl.name.trim()}`
+              : `ref:${rawControl.ref ?? `c${rawControl.index}`}`,
+          }
+        : {}),
       placeholder: rawControl.placeholder.trim(),
       required: rawControl.required,
       disabled: rawControl.disabled,
       readOnly: rawControl.readOnly,
       visible: rawControl.visible,
-      value: rawControl.value,
+      // A task-local password can be present long enough to submit a sign-in
+      // form, but it must never enter the observation/model/tool trace.
+      value: credentialRole === "password" ? "" : rawControl.value,
+      credentialRole,
       checked: rawControl.checked,
       options: rawControl.options,
       selectedOptionLabel: rawControl.selectedOptionLabel,
@@ -159,24 +179,46 @@ export function buildApplyFormObservation(
       attestationKind: inferAttestationKind(base),
       answered: false,
     };
-    return { ...control, answered: isControlAnswered(control) };
+    return {
+      ...control,
+      answered:
+        credentialRole === "password"
+          ? rawControl.value.length > 0
+          : isControlAnswered(control),
+    };
   });
+
+  // A radio group is one question. Once one option is selected, every option
+  // in that group belongs to an answered question; `checked` still identifies
+  // the chosen value. Treating each unselected option as a separate empty
+  // required field makes an agent overwrite a valid Yes with No (and vice
+  // versa) while trying to satisfy an impossible form state.
+  for (const control of controls) {
+    if (control.kind !== "radio") continue;
+    const groupKey = control.choiceGroupKey;
+    if (!groupKey) continue;
+    control.answered = controls.some((candidate) => {
+      if (candidate.kind !== "radio" || !candidate.checked) return false;
+      return candidate.choiceGroupKey === groupKey;
+    });
+  }
 
   // A phone field sitting next to a country picker must not repeat the code
   // the picker already shows, so each phone field is told what that is.
-  const shownCallingCode = controls
-    .filter((control) => isPhoneCountryControl(control))
-    .flatMap((control) => {
-      const shown = control.selectedOptionLabel || control.value;
-      const fromOption = optionCallingCodes(shown);
-      const explicit = explicitCallingCode(shown);
-      return fromOption.length === 1 && fromOption[0]
-        ? [fromOption[0]]
-        : explicit
-          ? [explicit]
-          : [];
-    })
-    .at(0) ?? null;
+  const shownCallingCode =
+    controls
+      .filter((control) => isPhoneCountryControl(control))
+      .flatMap((control) => {
+        const shown = control.selectedOptionLabel || control.value;
+        const fromOption = optionCallingCodes(shown);
+        const explicit = explicitCallingCode(shown);
+        return fromOption.length === 1 && fromOption[0]
+          ? [fromOption[0]]
+          : explicit
+            ? [explicit]
+            : [];
+      })
+      .at(0) ?? null;
   if (shownCallingCode) {
     for (const control of controls) {
       if (
@@ -197,6 +239,8 @@ export function buildApplyFormObservation(
     kind: inferActionKind(rawAction.label),
     visible: rawAction.visible,
     disabled: rawAction.disabled,
+    ...(rawAction.formAction ? { formAction: rawAction.formAction } : {}),
+    ...(rawAction.formMethod ? { formMethod: rawAction.formMethod } : {}),
   }));
 
   const links: ApplyPageLink[] = raw.links.map((rawLink) => {
@@ -211,7 +255,8 @@ export function buildApplyFormObservation(
       label: rawLink.label.trim(),
       href: resolved ? resolved.toString() : rawLink.href,
       origin:
-        resolved && (resolved.protocol === "https:" || resolved.protocol === "http:")
+        resolved &&
+        (resolved.protocol === "https:" || resolved.protocol === "http:")
           ? resolved.origin
           : null,
       destination: readLinkDestination(resolved),
@@ -238,7 +283,8 @@ export function buildApplyFormObservation(
           `${control.ref}|${control.kind}|${normalizeSignal(control.label)}|${control.required}|${control.answered}`,
       ),
       ...actions.map(
-        (action) => `${action.ref}|${action.kind}|${normalizeSignal(action.label)}`,
+        (action) =>
+          `${action.ref}|${action.kind}|${normalizeSignal(action.label)}`,
       ),
       ...links.map((link) => `${link.ref}|${normalizeSignal(link.label)}`),
     ]),
@@ -272,6 +318,7 @@ export function buildApplyFormObservation(
       bodyText: raw.bodyText,
       controls,
       actions,
+      links,
     }),
   };
 }
@@ -287,7 +334,10 @@ export function createApplyPageHands(
 ): ApplyPageHands {
   return {
     observe: async () =>
-      buildApplyFormObservation(await mechanics.readPage(), now().toISOString()),
+      buildApplyFormObservation(
+        await mechanics.readPage(),
+        now().toISOString(),
+      ),
     navigate: (url) => mechanics.navigate(url),
     clickElement: (ref) => mechanics.clickElement(ref),
     pressKey: (ref, key) => mechanics.pressKey(ref, key),
@@ -296,7 +346,8 @@ export function createApplyPageHands(
     goBack: () => mechanics.goBack(),
     readText: (ref) => mechanics.readText(ref),
     fillText: (ref, value) => mechanics.fillText(ref, value),
-    chooseOption: (ref, optionLabel) => mechanics.chooseOption(ref, optionLabel),
+    chooseOption: (ref, optionLabel) =>
+      mechanics.chooseOption(ref, optionLabel),
     setToggle: (ref, checked) => mechanics.setToggle(ref, checked),
     uploadFile: (ref, file) => mechanics.uploadFile(ref, file),
     clickAction: (ref) => mechanics.clickAction(ref),

@@ -122,7 +122,7 @@ describe("listing detail enrichment inside a discovery run", () => {
     expect(run?.summary.outcome).toBe("completed");
     expect(
       (run?.activity ?? []).some((event) =>
-        /wanted a sign-in/u.test(event.message),
+        /blocked or rate-limited/u.test(event.message),
       ),
     ).toBe(true);
   }, 30_000);

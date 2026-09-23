@@ -20,11 +20,23 @@ import {
 } from "./apply-prompts";
 import { getApplyToolDefinitions, parseApplyProposal } from "./apply-tools";
 import {
+  buildPendingQuestion,
   createApplyGuardState,
   executeApplyProposal,
+  questionPrompt,
   type ApplyExecutionOutcome,
 } from "./policy-executor";
-import { buildCoverLetterRequest } from "./cover-letter";
+import {
+  buildCoverLetterRequest,
+  coverLetterPolicyAllows,
+  isCoverLetterControl,
+} from "./cover-letter";
+import { resolveApplyAnswer } from "./answer-sourcing";
+import {
+  checkWrittenApplicationAnswer,
+  WrittenAnswerCheckUnavailableError,
+} from "./written-answer-grounding";
+import { reportedSecurityChallenge } from "./blockers";
 import type {
   ApplyAgentConfig,
   ApplyAgentResult,
@@ -102,6 +114,85 @@ function browserFailureKind(toolName: string): "browser" | "tool" {
     : "tool";
 }
 
+const GENERIC_FILE_WORDS = new Set([
+  "a",
+  "an",
+  "application",
+  "attach",
+  "attachment",
+  "document",
+  "file",
+  "required",
+  "the",
+  "upload",
+]);
+
+function hasMatchingApplicationDocument(
+  control: ApplyFormObservation["controls"][number],
+  documents: readonly ApplyDocument[],
+): boolean {
+  const prompt = questionPrompt(control).toLowerCase();
+  if (
+    control.questionKind === "resume" &&
+    /(?:\bresume\b|curriculum vitae|\bcv\b)/u.test(prompt)
+  ) {
+    return documents.some((document) => document.kind === "resume");
+  }
+  if (
+    control.questionKind === "cover_letter" &&
+    /(?:cover|motivation)[ -]?letter/u.test(prompt)
+  ) {
+    return documents.some((document) => document.kind === "cover_letter");
+  }
+  const promptWords = prompt
+    .split(/[^a-z0-9]+/u)
+    .filter((word) => word.length > 2 && !GENERIC_FILE_WORDS.has(word));
+  if (promptWords.length === 0) return false;
+  return documents.some((document) => {
+    if (document.kind === "resume" || document.kind === "cover_letter") {
+      return false;
+    }
+    const description = `${document.label} ${document.fileName}`.toLowerCase();
+    return promptWords.some((word) => description.includes(word));
+  });
+}
+
+function stuckReasonMentionsRequiredFile(
+  reason: string,
+  control: ApplyFormObservation["controls"][number],
+): boolean {
+  const normalizedReason = reason.toLowerCase();
+  if (/\b(?:attach|document|file|upload)\b/u.test(normalizedReason)) {
+    return true;
+  }
+  const promptWords = questionPrompt(control)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/u)
+    .filter((word) => word.length > 3 && !GENERIC_FILE_WORDS.has(word));
+  return promptWords.some((word) => normalizedReason.includes(word));
+}
+
+function isApplicationLetterOrStatement(
+  control: ApplyFormObservation["controls"][number],
+): boolean {
+  const prompt = questionPrompt(control).toLowerCase();
+  return (
+    isCoverLetterControl(control) ||
+    /\b(?:supporting|personal) statement\b/u.test(prompt)
+  );
+}
+
+function canGenerateRequiredApplicationDocument(
+  control: ApplyFormObservation["controls"][number],
+  config: ApplyAgentConfig,
+): boolean {
+  if (!config.letters || !isApplicationLetterOrStatement(control)) {
+    return false;
+  }
+  const policy = config.writing?.coverLetterPolicy ?? "when_required";
+  return coverLetterPolicyAllows(control, policy);
+}
+
 export async function runApplyAgent(
   config: ApplyAgentConfig,
   llmClient: LLMClient,
@@ -120,6 +211,16 @@ export async function runApplyAgent(
     sources: { ...config.sources, documents: documentCatalog },
   };
   let readyToSend: ApplyAgentResult["readyToSend"] = null;
+
+  const pendingQuestionKey = (
+    control: Pick<
+      ApplyFormObservation["controls"][number],
+      "ref" | "kind" | "choiceGroupKey"
+    >,
+  ): string =>
+    control.kind === "radio" && control.choiceGroupKey
+      ? `radio:${control.choiceGroupKey}`
+      : control.ref;
 
   await config.onProgress?.({
     step: 0,
@@ -201,9 +302,9 @@ export async function runApplyAgent(
     ]),
   );
 
-  const outcomeToLoop = (
+  const outcomeToLoop = async (
     outcome: ApplyExecutionOutcome,
-  ): AgentLoopToolOutcome => {
+  ): Promise<AgentLoopToolOutcome> => {
     switch (outcome.kind) {
       case "observed":
         syncObservation(outcome.observation);
@@ -219,7 +320,16 @@ export async function runApplyAgent(
         };
       case "filled":
         filled.push(outcome.filled);
-        pendingQuestions.delete(outcome.filled.ref);
+        pendingQuestions.delete(
+          pendingQuestionKey(
+            outcome.observation.controls.find(
+              (control) => control.ref === outcome.filled.ref,
+            ) ?? {
+              ref: outcome.filled.ref,
+              kind: "other",
+            },
+          ),
+        );
         syncObservation(outcome.observation);
         note(
           `Answered "${outcome.filled.label}" from ${outcome.filled.answer.provenanceLabel}.`,
@@ -251,7 +361,13 @@ export async function runApplyAgent(
       case "suggestion":
         syncObservation(outcome.observation);
         if (outcome.question) {
-          pendingQuestions.set(outcome.controlRef, outcome.question);
+          const control = outcome.observation.controls.find(
+            (candidate) => candidate.ref === outcome.controlRef,
+          );
+          pendingQuestions.set(
+            control ? pendingQuestionKey(control) : outcome.controlRef,
+            outcome.question,
+          );
         }
         return { kind: "ok", content: outcome.note };
       case "refused":
@@ -282,12 +398,161 @@ export async function runApplyAgent(
             "The form is complete and everything checks out. Nothing has been sent: call finish now.",
         };
       case "finished": {
+        // A write receipt is not proof that a controlled field retained its
+        // value. Re-read the live form before accepting the model's finish.
+        const observation = await pageTools.observe();
+        syncObservation(observation);
+        const unansweredRequired = observation.controls.filter(
+          (control, index, controls) => {
+            if (
+              !control.required ||
+              control.disabled ||
+              (!control.visible && control.kind !== "file")
+            ) {
+              return false;
+            }
+            if (control.kind !== "radio") {
+              return !control.answered;
+            }
+            const group = control.choiceGroupKey;
+            const groupControls = controls.filter(
+              (candidate) =>
+                candidate.kind === "radio" &&
+                (group
+                  ? candidate.choiceGroupKey === group
+                  : candidate.ref === control.ref),
+            );
+            if (groupControls.some((candidate) => candidate.checked)) {
+              return false;
+            }
+            return groupControls[0]?.ref === control.ref;
+          },
+        );
+        const stuckOnMissingFile =
+          outcome.stuck === true &&
+          unansweredRequired.some(
+            (control) =>
+              control.kind === "file" &&
+              stuckReasonMentionsRequiredFile(outcome.reason, control),
+          );
+        if (
+          (!outcome.stuck || stuckOnMissingFile) &&
+          unansweredRequired.length > 0
+        ) {
+          const actionable: string[] = [];
+          for (const control of unansweredRequired) {
+            if (pendingQuestions.has(pendingQuestionKey(control))) continue;
+            if (outcome.stuck && control.kind !== "file") continue;
+            if (control.kind === "file") {
+              if (hasMatchingApplicationDocument(control, documentCatalog)) {
+                actionable.push(
+                  `"${questionPrompt(control)}" requires a file. Use upload with the matching supplied document before finishing.`,
+                );
+              } else if (
+                canGenerateRequiredApplicationDocument(control, runConfig)
+              ) {
+                actionable.push(
+                  `"${questionPrompt(control)}" requires a document that Job Finder is allowed to write. Use create_application_document, then upload the generated file before finishing.`,
+                );
+              } else if (
+                isApplicationLetterOrStatement(control) &&
+                (runConfig.writing?.coverLetterPolicy ?? "when_required") ===
+                  "never"
+              ) {
+                const question = buildPendingQuestion({
+                  control,
+                  jobId: config.application.jobId,
+                  detectedAt: now().toISOString(),
+                  suggestion: null,
+                  siblings: observation.controls,
+                });
+                pauses.push({
+                  code: "document_needs_you",
+                  summary:
+                    "This form requires a letter, but your settings say Job Finder should not write one. Attach the letter yourself or change that setting, then continue.",
+                  question,
+                  questions: [question],
+                  blocker: null,
+                });
+              } else {
+                pendingQuestions.set(
+                  pendingQuestionKey(control),
+                  buildPendingQuestion({
+                    control,
+                    jobId: config.application.jobId,
+                    detectedAt: now().toISOString(),
+                    suggestion: null,
+                    siblings: observation.controls,
+                  }),
+                );
+              }
+              continue;
+            }
+            const resolution = resolveApplyAnswer({
+              control,
+              sources: config.sources,
+              salaryDisclosure: config.authority.salaryDisclosure,
+            });
+            if (resolution.status === "needs_you") {
+              pendingQuestions.set(
+                pendingQuestionKey(control),
+                buildPendingQuestion({
+                  control,
+                  jobId: config.application.jobId,
+                  detectedAt: now().toISOString(),
+                  suggestion: resolution.suggestion,
+                  siblings: observation.controls,
+                }),
+              );
+              continue;
+            }
+            actionable.push(
+              resolution.status === "answered"
+                ? `"${questionPrompt(control)}" is required and still empty. The grounded answer is "${resolution.answer.value}"; use the matching form control.`
+                : `"${questionPrompt(control)}" is required and still empty; fill it from the supplied facts before finishing.`,
+            );
+          }
+          if (actionable.length > 0) {
+            return {
+              kind: "ok",
+              content: `The form is not finished yet. ${actionable.join(" ")} Inspect the current form after writing it, then finish only when every required control is answered.`,
+            };
+          }
+        }
+        if (
+          !outcome.stuck &&
+          !outcome.needsPerson &&
+          observation.blocker?.requiresPerson !== true &&
+          config.authority.mode !== "prepare_only" &&
+          readyToSend === null
+        ) {
+          const finalAction = observation.actions.find(
+            (action) =>
+              action.kind === "final" && action.visible && !action.disabled,
+          );
+          if (finalAction) {
+            return {
+              kind: "ok",
+              content: `The form is filled in, but Job Finder has not recorded its final action yet. Use submit_application with ref "${finalAction.ref}" so Job Finder can run the final readiness check without pressing it from this preparation loop.`,
+            };
+          }
+        }
         const finish: AgentLoopFinish = {
           reason: outcome.reason,
           stuck: outcome.stuck,
           needsPerson: outcome.needsPerson,
           data: {},
         };
+        const reportedChallenge = reportedSecurityChallenge(outcome.reason);
+        if (reportedChallenge) {
+          pauses.push({
+            code: "page_blocked",
+            summary: reportedChallenge.summary,
+            question: null,
+            blocker: reportedChallenge,
+          });
+          finish.needsPerson = true;
+        }
         return { kind: "finish", finish };
       }
       default: {
@@ -324,7 +589,9 @@ export async function runApplyAgent(
       definition,
       failureKind: browserFailureKind(name),
       describeError: (error) =>
-        describeBrowserError(error, "The browser did not respond."),
+        error instanceof WrittenAnswerCheckUnavailableError
+          ? error.message
+          : describeBrowserError(error, "The browser did not respond."),
       execute: async (rawArguments) => {
         const parsed = parseApplyProposal(name, rawArguments);
         if (!parsed.ok) return { kind: "ok", content: parsed.error };
@@ -339,7 +606,19 @@ export async function runApplyAgent(
         const outcome = await executeApplyProposal(
           parsed.proposal,
           pageTools.state.observation?.signature ?? "",
-          { config: runConfig, now, guardState },
+          {
+            config: runConfig,
+            now,
+            guardState,
+            checkWrittenAnswer: (question, answer) =>
+              checkWrittenApplicationAnswer({
+                client: llmClient,
+                sources: runConfig.sources,
+                question,
+                answer,
+                signal: config.signal,
+              }),
+          },
         );
         if (
           writeKey &&
@@ -383,7 +662,7 @@ export async function runApplyAgent(
       function: {
         name: "create_application_document",
         description:
-          "Create or revise a grounded cover letter, motivation letter, or short supporting statement requested by this application, as a PDF, Word (docx) or plain text (txt) file, whichever the form accepts. The document is rendered locally and added to the application document list; creating it never uploads or submits it. Use it whenever a form wants a file Job Finder does not have yet.",
+          "Create or revise a grounded cover letter, motivation letter, or short supporting statement requested by this application, as a PDF, Word (docx) or plain text (txt) file, whichever the form accepts. The document is rendered locally and added to the application document list; creating it never uploads or submits it. Never create a substitute for a portfolio, work sample, transcript, or certificate upload.",
         parameters: {
           type: "object",
           properties: {
@@ -494,6 +773,9 @@ export async function runApplyAgent(
     ceilings: {
       maxSteps: config.runControl?.maxSteps ?? DEFAULT_MAX_STEPS,
       timeBudgetMs: config.runControl?.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS,
+      // A timed-out model turn has produced no tool calls, so retrying the
+      // exact turn once cannot repeat a page write or a submission attempt.
+      modelTurnTimeoutRetries: 1,
       noProgressStepLimit:
         config.runControl?.noProgressStepLimit ??
         DEFAULT_NO_PROGRESS_STEP_LIMIT,
@@ -509,11 +791,26 @@ export async function runApplyAgent(
   });
 
   const pending = collectedQuestionsPause();
+  const personOwnedBlocker =
+    pageTools.state.observation?.blocker?.requiresPerson === true
+      ? pageTools.state.observation.blocker
+      : null;
   let outcome: ApplyAgentResult["outcome"];
   let reason: string;
   if (pauses.length > 0) {
     outcome = "paused";
     reason = pauses[0]?.summary ?? loop.reason;
+  } else if (personOwnedBlocker) {
+    const pause: ApplyPause = {
+      code: "page_blocked",
+      summary: personOwnedBlocker.summary,
+      question: null,
+      blocker: personOwnedBlocker,
+    };
+    pauses.push(pause);
+    note(pause.summary);
+    outcome = "paused";
+    reason = personOwnedBlocker.summary;
   } else if (pending) {
     pauses.push(pending);
     outcome = "paused";

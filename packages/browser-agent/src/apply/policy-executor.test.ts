@@ -1,4 +1,7 @@
-import { CandidateProfileSchema, type CandidateProfile } from "@unemployed/contracts";
+import {
+  CandidateProfileSchema,
+  type CandidateProfile,
+} from "@unemployed/contracts";
 import { describe, expect, test, vi } from "vitest";
 
 import {
@@ -16,7 +19,9 @@ import type {
   ApplyPageHands,
 } from "./types";
 
-function rawControl(overrides: Partial<RawApplyControl> & { index: number }): RawApplyControl {
+function rawControl(
+  overrides: Partial<RawApplyControl> & { index: number },
+): RawApplyControl {
   return {
     tagName: "input",
     inputType: "text",
@@ -100,34 +105,42 @@ function authority(overrides: Partial<ApplyAuthority> = {}): ApplyAuthority {
 function configFor(
   page: RawApplyPage,
   overrides: {
+    accountCreationAuthorized?: boolean;
     authority?: Partial<ApplyAuthority>;
     hands?: Partial<ApplyPageHands>;
   } = {},
 ): { config: ApplyAgentConfig; hands: ApplyPageHands } {
   const hands: ApplyPageHands = {
     observe: () => Promise.resolve(observationOf(page)),
-    navigate: () => Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
+    navigate: () =>
+      Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
     clickElement: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
     scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
     wait: () => Promise.resolve(),
-    goBack: () => Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
+    goBack: () =>
+      Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
     readText: () => Promise.resolve("Apply for the role"),
-    fillText: (_ref, value) => Promise.resolve({ ok: true, observedValue: value }),
-    chooseOption: (_ref, option) => Promise.resolve({ ok: true, observedValue: option }),
+    fillText: (_ref, value) =>
+      Promise.resolve({ ok: true, observedValue: value }),
+    chooseOption: (_ref, option) =>
+      Promise.resolve({ ok: true, observedValue: option }),
     setToggle: (_ref, checked) =>
       Promise.resolve({
         ok: true,
         observedValue: checked ? "checked" : "unchecked",
       }),
-    uploadFile: (_ref, file) => Promise.resolve({ ok: true, observedValue: file.name }),
+    uploadFile: (_ref, file) =>
+      Promise.resolve({ ok: true, observedValue: file.name }),
     clickAction: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
-    followLink: () => Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
+    followLink: () =>
+      Promise.resolve({ ok: true, url: "https://apply.example.test/form" }),
     ...overrides.hands,
   };
   return {
     hands,
     config: {
       hands,
+      accountCreationAuthorized: overrides.accountCreationAuthorized,
       authority: authority(overrides.authority),
       sources: {
         profile: profile(),
@@ -154,6 +167,360 @@ function configFor(
 const now = () => new Date("2026-09-14T10:00:00.000Z");
 
 describe("apply policy executor", () => {
+  test.each([false, true])(
+    "does not write unsupported personal experience (required=%s)",
+    async (required) => {
+      const source = rawPage({
+        controls: [
+          rawControl({
+            index: 0,
+            tagName: "textarea",
+            required,
+            label:
+              "Tell me about a feature you built using an AI coding assistant",
+          }),
+        ],
+      });
+      const fillText = vi.fn(() =>
+        Promise.resolve({
+          ok: true as const,
+          observedValue: "written",
+        }),
+      );
+      const { config } = configFor(source, { hands: { fillText } });
+      const checkWrittenAnswer = vi.fn(() =>
+        Promise.resolve({
+          supported: false,
+          reason:
+            "No supplied applicant fact says they used an AI coding assistant.",
+        }),
+      );
+      const result = await executeApplyProposal(
+        {
+          tool: "type",
+          ref: "c0",
+          text: "I use an AI coding assistant every day.",
+          groundedIn: ["general industry practice"],
+        },
+        observationOf(source).signature,
+        {
+          config,
+          now,
+          guardState: createApplyGuardState(),
+          checkWrittenAnswer,
+        },
+      );
+      expect(checkWrittenAnswer).toHaveBeenCalledOnce();
+      expect(fillText).not.toHaveBeenCalled();
+      expect(result.kind).toBe("suggestion");
+      if (result.kind !== "suggestion")
+        throw new Error("Expected grounded-answer handoff");
+      expect(result.question !== null).toBe(required);
+      expect(result.note).toContain("continue with the other fields");
+    },
+  );
+
+  test("writes supported prose after the applicant-fact check", async () => {
+    const source = rawPage({
+      controls: [
+        rawControl({ index: 0, tagName: "textarea", label: "Why this role?" }),
+      ],
+    });
+    const fillText = vi.fn((_ref: string, value: string) =>
+      Promise.resolve({
+        ok: true as const,
+        observedValue: value,
+      }),
+    );
+    const { config } = configFor(source, { hands: { fillText } });
+    const result = await executeApplyProposal(
+      {
+        tool: "type",
+        ref: "c0",
+        text: "I would like to build reliable tools.",
+      },
+      observationOf(source).signature,
+      {
+        config,
+        now,
+        guardState: createApplyGuardState(),
+        checkWrittenAnswer: () =>
+          Promise.resolve({
+            supported: true,
+            reason: "Motivation, without unsupported personal history.",
+          }),
+      },
+    );
+    expect(result.kind).toBe("filled");
+    expect(fillText).toHaveBeenCalledWith(
+      "c0",
+      "I would like to build reliable tools.",
+    );
+  });
+  test("refuses an account-creation link when this run has no account authority", async () => {
+    const page = rawPage({
+      bodyText: "Sign in or create an account to continue.",
+      links: [
+        {
+          index: 0,
+          label: "Create account",
+          href: "https://apply.example.test/register",
+          target: "",
+          visible: true,
+          topOffset: 10,
+        },
+      ],
+    });
+    const followLink = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        url: "https://apply.example.test/register",
+      }),
+    );
+    const { config } = configFor(page, { hands: { followLink } });
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "follow_link", ref: "l0" },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("refused");
+    if (outcome.kind !== "refused") throw new Error("Expected refusal.");
+    expect(outcome.reason).toMatch(/account has not been authorized/i);
+    expect(followLink).not.toHaveBeenCalled();
+  });
+
+  test("permits an account-creation link only with exact account authority", async () => {
+    const page = rawPage({
+      links: [
+        {
+          index: 0,
+          label: "Register",
+          href: "https://apply.example.test/register",
+          target: "",
+          visible: true,
+          topOffset: 10,
+        },
+      ],
+    });
+    const followLink = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        url: "https://apply.example.test/register",
+      }),
+    );
+    const { config } = configFor(page, {
+      accountCreationAuthorized: true,
+      hands: { followLink },
+    });
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "follow_link", ref: "l0" },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("moved");
+    expect(followLink).toHaveBeenCalledOnce();
+  });
+
+  test("keeps a continuation on its retained form instead of following the site header home", async () => {
+    const page = rawPage({
+      url: "https://apply.example.test/workday/apply/2?stage=application",
+      controls: [
+        rawControl({ index: 0, label: "First name", inputType: "text" }),
+      ],
+      actions: [
+        {
+          index: 0,
+          label: "Submit application",
+          visible: true,
+          disabled: false,
+        },
+      ],
+      links: [
+        {
+          index: 0,
+          label: "Careers home",
+          href: "https://apply.example.test/workday/",
+          target: "",
+          visible: true,
+          topOffset: 10,
+        },
+      ],
+    });
+    const followLink = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        url: "https://apply.example.test/workday/",
+      }),
+    );
+    const { config } = configFor(page, { hands: { followLink } });
+    config.application.continuation = {
+      sourceUrls: ["https://apply.example.test/workday/jobs/2"],
+    };
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "follow_link", ref: "l0" },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("refused");
+    if (outcome.kind !== "refused") throw new Error("Expected refusal.");
+    expect(outcome.reason).toMatch(/retained application form/i);
+    expect(followLink).not.toHaveBeenCalled();
+  });
+
+  test("a continuation can still advance to another page inside its wizard", async () => {
+    const page = rawPage({
+      url: "https://apply.example.test/workday/apply/2?stage=application",
+    });
+    const navigate = vi.fn((url: string) =>
+      Promise.resolve({ ok: true as const, url }),
+    );
+    const { config } = configFor(page, { hands: { navigate } });
+    config.application.continuation = {
+      sourceUrls: ["https://apply.example.test/workday/jobs/2"],
+    };
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      {
+        tool: "navigate",
+        url: "https://apply.example.test/workday/apply/2?stage=review",
+      },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("moved");
+    expect(navigate).toHaveBeenCalledOnce();
+  });
+
+  test("a continuation may leave an account landing page to reach its known job", async () => {
+    const landing = rawPage({
+      url: "https://apply.example.test/workday/account",
+      controls: [
+        rawControl({
+          index: 0,
+          label: "Search jobs",
+          inputType: "search",
+          required: false,
+        }),
+      ],
+    });
+    const navigate = vi.fn((url: string) =>
+      Promise.resolve({ ok: true as const, url }),
+    );
+    const { config } = configFor(landing, { hands: { navigate } });
+    config.application.continuation = {
+      sourceUrls: ["https://apply.example.test/workday/jobs/2"],
+    };
+    const observation = observationOf(landing);
+
+    const outcome = await executeApplyProposal(
+      {
+        tool: "navigate",
+        url: "https://apply.example.test/workday/jobs/2",
+      },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("moved");
+    expect(navigate).toHaveBeenCalledOnce();
+  });
+
+  test("stops before pressing a credential-form action outside the task-local credential path", async () => {
+    const page = rawPage({
+      url: "https://apply.example.test/signin",
+      bodyText: "Sign in to continue",
+      controls: [
+        rawControl({
+          index: 0,
+          label: "Password",
+          inputType: "password",
+          required: true,
+        }),
+      ],
+      actions: [
+        {
+          index: 0,
+          label: "Sign in",
+          visible: true,
+          disabled: false,
+        },
+      ],
+    });
+    const clickElement = vi.fn(() =>
+      Promise.resolve({ ok: true as const, observedValue: "clicked" }),
+    );
+    const { config } = configFor(page, { hands: { clickElement } });
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "click", ref: "a0" },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "paused",
+      pause: { blocker: { code: "site_login_required" } },
+    });
+    expect(clickElement).not.toHaveBeenCalled();
+  });
+
+  test("never types a model-proposed value into a credential form", async () => {
+    const page = rawPage({
+      url: "https://apply.example.test/signin",
+      bodyText: "Sign in to continue",
+      controls: [
+        rawControl({
+          index: 0,
+          label: "Password",
+          inputType: "password",
+          required: true,
+        }),
+      ],
+      actions: [
+        {
+          index: 0,
+          label: "Sign in",
+          visible: true,
+          disabled: false,
+        },
+      ],
+    });
+    const fillText = vi.fn(() =>
+      Promise.resolve({ ok: true as const, observedValue: "redacted" }),
+    );
+    const { config } = configFor(page, { hands: { fillText } });
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      {
+        tool: "type",
+        ref: "c0",
+        text: "invented-password",
+        groundedIn: ["the posting"],
+      },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "paused",
+      pause: { blocker: { code: "site_login_required" } },
+    });
+    expect(fillText).not.toHaveBeenCalled();
+  });
+
   test("fills a known field from the person's own profile, not from the model", async () => {
     const page = rawPage({
       controls: [rawControl({ index: 0, label: "Email", inputType: "email" })],
@@ -172,13 +539,46 @@ describe("apply policy executor", () => {
     expect(fillText).toHaveBeenCalledWith("c0", "robin.ashford@example.test");
   });
 
+  test("does not add unsupported technologies to a technical-skills answer", async () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          tagName: "textarea",
+          label: "Which technical skills would you bring?",
+        }),
+      ],
+    });
+    const { config, hands } = configFor(page);
+    config.sources.profile.skills = ["React", "TypeScript", "Design Systems"];
+    const fillText = vi.spyOn(hands, "fillText");
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      {
+        tool: "type",
+        ref: "c0",
+        text: "I improve CI/CD and support distributed teams.",
+      },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("filled");
+    expect(fillText).toHaveBeenCalledWith(
+      "c0",
+      "React, TypeScript, Design Systems",
+    );
+  });
+
   test("a declaration the person has not pre-approved is left for them without stopping the run", async () => {
     const page = rawPage({
       controls: [
         rawControl({
           index: 0,
           inputType: "checkbox",
-          label: "I certify that the information I have given is true and complete",
+          label:
+            "I certify that the information I have given is true and complete",
           required: true,
         }),
       ],
@@ -209,7 +609,8 @@ describe("apply policy executor", () => {
         rawControl({
           index: 0,
           inputType: "checkbox",
-          label: "I certify that the information I have given is true and complete",
+          label:
+            "I certify that the information I have given is true and complete",
           required: true,
         }),
       ],
@@ -219,8 +620,10 @@ describe("apply policy executor", () => {
       {
         id: "saved_certify",
         kind: "other",
-        label: "I certify that the information I have given is true and complete",
-        question: "I certify that the information I have given is true and complete",
+        label:
+          "I certify that the information I have given is true and complete",
+        question:
+          "I certify that the information I have given is true and complete",
         answer: "Yes",
         roleFamilies: [],
         proofEntryIds: [],
@@ -248,12 +651,15 @@ describe("apply policy executor", () => {
         rawControl({
           index: 0,
           inputType: "checkbox",
-          label: "I certify that the information I have given is true and complete",
+          label:
+            "I certify that the information I have given is true and complete",
         }),
       ],
     });
     const { config } = configFor(page, {
-      authority: { preApprovedAttestationKinds: ["truthfulness_certification"] },
+      authority: {
+        preApprovedAttestationKinds: ["truthfulness_certification"],
+      },
     });
     const observation = observationOf(page);
 
@@ -271,9 +677,121 @@ describe("apply policy executor", () => {
     }
   });
 
+  test("rejects a radio choice that contradicts a grounded eligibility answer", async () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          inputType: "radio",
+          name: "authorized",
+          value: "Yes",
+          label: "Yes",
+          groupLabel: "Are you legally authorized to work in this country?",
+          required: true,
+        }),
+        rawControl({
+          index: 1,
+          inputType: "radio",
+          name: "authorized",
+          value: "No",
+          label: "No",
+          groupLabel: "Are you legally authorized to work in this country?",
+          required: true,
+        }),
+      ],
+    });
+    const { config, hands } = configFor(page);
+    config.sources.profile = CandidateProfileSchema.parse({
+      ...config.sources.profile,
+      answerBank: {
+        ...config.sources.profile.answerBank,
+        workAuthorization: "Yes",
+      },
+    });
+    const setToggle = vi.spyOn(hands, "setToggle");
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "set_checkbox", ref: "c1", checked: true },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("refused");
+    if (outcome.kind !== "refused") throw new Error("Expected refusal.");
+    expect(outcome.reason).toMatch(/grounded answer is "Yes"/iu);
+    expect(setToggle).not.toHaveBeenCalled();
+
+    const groundedOutcome = await executeApplyProposal(
+      { tool: "set_checkbox", ref: "c0", checked: true },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(groundedOutcome).toMatchObject({
+      kind: "filled",
+      filled: {
+        answer: {
+          value: "Yes",
+          sourceKind: "profile",
+        },
+      },
+    });
+    expect(setToggle).toHaveBeenCalledOnce();
+  });
+
+  test("overrides a proposed target-job title with the matching saved work-history fact", async () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          label: "Job title",
+          groupLabel: "Work experience 1",
+          required: true,
+        }),
+      ],
+    });
+    const { config, hands } = configFor(page);
+    config.sources.profile = CandidateProfileSchema.parse({
+      ...config.sources.profile,
+      experiences: [
+        {
+          id: "experience_signal",
+          companyName: "Signal Systems",
+          title: "Staff Frontend Engineer",
+          startDate: "2014-01",
+          isCurrent: true,
+          summary: "Led design system modernization.",
+        },
+      ],
+    });
+    const fillText = vi.spyOn(hands, "fillText");
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      {
+        tool: "type",
+        ref: "c0",
+        text: config.sources.posting.title,
+      },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("filled");
+    expect(fillText).toHaveBeenCalledWith("c0", "Staff Frontend Engineer");
+    if (outcome.kind === "filled") {
+      expect(outcome.filled.answer.sourceId).toBe(
+        "profile.experiences.experience_signal.title",
+      );
+    }
+  });
+
   test("pay is left to the person unless they said otherwise", async () => {
     const page = rawPage({
-      controls: [rawControl({ index: 0, label: "Expected salary", required: true })],
+      controls: [
+        rawControl({ index: 0, label: "Expected salary", required: true }),
+      ],
     });
     const { config } = configFor(page);
     const observation = observationOf(page);
@@ -382,7 +900,10 @@ describe("apply policy executor", () => {
   });
 
   test("with a reviewer, leaving the listing's site needs a reason the review accepts", async () => {
-    const listing = rawPage({ url: "https://apply.example.test/form", controls: [] });
+    const listing = rawPage({
+      url: "https://apply.example.test/form",
+      controls: [],
+    });
     const employer = rawPage({
       url: "https://boards.example-ats.test/form",
       controls: [rawControl({ index: 0, label: "Email", inputType: "email" })],
@@ -392,8 +913,14 @@ describe("apply policy executor", () => {
       (move: { url: string; reason: string; fromUrl: string | null }) =>
         Promise.resolve(
           /application form/u.test(move.reason)
-            ? { allowed: true, verdict: "The listing hands off to the employer's form." }
-            : { allowed: false, verdict: "That reason does not say what the page is for." },
+            ? {
+                allowed: true,
+                verdict: "The listing hands off to the employer's form.",
+              }
+            : {
+                allowed: false,
+                verdict: "That reason does not say what the page is for.",
+              },
         ),
     );
     const { config } = configFor(listing, {
@@ -418,22 +945,29 @@ describe("apply policy executor", () => {
       { config: withReview, now, guardState },
     );
     expect(noReason.kind).toBe("refused");
-    if (noReason.kind === "refused") expect(noReason.reason).toContain("say why in reason");
+    if (noReason.kind === "refused")
+      expect(noReason.reason).toContain("say why in reason");
     expect(review).not.toHaveBeenCalled();
 
     const weak = await executeApplyProposal(
-      { tool: "navigate", url: "https://boards.example-ats.test/form", reason: "Looks interesting" },
+      {
+        tool: "navigate",
+        url: "https://boards.example-ats.test/form",
+        reason: "Looks interesting",
+      },
       observationOf(listing).signature,
       { config: withReview, now, guardState },
     );
     expect(weak.kind).toBe("refused");
-    if (weak.kind === "refused") expect(weak.reason).toContain("did not allow going there");
+    if (weak.kind === "refused")
+      expect(weak.reason).toContain("did not allow going there");
 
     const good = await executeApplyProposal(
       {
         tool: "navigate",
         url: "https://boards.example-ats.test/form",
-        reason: "The Apply button on the listing links here, to the employer's application form",
+        reason:
+          "The Apply button on the listing links here, to the employer's application form",
       },
       observationOf(listing).signature,
       { config: withReview, now, guardState },
@@ -443,7 +977,9 @@ describe("apply policy executor", () => {
       expect(good.note).toContain("allowed after review");
       expect(good.observation.url).toBe("https://boards.example-ats.test/form");
     }
-    expect(guardState.approvedOrigins.has("https://boards.example-ats.test")).toBe(true);
+    expect(
+      guardState.approvedOrigins.has("https://boards.example-ats.test"),
+    ).toBe(true);
     expect(guardState.notes.join("\n")).toContain("Allowed after review");
   });
 
@@ -464,9 +1000,21 @@ describe("apply policy executor", () => {
   test("the send button is never pressed when the run may only prepare", async () => {
     const page = rawPage({
       controls: [
-        rawControl({ index: 0, label: "Email", inputType: "email", value: "robin@example.test" }),
+        rawControl({
+          index: 0,
+          label: "Email",
+          inputType: "email",
+          value: "robin@example.test",
+        }),
       ],
-      actions: [{ index: 0, label: "Submit application", visible: true, disabled: false }],
+      actions: [
+        {
+          index: 0,
+          label: "Submit application",
+          visible: true,
+          disabled: false,
+        },
+      ],
     });
     const { config, hands } = configFor(page);
     const clickAction = vi.spyOn(hands, "clickAction");
@@ -531,7 +1079,14 @@ describe("submit preflight", () => {
     const observation = observationOf(
       rawPage({
         controls: [rawControl({ index: 0, label: "Email", required: true })],
-        actions: [{ index: 0, label: "Submit application", visible: true, disabled: false }],
+        actions: [
+          {
+            index: 0,
+            label: "Submit application",
+            visible: true,
+            disabled: false,
+          },
+        ],
       }),
     );
 
@@ -551,10 +1106,27 @@ describe("submit preflight", () => {
     const observation = observationOf(
       rawPage({
         controls: [
-          rawControl({ index: 0, label: "Email", required: true, value: "robin@example.test" }),
-          rawControl({ index: 1, label: "Resume", inputType: "file", required: true }),
+          rawControl({
+            index: 0,
+            label: "Email",
+            required: true,
+            value: "robin@example.test",
+          }),
+          rawControl({
+            index: 1,
+            label: "Resume",
+            inputType: "file",
+            required: true,
+          }),
         ],
-        actions: [{ index: 0, label: "Submit application", visible: true, disabled: false }],
+        actions: [
+          {
+            index: 0,
+            label: "Submit application",
+            visible: true,
+            disabled: false,
+          },
+        ],
       }),
     );
 
@@ -574,10 +1146,22 @@ describe("submit preflight", () => {
     const observation = observationOf(
       rawPage({
         stepLabel: "Step 1 of 2",
-        controls: [rawControl({ index: 0, label: "Email", required: true, value: "robin@example.test" })],
+        controls: [
+          rawControl({
+            index: 0,
+            label: "Email",
+            required: true,
+            value: "robin@example.test",
+          }),
+        ],
         actions: [
           { index: 0, label: "Next", visible: true, disabled: false },
-          { index: 1, label: "Submit application", visible: true, disabled: false },
+          {
+            index: 1,
+            label: "Submit application",
+            visible: true,
+            disabled: false,
+          },
         ],
       }),
     );
@@ -599,7 +1183,12 @@ describe("submit preflight", () => {
       rawPage({
         stepLabel: "Step 2 of 2",
         controls: [
-          rawControl({ index: 0, label: "Email", required: true, value: "robin@example.test" }),
+          rawControl({
+            index: 0,
+            label: "Email",
+            required: true,
+            value: "robin@example.test",
+          }),
           rawControl({
             index: 1,
             label: "Resume",
@@ -608,7 +1197,14 @@ describe("submit preflight", () => {
             value: "resume.pdf",
           }),
         ],
-        actions: [{ index: 0, label: "Submit application", visible: true, disabled: false }],
+        actions: [
+          {
+            index: 0,
+            label: "Submit application",
+            visible: true,
+            disabled: false,
+          },
+        ],
       }),
     );
 
@@ -626,14 +1222,16 @@ describe("the letter this application sends", () => {
   const letterText =
     "Dear hiring team, I have spent eight years building internal platforms that other engineers depend on every day, and the work described in this posting is the same shape. I would bring that experience to your team and would welcome the chance to talk it through with you.";
 
-  function lettersFor(document: {
-    id: string;
-    fileName: string;
-    mimeType: string;
-    label: string;
-    kind: "cover_letter";
-    loadBytes: () => Promise<Uint8Array>;
-  } | null) {
+  function lettersFor(
+    document: {
+      id: string;
+      fileName: string;
+      mimeType: string;
+      label: string;
+      kind: "cover_letter";
+      loadBytes: () => Promise<Uint8Array>;
+    } | null,
+  ) {
     return {
       preference: {
         tone: "plain_professional" as const,
@@ -650,13 +1248,91 @@ describe("the letter this application sends", () => {
     };
   }
 
-  test("a box asking for a letter gets the letter, recorded as written for this job", async () => {
+  test("leaves an optional letter blank when settings allow only required letters", async () => {
     const page = rawPage({
       controls: [
         rawControl({
           index: 0,
           tagName: "textarea",
-          label: "Why do you want to work here?",
+          label: "Cover letter",
+          required: false,
+        }),
+      ],
+    });
+    const { config, hands } = configFor(page);
+    const fillText = vi.spyOn(hands, "fillText");
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "type", ref: "c0", text: "A generated letter" },
+      observation.signature,
+      {
+        config: {
+          ...config,
+          writing: {
+            coverLetterPolicy: "when_required",
+            writtenAnswerLength: "short",
+            preApprovedDeclarations: [],
+          },
+        },
+        now,
+        guardState: createApplyGuardState(),
+      },
+    );
+
+    expect(outcome.kind).toBe("refused");
+    if (outcome.kind === "refused") {
+      expect(outcome.reason).toContain("optional");
+    }
+    expect(fillText).not.toHaveBeenCalled();
+  });
+
+  test("hands a required letter to the person when settings say never", async () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          inputType: "file",
+          label: "Cover letter",
+          required: true,
+        }),
+      ],
+    });
+    const { config } = configFor(page);
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "upload", ref: "c0", documentId: "letter" },
+      observation.signature,
+      {
+        config: {
+          ...config,
+          writing: {
+            coverLetterPolicy: "never",
+            writtenAnswerLength: "short",
+            preApprovedDeclarations: [],
+          },
+        },
+        now,
+        guardState: createApplyGuardState(),
+      },
+    );
+
+    expect(outcome.kind).toBe("paused");
+    if (outcome.kind === "paused") {
+      expect(outcome.pause.code).toBe("document_needs_you");
+      expect(outcome.pause.question?.prompt).toContain("Cover letter");
+    }
+  });
+
+  test("when possible writes an optional letter box and records it as written for this job", async () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          tagName: "textarea",
+          label: "Cover letter",
+          required: false,
         }),
       ],
     });
@@ -668,7 +1344,15 @@ describe("the letter this application sends", () => {
       { tool: "type", ref: "c0", text: "" },
       observation.signature,
       {
-        config: { ...config, letters: lettersFor(null) },
+        config: {
+          ...config,
+          writing: {
+            coverLetterPolicy: "when_possible",
+            writtenAnswerLength: "short",
+            preApprovedDeclarations: [],
+          },
+          letters: lettersFor(null),
+        },
         now,
         guardState: createApplyGuardState(),
       },
@@ -688,7 +1372,12 @@ describe("the letter this application sends", () => {
   test("a file field asking for a letter gets the same letter as a file", async () => {
     const page = rawPage({
       controls: [
-        rawControl({ index: 0, inputType: "file", label: "Cover letter" }),
+        rawControl({
+          index: 0,
+          inputType: "file",
+          label: "Cover letter",
+          required: true,
+        }),
       ],
     });
     const { config, hands } = configFor(page);
@@ -723,6 +1412,116 @@ describe("the letter this application sends", () => {
     });
   });
 
+  test("the person's own cover letter file is attached, even to an optional field, instead of writing one", async () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          inputType: "file",
+          label: "Cover letter",
+          required: false,
+        }),
+      ],
+    });
+    const { config, hands } = configFor(page);
+    const uploadFile = vi.spyOn(hands, "uploadFile");
+    const observation = observationOf(page);
+    const provideLetter = vi.fn();
+
+    const outcome = await executeApplyProposal(
+      { tool: "upload", ref: "c0", documentId: "document_asset_letter" },
+      observation.signature,
+      {
+        config: {
+          ...config,
+          sources: {
+            ...config.sources,
+            documents: [
+              {
+                id: "document_asset_letter",
+                fileName: "my-letter.pdf",
+                mimeType: "application/pdf",
+                label: "Cover letter from the person's files",
+                kind: "cover_letter",
+                loadBytes: () => Promise.resolve(new Uint8Array([7, 8, 9])),
+              },
+            ],
+          },
+          letters: { ...lettersFor(null), provide: provideLetter },
+        },
+        now,
+        guardState: createApplyGuardState(),
+      },
+    );
+
+    expect(outcome.kind).toBe("attached");
+    if (outcome.kind === "attached") {
+      expect(outcome.attachment.documentId).toBe("document_asset_letter");
+    }
+    expect(uploadFile).toHaveBeenCalledWith("c0", {
+      name: "my-letter.pdf",
+      mimeType: "application/pdf",
+      bytes: new Uint8Array([7, 8, 9]),
+    });
+    expect(provideLetter).not.toHaveBeenCalled();
+  });
+
+  test("a portfolio field accepts the person's file but refuses a generated statement", async () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          inputType: "file",
+          label: "Portfolio",
+          required: true,
+        }),
+      ],
+    });
+    const { config, hands } = configFor(page);
+    const uploadFile = vi.spyOn(hands, "uploadFile");
+    const observation = observationOf(page);
+    const own = {
+      id: "own_portfolio",
+      fileName: "portfolio.pdf",
+      mimeType: "application/pdf",
+      label: "Portfolio from the person's files",
+      kind: "portfolio" as const,
+      loadBytes: () => Promise.resolve(new Uint8Array([4, 5, 6])),
+    };
+    const generated = {
+      ...own,
+      id: "generated_statement",
+      kind: "other" as const,
+    };
+    const sources = { ...config.sources, documents: [own, generated] };
+    const refused = await executeApplyProposal(
+      { tool: "upload", ref: "c0", documentId: generated.id },
+      observation.signature,
+      {
+        config: { ...config, sources },
+        now,
+        guardState: createApplyGuardState(),
+      },
+    );
+    expect(refused.kind).toBe("refused");
+    expect(uploadFile).not.toHaveBeenCalled();
+    const attached = await executeApplyProposal(
+      { tool: "upload", ref: "c0", documentId: own.id },
+      observation.signature,
+      {
+        config: { ...config, sources },
+        now,
+        guardState: createApplyGuardState(),
+      },
+    );
+    expect(attached.kind).toBe("attached");
+    expect(uploadFile).toHaveBeenCalledWith("c0", {
+      name: "portfolio.pdf",
+      mimeType: "application/pdf",
+      bytes: new Uint8Array([4, 5, 6]),
+    });
+  });
+
   test("a file the form insists on that cannot be produced goes to the person", async () => {
     const page = rawPage({
       controls: [
@@ -751,7 +1550,9 @@ describe("the letter this application sends", () => {
     expect(outcome.kind).toBe("paused");
     if (outcome.kind === "paused") {
       expect(outcome.pause.code).toBe("document_needs_you");
-      expect(outcome.pause.summary).toContain("Attach one here and it will be used");
+      expect(outcome.pause.summary).toContain(
+        "Attach one here and it will be used",
+      );
     }
     expect(uploadFile).not.toHaveBeenCalled();
   });
@@ -770,7 +1571,12 @@ describe("being ready to send", () => {
         }),
       ],
       actions: [
-        { index: 0, label: "Submit application", visible: true, disabled: false },
+        {
+          index: 0,
+          label: "Submit application",
+          visible: true,
+          disabled: false,
+        },
       ],
     });
 
@@ -824,6 +1630,70 @@ describe("being ready to send", () => {
     expect(outcome.kind).toBe("ready_to_send");
     expect(clickAction).not.toHaveBeenCalled();
   });
+
+  test.each([
+    ["confirm_before_submit", false],
+    ["autonomous_submit", true],
+  ] as const)(
+    "a generic click on the final button in %s mode uses the submission preflight without pressing it",
+    async (mode, submitAuthorized) => {
+      const page = completePage();
+      const clickElement = vi.fn(() =>
+        Promise.resolve({ ok: true as const, observedValue: "clicked" }),
+      );
+      const { config } = configFor(page, {
+        authority: {
+          mode,
+          submitAuthorized,
+          allowedOrigins: ["https://apply.example.test"],
+        },
+        hands: { clickElement },
+      });
+      const observation = observationOf(page);
+
+      const outcome = await executeApplyProposal(
+        { tool: "click", ref: "a0", reason: "The form is complete." },
+        observation.signature,
+        { config, now, guardState: createApplyGuardState() },
+      );
+
+      expect(outcome.kind).toBe("ready_to_send");
+      expect(clickElement).not.toHaveBeenCalled();
+    },
+  );
+
+  test("a generic click cannot approve a final button while a required field is empty", async () => {
+    const page = completePage();
+    page.controls = [
+      rawControl({
+        index: 0,
+        label: "Email",
+        required: true,
+        value: "",
+      }),
+    ];
+    const clickElement = vi.fn(() =>
+      Promise.resolve({ ok: true as const, observedValue: "clicked" }),
+    );
+    const { config } = configFor(page, {
+      authority: {
+        mode: "confirm_before_submit",
+        submitAuthorized: false,
+        allowedOrigins: ["https://apply.example.test"],
+      },
+      hands: { clickElement },
+    });
+    const observation = observationOf(page);
+
+    const outcome = await executeApplyProposal(
+      { tool: "click", ref: "a0", reason: "The form is complete." },
+      observation.signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("refused");
+    expect(clickElement).not.toHaveBeenCalled();
+  });
 });
 
 /**
@@ -863,9 +1733,7 @@ describe("a site that saves as you go", () => {
       controls: [rawControl({ index: 0, label: "First Name" })],
     });
     const filled = rawPage({
-      controls: [
-        rawControl({ index: 0, label: "First Name", value: "Robin" }),
-      ],
+      controls: [rawControl({ index: 0, label: "First Name", value: "Robin" })],
     });
     let reads = 0;
     const { config } = configFor(page, {
@@ -898,7 +1766,9 @@ describe("a site that saves as you go", () => {
   test("a blocked save that stops the form moving on pauses, and names the site", async () => {
     const page = rawPage({
       controls: [rawControl({ index: 0, label: "First Name", value: "Robin" })],
-      actions: [{ index: 0, label: "Continue", visible: true, disabled: false }],
+      actions: [
+        { index: 0, label: "Continue", visible: true, disabled: false },
+      ],
     });
     const { config } = configFor(page);
     const guardState = createApplyGuardState();
@@ -941,7 +1811,10 @@ describe("a site that saves as you go", () => {
           safety: {
             ...safetyThatBlocksOneSave(),
             readBlockedAttempt: () =>
-              Promise.resolve({ ...savedAttempt, kind: "form_submit" as const }),
+              Promise.resolve({
+                ...savedAttempt,
+                kind: "form_submit" as const,
+              }),
           },
         },
         now,
@@ -1045,6 +1918,94 @@ describe("questions keep to their own control", () => {
     }
     expect(chooseOption).toHaveBeenCalled();
   });
+
+  test("a saved choice overrides a different option proposed by the model", async () => {
+    const sourceQuestion =
+      "How did you hear about this job? Select an option Job board Company website Referral Other";
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          tagName: "select",
+          inputType: "select-one",
+          label: sourceQuestion,
+          options: [
+            "Select an option",
+            "Job board",
+            "Company website",
+            "Referral",
+            "Other",
+          ],
+          required: true,
+        }),
+      ],
+    });
+    const { config, hands } = configFor(page);
+    config.sources.reusableAnswers = [
+      {
+        id: "saved_source",
+        kind: "other",
+        label: sourceQuestion,
+        question: sourceQuestion,
+        answer: "Job board",
+        roleFamilies: [],
+        proofEntryIds: [],
+      },
+    ];
+    const chooseOption = vi.spyOn(hands, "chooseOption");
+
+    const outcome = await executeApplyProposal(
+      { tool: "select", ref: "c0", option: "Other" },
+      observationOf(page).signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("filled");
+    expect(chooseOption).toHaveBeenCalledWith("c0", "Job board");
+    if (outcome.kind === "filled") {
+      expect(outcome.filled.answer).toMatchObject({
+        value: "Job board",
+        sourceKind: "answer_library",
+      });
+    }
+  });
+
+  test("a grounded choice that is not offered is refused instead of replacing it", async () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          tagName: "select",
+          inputType: "select-one",
+          label: "How did you hear about this job?",
+          options: ["Referral", "Other"],
+          required: true,
+        }),
+      ],
+    });
+    const { config, hands } = configFor(page);
+    config.sources.reusableAnswers = [
+      {
+        id: "saved_source",
+        kind: "other",
+        label: "How did you hear about this job?",
+        question: "How did you hear about this job?",
+        answer: "Job board",
+        roleFamilies: [],
+        proofEntryIds: [],
+      },
+    ];
+    const chooseOption = vi.spyOn(hands, "chooseOption");
+
+    const outcome = await executeApplyProposal(
+      { tool: "select", ref: "c0", option: "Other" },
+      observationOf(page).signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+
+    expect(outcome.kind).toBe("refused");
+    expect(chooseOption).not.toHaveBeenCalled();
+  });
 });
 
 /**
@@ -1122,6 +2083,90 @@ describe("a question keeps its name across runs", () => {
 
     expect(new Set(ids).size).toBe(2);
   });
+
+  test("one radio group has one stable id while equal-worded groups stay distinct", () => {
+    const page = rawPage({
+      controls: [
+        ...["Yes", "No"].map((label, index) =>
+          rawControl({
+            index,
+            inputType: "radio",
+            name: "authorized-primary",
+            label,
+            value: label,
+            groupLabel: "Are you authorized?",
+          }),
+        ),
+        ...["Yes", "No"].map((label, index) =>
+          rawControl({
+            index: index + 2,
+            inputType: "radio",
+            name: "authorized-secondary",
+            label,
+            value: label,
+            groupLabel: "Are you authorized?",
+          }),
+        ),
+      ],
+    });
+    const observation = observationOf(page);
+    const questions = observation.controls.map((control) =>
+      buildPendingQuestion({
+        control,
+        siblings: observation.controls,
+        jobId: "job_test",
+        detectedAt: "2026-09-14T10:00:00.000Z",
+        suggestion: null,
+      }),
+    );
+
+    expect(questions[0]?.id).toBe(questions[1]?.id);
+    expect(questions[2]?.id).toBe(questions[3]?.id);
+    expect(questions[0]?.id).not.toBe(questions[2]?.id);
+    expect(questions[0]?.answerOptions).toEqual(["Yes", "No"]);
+  });
+
+  test("radio ids ignore option wording and digest exact long group keys", () => {
+    const page = rawPage({
+      controls: [
+        rawControl({
+          index: 0,
+          inputType: "radio",
+          name: `${"same-prefix-".repeat(8)}alpha!`,
+          label: "Yes",
+          groupLabel: "",
+        }),
+        rawControl({
+          index: 1,
+          inputType: "radio",
+          name: `${"same-prefix-".repeat(8)}alpha!`,
+          label: "No",
+          groupLabel: "",
+        }),
+        rawControl({
+          index: 2,
+          inputType: "radio",
+          name: `${"same-prefix-".repeat(8)}alpha?`,
+          label: "Yes",
+          groupLabel: "",
+        }),
+      ],
+    });
+    const observation = observationOf(page);
+    const ids = observation.controls.map(
+      (control) =>
+        buildPendingQuestion({
+          control,
+          siblings: observation.controls,
+          jobId: "job_test",
+          detectedAt: "2026-09-14T10:00:00.000Z",
+          suggestion: null,
+        }).id,
+    );
+
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[0]).not.toBe(ids[2]);
+  });
 });
 
 describe("a button that opens a new tab", () => {
@@ -1140,7 +2185,9 @@ describe("a button that opens a new tab", () => {
     const { config } = configFor(listing, {
       hands: {
         observe: () =>
-          Promise.resolve(observationOf(onEmployerSite ? employerForm : listing)),
+          Promise.resolve(
+            observationOf(onEmployerSite ? employerForm : listing),
+          ),
         navigate: (url) => {
           navigated.push(url);
           onEmployerSite = true;
@@ -1171,7 +2218,11 @@ describe("a button that opens a new tab", () => {
     const outcome = await executeApplyProposal(
       { tool: "click", ref: "a0" },
       observationOf(listing).signature,
-      { config: withSafety, now: () => new Date("2026-09-14T10:00:00.000Z"), guardState: createApplyGuardState() },
+      {
+        config: withSafety,
+        now: () => new Date("2026-09-14T10:00:00.000Z"),
+        guardState: createApplyGuardState(),
+      },
     );
 
     expect(navigated).toEqual(["https://jobs.employer.test/apply/123"]);
@@ -1180,7 +2231,9 @@ describe("a button that opens a new tab", () => {
       expect(outcome.note).toContain('"Apply"');
       expect(outcome.note).toContain("new tab");
       expect(outcome.note).toContain("https://jobs.employer.test/apply/123");
-      expect(outcome.observation.url).toBe("https://jobs.employer.test/apply/123");
+      expect(outcome.observation.url).toBe(
+        "https://jobs.employer.test/apply/123",
+      );
     }
   });
 });

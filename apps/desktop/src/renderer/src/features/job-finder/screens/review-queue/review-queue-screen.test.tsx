@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { ApplicationRecordSchema } from "@unemployed/contracts";
 import type {
+  ApplicationAutomationMode,
   ApplicationRecord,
   BrowserSessionState,
   ResumeSourceDocument,
@@ -91,6 +92,7 @@ function createOriginalResume(): ResumeSourceDocument {
 }
 
 function renderScreen(props: {
+  applicationAutomationMode?: ApplicationAutomationMode;
   applicationRecords?: readonly ApplicationRecord[];
   resumeOperationStarts?: Readonly<Record<string, number>>;
   browserSession?: BrowserSessionState;
@@ -104,6 +106,7 @@ function renderScreen(props: {
   onPrepareTailoredDrafts?: () => void;
   onStartAutoApplyQueue?: (
     jobIds: string[],
+    applicationAutomationMode?: ApplicationAutomationMode,
   ) => Promise<JobFinderAutoApplyQueueStartOutcome>;
   onStopTailoredDraftPreparation?: () => void;
   onSelectItem?: (jobId: string) => void;
@@ -115,6 +118,9 @@ function renderScreen(props: {
   return render(
     <MemoryRouter>
       <ReviewQueueScreen
+        applicationAutomationMode={
+          props.applicationAutomationMode ?? "prepare_only"
+        }
         resumeOperationStarts={props.resumeOperationStarts}
         applicationRecords={props.applicationRecords ?? []}
         actionState={{ message: null }}
@@ -344,7 +350,13 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
     expect(onPrepareTailoredDrafts).toHaveBeenCalledTimes(1);
   });
 
-  it("applies to every ready job in one press, leaving jobs already in Applications alone", async () => {
+  it.each([
+    "prepare_only",
+    "confirm_before_submit",
+    "autonomous_submit",
+  ] as const)(
+    "applies to every ready job in one press with %s, leaving jobs already in Applications alone",
+    async (applicationAutomationMode) => {
     const onStartAutoApplyQueue = vi
       .fn<(jobIds: string[]) => Promise<JobFinderAutoApplyQueueStartOutcome>>()
       .mockResolvedValue({ status: "confirmed" });
@@ -356,6 +368,7 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
     });
 
     renderScreen({
+      applicationAutomationMode,
       applicationRecords: [
         ApplicationRecordSchema.parse({
           id: "application_done",
@@ -380,8 +393,12 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
       await Promise.resolve();
     });
 
-    expect(onStartAutoApplyQueue).toHaveBeenCalledWith(["job_a", "job_b"]);
-  });
+      expect(onStartAutoApplyQueue).toHaveBeenCalledWith(
+        ["job_a", "job_b"],
+        applicationAutomationMode,
+      );
+    },
+  );
 });
 
 describe("ReviewQueueScreen single-column workspace", () => {

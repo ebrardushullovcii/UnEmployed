@@ -1135,6 +1135,33 @@ describe("submission execution grant use gate", () => {
 });
 
 describe("submission outcome contracts", () => {
+  test("retains browser diagnostics without counting them as submission evidence", () => {
+    const browserAction = {
+      reason: "action_error",
+      actionAttempted: true,
+      actionIssued: false,
+      requestsObservedDuringAction: 0,
+    };
+    expect(
+      SubmissionOutcomeRecordSchema.parse({
+        ...validSubmittedOutcomeInput,
+        browserAction,
+      }).browserAction,
+    ).toEqual(browserAction);
+    expect(
+      SubmissionOutcomeRecordSchema.safeParse({
+        ...validSubmittedOutcomeInput,
+        browserAction,
+        evidence: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      SubmissionOutcomeRecordSchema.safeParse({
+        ...validSubmittedOutcomeInput,
+        browserAction: { ...browserAction, requestsObservedDuringAction: -1 },
+      }).success,
+    ).toBe(false);
+  });
   const uncertainBase = {
     ...validSubmittedOutcomeInput,
     outcome: "outcome_uncertain" as const,

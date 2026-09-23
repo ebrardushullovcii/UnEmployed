@@ -790,9 +790,11 @@ export async function buildResumeWorkspace(
         validation: validations[0] ?? null,
       }),
     strategyContext,
-    effectiveTailoringStrength: resolveEffectiveResumeTailoringStrength({
-      strategyTailoringStrength: strategyContext?.tailoringStrength ?? null,
-      searchPreferencesTailoringMode: searchPreferences.tailoringMode,
-    }),
+    effectiveTailoringStrength:
+      job.resumeTailoringMode ??
+      resolveEffectiveResumeTailoringStrength({
+        strategyTailoringStrength: strategyContext?.tailoringStrength ?? null,
+        searchPreferencesTailoringMode: searchPreferences.tailoringMode,
+      }),
   });
 }

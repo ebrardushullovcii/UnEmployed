@@ -51,6 +51,7 @@ import {
   DiscoveryFeedbackReasonSchema,
   DiscoveryAdapterSessionStateSchema,
   DiscoveryRunRecordSchema,
+  JobFinderSearchRequestSchema,
   JobSearchPreferencesSchema,
   ReviewQueueItemSchema,
   SavedJobSchema,
@@ -124,6 +125,17 @@ export const JobFinderJobActionInputSchema = z.object({
 });
 export type JobFinderJobActionInput = z.infer<
   typeof JobFinderJobActionInputSchema
+>;
+
+/** Durable identity of one prepared application page. */
+export const JobFinderPreparedApplicationPageInputSchema = z.object({
+  runId: NonEmptyStringSchema,
+  jobId: NonEmptyStringSchema,
+  resultId: NonEmptyStringSchema,
+  applicationRecordId: NonEmptyStringSchema,
+});
+export type JobFinderPreparedApplicationPageInput = z.infer<
+  typeof JobFinderPreparedApplicationPageInputSchema
 >;
 
 export const ResumePdfExportIntentSchema = z.enum(["approval", "download"]);
@@ -463,25 +475,6 @@ export const JobFinderDiscoveryTargetActionInputSchema = z.object({
 });
 export type JobFinderDiscoveryTargetActionInput = z.infer<
   typeof JobFinderDiscoveryTargetActionInputSchema
->;
-
-export const JobFinderSearchRequestSchema = z.object({
-  intent: z.string().trim().max(1_000).default(""),
-  /**
-   * A run-scoped override of the saved search selectivity (Settings, AI
-   * behavior). Absent for ordinary searches, which follow the saved choice.
-   */
-  breadth: z.enum(["best_only", "wide"]).optional(),
-  freshness: z.enum(["any", "recent"]).default("any"),
-  sourceIds: z
-    .union([
-      z.literal("all"),
-      z.array(NonEmptyStringSchema).min(1).max(1_000),
-    ])
-    .default("all"),
-});
-export type JobFinderSearchRequest = z.infer<
-  typeof JobFinderSearchRequestSchema
 >;
 
 export const JobFinderAgentDiscoveryActionInputSchema = z.object({
@@ -886,8 +879,7 @@ export const JobFinderSettingsSchema = z.object({
   humanReviewRequired: z.boolean(),
   allowAutoSubmitOverride: z.boolean(),
   /** The person's ordinary default for new application runs. */
-  applicationAutomationMode:
-    ApplicationAutomationModeSchema.optional(),
+  applicationAutomationMode: ApplicationAutomationModeSchema.optional(),
   maxApplicationsPerLocalDay: z.number().int().min(1).optional(),
   keepSessionAlive: z.boolean(),
   discoveryOnly: z.boolean().default(false),
@@ -901,11 +893,17 @@ export const JobFinderSettingsSchema = z.object({
 });
 export type JobFinderSettings = z.infer<typeof JobFinderSettingsSchema>;
 
+const PersistedDiscoveryRunRecordSchema: z.ZodType<
+  z.output<typeof DiscoveryRunRecordSchema>,
+  z.ZodTypeDef,
+  z.input<typeof DiscoveryRunRecordSchema>
+> = DiscoveryRunRecordSchema;
+
 export const JobFinderDiscoveryStateSchema = z.object({
   sessions: z.array(DiscoveryAdapterSessionStateSchema).default([]),
   runState: DiscoveryRunStateSchema.default("idle"),
-  activeRun: DiscoveryRunRecordSchema.nullable().default(null),
-  recentRuns: z.array(DiscoveryRunRecordSchema).default([]),
+  activeRun: PersistedDiscoveryRunRecordSchema.nullable().default(null),
+  recentRuns: z.array(PersistedDiscoveryRunRecordSchema).default([]),
   activeSourceDebugRun: SourceDebugRunRecordSchema.nullable().default(null),
   recentSourceDebugRuns: z.array(SourceDebugRunRecordSchema).default([]),
   discoveryLedger: z.array(DiscoveryLedgerEntrySchema).default([]),

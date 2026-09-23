@@ -1232,7 +1232,7 @@ describe("ResumeWorkspaceScreen", () => {
     );
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Try the AI draft again — this replaces your edits",
+        name: "Create a new AI draft — this replaces your edits",
       }),
     );
     // The whole-draft rewrite states what it replaces and asks once.

@@ -21,12 +21,15 @@ import {
 import type { Frame, Locator, Page } from "playwright";
 
 import {
+  closePrepareOnlyAuthorizedFormActionWindow,
   closePrepareOnlyIntermediateMutationWindow,
   ensurePrepareOnlyMutationGuard,
   getBlockedPrepareOnlyAttempts,
+  openPrepareOnlyAuthorizedFormActionWindow,
   openPrepareOnlyIntermediateMutationWindow,
   registerPrepareOnlyPreparedValue,
   type ApplicationRunServiceWorkerSentinel,
+  waitForPrepareOnlyAuthorizedFormAction,
 } from "./playwright-application-flow";
 
 /**
@@ -149,9 +152,30 @@ async function readApplyFrame(frame: Frame, frameIndex: number) {
       bodyText,
       validationErrors,
     ] = await Promise.all([
-      frame.locator(APPLY_CONTROL_SELECTOR).evaluateAll(
-        (elements, prefix): RawApplyControl[] =>
-          elements.map((element, index) => {
+      frame
+        .locator(APPLY_CONTROL_SELECTOR)
+        .evaluateAll((elements, prefix): RawApplyControl[] => {
+          const roots = Array.from(
+            new Set(elements.map((element) => element.getRootNode())),
+          );
+          const scopeKeyFor = (element: Element): string => {
+            const root = element.getRootNode();
+            const rootIndex = roots.indexOf(root);
+            const form =
+              element instanceof HTMLInputElement ||
+              element instanceof HTMLTextAreaElement ||
+              element instanceof HTMLSelectElement
+                ? element.form
+                : null;
+            const forms =
+              root instanceof Document || root instanceof ShadowRoot
+                ? Array.from(root.querySelectorAll("form"))
+                : [];
+            return `${prefix}r${rootIndex}${
+              form ? `form${forms.indexOf(form)}` : "root"
+            }`;
+          };
+          return elements.map((element, index) => {
             const html = element as HTMLElement;
             const input = element instanceof HTMLInputElement ? element : null;
             const textarea =
@@ -217,6 +241,7 @@ async function readApplyFrame(frame: Frame, frameIndex: number) {
               role,
               id: html.id,
               name: input?.name ?? textarea?.name ?? select?.name ?? "",
+              scopeKey: scopeKeyFor(element),
               label,
               groupLabel: legend ?? "",
               placeholder: input?.placeholder ?? textarea?.placeholder ?? "",
@@ -266,9 +291,8 @@ async function readApplyFrame(frame: Frame, frameIndex: number) {
                 element.getAttribute("aria-valuetext")?.trim() ??
                 "",
             };
-          }),
-        `f${frameIndex}`,
-      ),
+          });
+        }, `f${frameIndex}`),
       frame.locator(APPLY_ACTION_SELECTOR).evaluateAll(
         (elements, prefix): RawApplyAction[] =>
           elements.map((element, index) => {
@@ -276,6 +300,8 @@ async function readApplyFrame(frame: Frame, frameIndex: number) {
             const input = element instanceof HTMLInputElement ? element : null;
             const button =
               element instanceof HTMLButtonElement ? element : null;
+            const actionElement = input ?? button;
+            const form = actionElement?.form ?? null;
             const style = window.getComputedStyle(html);
             return {
               ref: `${prefix}a${index}`,
@@ -292,6 +318,21 @@ async function readApplyFrame(frame: Frame, frameIndex: number) {
               disabled:
                 Boolean(input?.disabled ?? button?.disabled) ||
                 element.getAttribute("aria-disabled") === "true",
+              ...(form
+                ? {
+                    formAction: new URL(
+                      (actionElement?.hasAttribute("formaction")
+                        ? actionElement.formAction
+                        : form.action) || window.location.href,
+                      window.location.href,
+                    ).toString(),
+                    formMethod: (
+                      (actionElement?.hasAttribute("formmethod")
+                        ? actionElement.formMethod
+                        : form.method) || "GET"
+                    ).toUpperCase(),
+                  }
+                : {}),
             };
           }),
         `f${frameIndex}`,
@@ -487,6 +528,27 @@ async function readRawApplyPageOnce(page: Page): Promise<RawApplyPage> {
               .slice(0, 200);
           };
 
+          const roots = Array.from(
+            new Set(elements.map((element) => element.getRootNode())),
+          );
+          const scopeKeyFor = (element: Element): string => {
+            const root = element.getRootNode();
+            const rootIndex = roots.indexOf(root);
+            const form =
+              element instanceof HTMLInputElement ||
+              element instanceof HTMLTextAreaElement ||
+              element instanceof HTMLSelectElement
+                ? element.form
+                : null;
+            const forms =
+              root instanceof Document || root instanceof ShadowRoot
+                ? Array.from(root.querySelectorAll("form"))
+                : [];
+            return `r${rootIndex}${
+              form ? `form${forms.indexOf(form)}` : "root"
+            }`;
+          };
+
           return elements.map((element, index) => {
             const html = element as HTMLElement;
             const input = element instanceof HTMLInputElement ? element : null;
@@ -509,6 +571,7 @@ async function readRawApplyPageOnce(page: Page): Promise<RawApplyPage> {
               role,
               id: html.id ?? "",
               name: input?.name ?? textarea?.name ?? select?.name ?? "",
+              scopeKey: scopeKeyFor(element),
               label: directLabel(element),
               groupLabel: groupLabel(element),
               placeholder: input?.placeholder ?? textarea?.placeholder ?? "",
@@ -564,6 +627,8 @@ async function readRawApplyPageOnce(page: Page): Promise<RawApplyPage> {
             const input = element instanceof HTMLInputElement ? element : null;
             const button =
               element instanceof HTMLButtonElement ? element : null;
+            const actionElement = input ?? button;
+            const form = actionElement?.form ?? null;
             const style = window.getComputedStyle(html);
             return {
               index,
@@ -579,6 +644,21 @@ async function readRawApplyPageOnce(page: Page): Promise<RawApplyPage> {
               disabled:
                 Boolean(input?.disabled ?? button?.disabled) ||
                 element.getAttribute("aria-disabled") === "true",
+              ...(form
+                ? {
+                    formAction: new URL(
+                      (actionElement?.hasAttribute("formaction")
+                        ? actionElement.formAction
+                        : form.action) || window.location.href,
+                      window.location.href,
+                    ).toString(),
+                    formMethod: (
+                      (actionElement?.hasAttribute("formmethod")
+                        ? actionElement.formMethod
+                        : form.method) || "GET"
+                    ).toUpperCase(),
+                  }
+                : {}),
             };
           }),
         ),
@@ -627,12 +707,39 @@ async function readRawApplyPageOnce(page: Page): Promise<RawApplyPage> {
             .slice(0, 12),
         )
         .catch(() => [] as string[]),
-      page
-        .locator("[role='progressbar'], [aria-label*='step' i]")
-        .first()
-        .innerText({ timeout: 1_000 })
-        .then((text) => text.trim().slice(0, 200))
-        .catch(() => null),
+      (async () => {
+        const current = page.locator("[aria-current='step']").first();
+        const currentStep =
+          (await current.count()) > 0
+            ? await current
+                .evaluate((element) => {
+                  const container = element.closest("[role='list'], ol, ul");
+                  if (!container) return null;
+                  const steps = Array.from(container.children).filter(
+                    (candidate) =>
+                      candidate.matches("li, [role='listitem']") &&
+                      (candidate.textContent ?? "").trim().length > 0,
+                  );
+                  const index = steps.findIndex(
+                    (candidate) =>
+                      candidate === element || candidate.contains(element),
+                  );
+                  if (index < 0 || steps.length < 2) return null;
+                  const label = (element as HTMLElement).innerText
+                    .trim()
+                    .slice(0, 120);
+                  return `Step ${index + 1} of ${steps.length}${label ? `: ${label}` : ""}`;
+                })
+                .catch(() => null)
+            : null;
+        if (currentStep) return currentStep;
+        return page
+          .locator("[role='progressbar'], [aria-label*='step' i]")
+          .first()
+          .innerText({ timeout: 1_000 })
+          .then((text) => text.trim().slice(0, 200))
+          .catch(() => null);
+      })(),
     ]);
 
   // A list the page draws itself does not report its own selection, so it is
@@ -1107,6 +1214,23 @@ function actionLocator(page: Page, ref: string): Locator | null {
     : null;
 }
 
+/** Arms a human-owned native form action without pressing it. */
+export async function armPlaywrightApplicationFormAction(
+  page: Page,
+  ref: string,
+): Promise<void> {
+  const locator = actionLocator(page, ref);
+  if (
+    !locator ||
+    (await locator.count()) !== 1 ||
+    !(await locator.isVisible()) ||
+    !(await locator.isEnabled())
+  ) {
+    throw new Error("The exact form action is no longer available.");
+  }
+  await openPrepareOnlyAuthorizedFormActionWindow(page, locator, null);
+}
+
 function linkLocator(page: Page, ref: string): Locator | null {
   const target = locatorRootForRef(page, ref, "l");
   return target
@@ -1238,7 +1362,29 @@ export function createPlaywrightApplyPageMechanics(
         return { ok: false, error: `No control named ${ref} on this page.` };
       }
       try {
-        await locator.setChecked(checked, { timeout: 5_000 });
+        await locator
+          .scrollIntoViewIfNeeded({ timeout: 2_000 })
+          .catch(() => undefined);
+        try {
+          await locator.setChecked(checked, { timeout: 5_000 });
+        } catch (actionabilityError) {
+          // Styled radios and checkboxes often leave the native input under a
+          // label or outside the painted viewport. Activating that exact,
+          // enabled input through the DOM preserves its normal click/change
+          // events without depending on pointer geometry.
+          const changed = await locator
+            .evaluate((element, desired) => {
+              if (!(element instanceof HTMLInputElement) || element.disabled) {
+                return false;
+              }
+              if (element.checked !== desired) {
+                element.click();
+              }
+              return element.checked === desired;
+            }, checked)
+            .catch(() => false);
+          if (!changed) throw actionabilityError;
+        }
         return { ok: true, observedValue: checked ? "checked" : "unchecked" };
       } catch (error) {
         return {
@@ -1377,6 +1523,19 @@ export function createPlaywrightApplyPageMechanics(
       }
       if (target.protocol !== "https:" && target.protocol !== "http:") {
         return { ok: false, error: "That address is not a web page." };
+      }
+      if (page.isClosed()) {
+        return {
+          ok: false,
+          error:
+            "The prepared application page was closed. Prepare it again before continuing.",
+        };
+      }
+      // A recovery prompt can tell the model to return to the exact retained
+      // apply URL even though it is already there. Reloading that same page
+      // erases the person's CAPTCHA, declaration, and other in-page work.
+      if (new URL(page.url()).toString() === target.toString()) {
+        return { ok: true, url: page.url() };
       }
       try {
         await page.goto(target.toString(), {
@@ -1554,6 +1713,28 @@ export function createPlaywrightApplyPageSession(input: {
     },
     closeIntermediateWriteWindow: () =>
       closePrepareOnlyIntermediateMutationWindow(page),
+    clickAuthorizedFormAction: async (ref) => {
+      const locator = actionLocator(page, ref);
+      if (!locator) {
+        return { ok: false, error: `No button named ${ref} on this page.` };
+      }
+      try {
+        await openPrepareOnlyAuthorizedFormActionWindow(page, locator);
+        await clickAndSettle(page, locator);
+        await waitForPrepareOnlyAuthorizedFormAction(page);
+        return { ok: true, observedValue: "clicked" };
+      } catch (error) {
+        return {
+          ok: false,
+          error: describeWriteFailure(
+            error,
+            "The authorized form action would not respond.",
+          ),
+        };
+      } finally {
+        await closePrepareOnlyAuthorizedFormActionWindow(page);
+      }
+    },
     readIntermediateWriteCount: () => intermediateWriteCount,
     checkServiceWorker: async (): Promise<ApplyServiceWorkerFinding | null> => {
       const finding = await input.sentinel?.check("form_preparation");

@@ -20,6 +20,8 @@ export interface RawApplyControl {
   role: string;
   id: string;
   name: string;
+  /** Transient identity of the containing form/root within this page read. */
+  scopeKey?: string;
   label: string;
   groupLabel: string;
   placeholder: string;
@@ -43,6 +45,10 @@ export interface RawApplyAction {
   label: string;
   visible: boolean;
   disabled: boolean;
+  /** Resolved destination of the form this action would submit, if any. */
+  formAction?: string;
+  /** HTTP method of the form this action would submit, if any. */
+  formMethod?: string;
 }
 
 /**
@@ -113,6 +119,16 @@ export interface RawApplyPage {
   stepLabel: string | null;
   /** True when the page is still loading; the model may wait and look again. */
   loading: boolean;
+}
+
+/** Exact retained form control chosen by browser-agent for a human handoff. */
+export interface ApplicationFormActionHandoff {
+  pageBindingKey: string;
+  pageUrl: string;
+  ref: string;
+  label: string;
+  formAction: string;
+  formMethod: "POST";
 }
 
 export type ApplyWriteResult =
@@ -249,6 +265,13 @@ export interface ApplyPageSession extends ApplyRawPageHands {
    */
   openIntermediateWriteWindow: () => Promise<void>;
   closeIntermediateWriteWindow: () => Promise<void>;
+  /**
+   * Presses one exact form action through a short, single-request guard
+   * window. The workflow layer must first prove that the action is an
+   * explicitly authorized non-application action, such as signing in with
+   * credentials the person supplied for this task.
+   */
+  clickAuthorizedFormAction: (ref: string) => Promise<ApplyWriteResult>;
   /** How many intermediate writes the guard has let through so far. */
   readIntermediateWriteCount: () => number;
   /**

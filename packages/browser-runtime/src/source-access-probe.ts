@@ -25,6 +25,20 @@ function normalizeOrigin(value: string): string | null {
   }
 }
 
+/** A source access check must never borrow another open tab's account marker. */
+export function selectUniqueSourceAccessPage<
+  TPage extends Pick<Page, "url" | "isClosed">,
+>(pages: readonly TPage[], expectedOrigin: string): TPage | null {
+  const normalizedExpectedOrigin = normalizeOrigin(expectedOrigin);
+  if (!normalizedExpectedOrigin) return null;
+  const matches = pages.filter(
+    (page) =>
+      !page.isClosed() &&
+      normalizeOrigin(page.url()) === normalizedExpectedOrigin,
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
 function isAuthRoute(value: string): boolean {
   try {
     const url = new URL(value);
@@ -123,7 +137,8 @@ async function inspectVisibleAccessSignals(
         controls.some((element) => {
           const source = element.getAttribute("src") ?? "";
           return /captcha|recaptcha|hcaptcha|turnstile/iu.test(source);
-        }) || hasLabel(/\b(?:captcha|verify you are human|human verification)\b/iu),
+        }) ||
+        hasLabel(/\b(?:captcha|verify you are human|human verification)\b/iu),
       mfaChallenge:
         controls.some(
           (element) =>

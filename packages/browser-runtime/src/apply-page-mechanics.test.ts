@@ -1,5 +1,5 @@
 import { chromium, type Browser } from "playwright";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import {
   createPlaywrightApplyPageMechanics,
@@ -88,6 +88,92 @@ describe("reading the choices of lists the page draws itself", () => {
     ).toEqual(["Afghanistan", "Albania", "Algeria"]);
 
     await page.close();
+  }, 60_000);
+
+  test("keeps person-completed fields when asked to navigate to the exact current URL", async () => {
+    const page = await browser.newPage();
+    await page.route("https://jobs.example.test/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: '<input id="person-step" value=""><p>Application</p>',
+      }),
+    );
+    await page.goto("https://jobs.example.test/apply/1?stage=review#human");
+    await page.locator("#person-step").fill("completed by person");
+    const goto = vi.spyOn(page, "goto");
+    const mechanics = createPlaywrightApplyPageMechanics(page);
+
+    await expect(
+      mechanics.navigate(
+        "https://jobs.example.test/apply/1?stage=review#human",
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      url: "https://jobs.example.test/apply/1?stage=review#human",
+    });
+    expect(goto).not.toHaveBeenCalled();
+    expect(await page.locator("#person-step").inputValue()).toBe(
+      "completed by person",
+    );
+
+    await mechanics.navigate(
+      "https://jobs.example.test/apply/1?stage=questions#agent",
+    );
+    expect(goto).toHaveBeenCalledTimes(1);
+    await page.close();
+  }, 60_000);
+
+  test("reads the current step from an accessible step list", async () => {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <ol aria-label="Application steps">
+        <li>My Information</li>
+        <li>My Experience</li>
+        <li>Application Questions</li>
+        <li aria-current="step">Review</li>
+      </ol>
+      <button type="button">Save and continue</button>
+      <button type="submit">Submit</button>
+    `);
+
+    const observation = await readRawApplyPage(page);
+
+    expect(observation.stepLabel).toBe("Step 4 of 4: Review");
+    await page.close();
+  });
+
+  test("keeps hidden future steps in the total when the marker is nested", async () => {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <ol aria-label="Application steps">
+        <li>My Information</li>
+        <li><a aria-current="step">My Experience</a></li>
+        <li>Application Questions</li>
+        <li hidden>Review</li>
+      </ol>
+      <button type="button">Save and continue</button>
+      <button type="submit">Submit</button>
+    `);
+
+    const observation = await readRawApplyPage(page);
+
+    expect(observation.stepLabel).toBe("Step 2 of 4: My Experience");
+    await page.close();
+  });
+
+  test("does not treat a closed prepared page as reusable", async () => {
+    const page = await browser.newPage();
+    await page.goto("https://example.com/apply/closed");
+    const mechanics = createPlaywrightApplyPageMechanics(page);
+    await page.close();
+
+    await expect(
+      mechanics.navigate("https://example.com/apply/closed"),
+    ).resolves.toEqual({
+      ok: false,
+      error:
+        "The prepared application page was closed. Prepare it again before continuing.",
+    });
   }, 60_000);
 
   test("one task sees and closes only popups opened by its own page", async () => {
@@ -190,11 +276,33 @@ describe("reading the choices of lists the page draws itself", () => {
     await page.close();
   });
 
+  test("checks an enabled radio even when another element covers its pointer target", async () => {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <fieldset>
+        <legend>Are you authorized to work here?</legend>
+        <label><input id="authorized" type="radio" name="authorized" required /> Yes</label>
+        <label><input type="radio" name="authorized" /> No</label>
+      </fieldset>
+      <div style="position:fixed;inset:0;z-index:10"></div>
+    `);
+
+    const mechanics = createPlaywrightApplyPageMechanics(page);
+    await expect(mechanics.setToggle("c0", true)).resolves.toEqual({
+      ok: true,
+      observedValue: "checked",
+    });
+    expect(await page.locator("#authorized").isChecked()).toBe(true);
+
+    await page.close();
+  }, 15_000);
+
   test("reads and operates accessible shadow-root and iframe forms", async () => {
     const page = await browser.newPage();
     await page.setContent(`
       <h1>Application</h1>
       <div id="shadow-host"></div>
+      <div id="second-shadow-host"></div>
       <iframe id="embedded" srcdoc='
         <label for="email">Email in frame</label>
         <input id="email" type="email" />
@@ -202,7 +310,9 @@ describe("reading the choices of lists the page draws itself", () => {
       '></iframe>
       <script>
         const root = document.getElementById("shadow-host").attachShadow({ mode: "open" });
-        root.innerHTML = '<label for="name">Name in component</label><input id="name" />';
+        root.innerHTML = '<label for="name">Name in component</label><input id="name" /><input id="first-radio" type="radio" name="authorized" />';
+        const secondRoot = document.getElementById("second-shadow-host").attachShadow({ mode: "open" });
+        secondRoot.innerHTML = '<input id="second-radio" type="radio" name="authorized" />';
       </script>
     `);
     await expect.poll(() => page.frames().length).toBe(2);
@@ -231,6 +341,13 @@ describe("reading the choices of lists the page draws itself", () => {
     expect(shadowRef).toMatch(/^c\d+$/u);
     expect(frameControl?.ref).toMatch(/^f0c\d+$/u);
     expect(frameAction?.ref).toMatch(/^f0a\d+$/u);
+    expect(
+      observation.controls.find((control) => control.id === "first-radio")
+        ?.scopeKey,
+    ).not.toBe(
+      observation.controls.find((control) => control.id === "second-radio")
+        ?.scopeKey,
+    );
     expect(observation.bodyText).toContain("Email in frame");
 
     expect(await mechanics.fillText(shadowRef, "Ada Lovelace")).toEqual({

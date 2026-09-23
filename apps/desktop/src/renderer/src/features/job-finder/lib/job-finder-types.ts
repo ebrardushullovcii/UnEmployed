@@ -26,6 +26,7 @@ import type {
   JobFinderApplyRunActionInput,
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
+  JobFinderPreparedApplicationPageInput,
   JobFinderAgentDiscoveryResult,
   JobFinderSearchRequest,
   JobFinderDiscoveryCancellationInput,
@@ -88,7 +89,6 @@ export type JobFinderScreen =
   | "campaigns"
   | "actions"
   | "analytics"
-  | "documents"
   | "settings"
   | "rapid-review"
   | "resume-strategies"
@@ -395,6 +395,9 @@ export interface JobFinderShellActions {
   ) => Promise<JobFinderWorkspaceSnapshot>;
   revokeApplyRunApproval: (
     input: JobFinderApplyRunActionInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  focusPreparedApplicationPage: (
+    input: JobFinderPreparedApplicationPageInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   /** Sends one application the person has already looked over. */
   submitPreparedApplication: (input: {

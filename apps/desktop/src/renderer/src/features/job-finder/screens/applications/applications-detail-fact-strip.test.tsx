@@ -54,7 +54,7 @@ const baseRecord: ApplicationRecord = {
   },
   events: [],
   crm: null,
-    automationMode: "prepare_only" as const,
+  automationMode: "prepare_only" as const,
 };
 
 const baseApplyResult: ApplyJobResultSummary = {
@@ -80,7 +80,7 @@ const baseApplyResult: ApplyJobResultSummary = {
   artifactCount: 4,
   latestCheckpointId: null,
   privacyReceipt: null,
-    reviewCard: null,
+  reviewCard: null,
 };
 
 function renderStrip(
@@ -107,6 +107,147 @@ function renderStrip(
 }
 
 describe("ApplicationsDetailFactStrip", () => {
+  it("uses Needs you for the current sign-in handoff instead of an older ready attempt", () => {
+    renderStrip({
+      selectedAttempt: {
+        id: "attempt_old",
+        state: "ready",
+      } as ApplicationAttempt,
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "awaiting_review",
+        blockerReason: "auth_required",
+      },
+    });
+    expect(screen.getByText("Needs you")).toBeTruthy();
+    expect(screen.queryByText("Needs follow-up")).toBeNull();
+    expect(screen.queryByText("Ready to send")).toBeNull();
+  });
+
+  it("keeps a completed form ready when its saved questions already have answers", () => {
+    renderStrip({
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "awaiting_review",
+        blockerReason: null,
+        latestQuestionCount: 3,
+        latestAnswerCount: 3,
+      },
+    });
+    expect(screen.getByText("Ready to send")).toBeTruthy();
+    expect(screen.queryByText("Needs follow-up")).toBeNull();
+  });
+
+  it("shows one ready state after a resolved prepare-only pause", () => {
+    renderStrip({
+      record: {
+        ...baseRecord,
+        lastActionLabel: "The CAPTCHA still needs to be completed.",
+        latestBlocker: null,
+        questionSummary: {
+          total: 10,
+          required: 10,
+          answered: 10,
+          unansweredRequired: 0,
+        },
+      },
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "awaiting_review",
+        latestQuestionCount: 0,
+        blockerReason: null,
+        blockerSummary: null,
+      },
+    });
+
+    expect(screen.getByText("Ready to send")).toBeTruthy();
+    expect(screen.queryByText("Needs follow-up")).toBeNull();
+    expect(
+      screen.queryByText("The CAPTCHA still needs to be completed."),
+    ).toBeNull();
+  });
+
+  it("lets a newer durable record failure replace an older paused attempt", () => {
+    renderStrip({
+      selectedAttempt: {
+        id: "attempt_old",
+        jobId: baseRecord.jobId,
+        applicationRecordId: baseRecord.id,
+        state: "paused",
+      } as ApplicationAttempt,
+      record: {
+        ...baseRecord,
+        lastAttemptState: "failed",
+        lastActionLabel: "The prepared application page is no longer open.",
+        latestBlocker: null,
+      },
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "failed",
+        blockerReason: "unexpected_navigation",
+      },
+    });
+
+    expect(screen.getByText("Could not apply")).toBeTruthy();
+    expect(screen.queryByText("Needs follow-up")).toBeNull();
+  });
+
+  it("shows a verified submission instead of an older ready preparation", () => {
+    renderStrip({
+      selectedAttempt: {
+        id: "attempt_1",
+        jobId: baseRecord.jobId,
+        state: "ready",
+      } as ApplicationAttempt,
+      visibleApplyResult: {
+        ...baseApplyResult,
+        privacyReceipt: {
+          schemaVersion: 1,
+          generatedAt: "2026-08-28T10:01:00.000Z",
+          lineage: {
+            runId: baseApplyResult.runId,
+            jobId: baseApplyResult.jobId,
+            resultId: baseApplyResult.id,
+            applicationRecordId: baseRecord.id,
+          },
+          destination: { origin: "https://jobs.example", safePath: "/apply" },
+          resume: {
+            source: "tailored_export",
+            sourceDocumentId: null,
+            exportArtifactId: "export_1",
+            fileName: "Resume.pdf",
+            sha256: null,
+          },
+          stayedLocal: [],
+          modelUse: [],
+          externalWrites: [],
+          accountCreationAuthorized: false,
+          finalSubmitAuthorized: true,
+          finalSubmitOccurred: true,
+          submissionOutcome: {
+            id: "outcome_submitted",
+            preflightId: "preflight_1",
+            idempotencyKey: "idempotency_1",
+            authorityEnvelopeId: "authority_1",
+            authorityRevision: 1,
+            runId: baseApplyResult.runId,
+            jobId: baseApplyResult.jobId,
+            resultId: baseApplyResult.id,
+            applicationRecordId: baseRecord.id,
+            outcome: "submitted",
+            attemptedAt: "2026-08-28T10:00:00.000Z",
+            verifiedAt: "2026-08-28T10:00:01.000Z",
+            evidence: [],
+            retry: { eligible: false, blockReason: "submission_confirmed" },
+          },
+        },
+      },
+    });
+
+    expect(screen.getAllByText("Submitted (verified)")).toHaveLength(2);
+    expect(screen.queryByText("Ready to send")).toBeNull();
+  });
+
   it("prefers a durable tri-state outcome over the legacy run state", () => {
     renderStrip({
       visibleApplyResult: {
@@ -268,6 +409,30 @@ describe("ApplicationsDetailFactStrip", () => {
     expect(screen.queryByText("Not started")).toBeNull();
   });
 
+  it("shows live retry activity instead of the previous page-loss failure", () => {
+    renderStrip({
+      record: {
+        ...baseRecord,
+        lastAttemptState: "failed",
+        lastActionLabel: "The prepared application page is no longer open.",
+        latestBlocker: null,
+      },
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "filling",
+        detail: "Attaching an approved document",
+        completedAt: null,
+        privacyReceipt: null,
+      },
+    });
+
+    expect(screen.getByText("Attaching an approved document")).toBeTruthy();
+    expect(screen.getByText("In progress")).toBeTruthy();
+    expect(
+      screen.queryByText("The prepared application page is no longer open."),
+    ).toBeNull();
+  });
+
   it("shows a new active run ahead of an older selected attempt", () => {
     const olderAttempt: ApplicationAttempt = {
       id: "attempt_older",
@@ -344,7 +509,7 @@ describe("ApplicationsDetailFactStrip", () => {
 
     expect(text).not.toMatch(/In progress/);
     expect(text).not.toMatch(/Filling/);
-    expect(screen.getByText("Attempt failed")).not.toBeNull();
+    expect(screen.getByText("Could not apply")).not.toBeNull();
     const runCell = container.querySelector('dd[title="run_abcdefgh"]');
     expect(runCell?.textContent).toContain("Failed");
   });

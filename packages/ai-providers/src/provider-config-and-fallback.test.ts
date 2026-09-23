@@ -177,7 +177,7 @@ describe("ai provider config and fallback behavior", () => {
       const prompt = (aggressiveBody.messages ?? [])
         .map((message) => message.content ?? "")
         .join("\n");
-      expect(prompt).toContain("Do not return {}");
+      expect(prompt).toContain("Do not compose {}");
       expect(prompt).toContain("listingRequestedSkills");
       expect(prompt).not.toContain(
         "Return {} when the cited evidence is already",

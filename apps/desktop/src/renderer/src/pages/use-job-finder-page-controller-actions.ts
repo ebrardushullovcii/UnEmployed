@@ -24,6 +24,7 @@ import type {
   JobFinderApplicationStartTarget,
   ReviewQueueItem,
   JobFinderOpenBrowserSessionInput,
+  JobFinderPreparedApplicationPageInput,
   JobFinderWorkspaceSnapshot,
   ProfileCopilotMessage,
   JobSearchPreferences,
@@ -125,6 +126,8 @@ export { COMMAND_PENDING_RELEASE_MS };
 
 type ActionOptions = {
   clearMessageOnStart?: boolean;
+  /** A flow that navigates immediately keeps later failures on its destination. */
+  statusOwnerPath?: string;
   /**
    * Release the pending scope after this long even if the call has not
    * settled. Application preparation runs inside one IPC call that can take
@@ -305,6 +308,14 @@ export function clearJobFinderNavigationHint(): void {
  */
 export type ActionStateStatusWrite = ActionState & { ownerPath?: string };
 
+export function stripActionStateOwner(
+  carried: ActionStateStatusWrite,
+): ActionState {
+  const actionState = { ...carried };
+  delete actionState.ownerPath;
+  return actionState;
+}
+
 /**
  * The route that owns a status written right now: an explicit destination
  * wins, then a navigation performed in this same action turn, then the route
@@ -326,7 +337,7 @@ function writeActionStateWithOwner(
 ): void {
   if (ownerPath !== null && next.message !== null) {
     const carried: ActionStateStatusWrite = {
-      message: next.message,
+      ...next,
       ownerPath,
     };
     setActionState(carried);
@@ -501,6 +512,24 @@ function getActiveCampaignReviewQueue(
   );
 }
 
+export function describePreparedApplicationSubmitResult(
+  snapshot: JobFinderWorkspaceSnapshot,
+  jobId: string,
+): string {
+  const result = [...snapshot.applyJobResults]
+    .filter((entry) => entry.jobId === jobId)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+  const outcome = result?.privacyReceipt?.submissionOutcome?.outcome ?? null;
+
+  if (result?.state === "submitted" && outcome === "submitted") {
+    return "Application sent.";
+  }
+  if (outcome === "outcome_uncertain") {
+    return "The employer site did not confirm whether this was sent. Check the application before trying again.";
+  }
+  return result?.summary ?? "Application status updated.";
+}
+
 export function createActionRunners(args: {
   saveCoordinator?: JobFinderSaveCoordinator;
   setActionState: Dispatch<SetStateAction<ActionState>>;
@@ -558,14 +587,14 @@ export function createActionRunners(args: {
     onSuccess: (result: TResult) => void | Promise<void>,
     successMessage: string | null | ((result: TResult) => string | null),
     options?: ActionOptions,
-  ): Promise<boolean> => {
+  ) => {
     const pendingScope = resolvePendingScope(options);
     const ownerStartRoute = jobFinderStatusRoute;
     const applyStatusMessage = (next: ActionState) =>
       writeActionStateWithOwner(
         setActionState,
         next,
-        resolveStatusOwner(null, ownerStartRoute),
+        resolveStatusOwner(options?.statusOwnerPath ?? null, ownerStartRoute),
       );
 
     try {
@@ -634,7 +663,7 @@ export function createActionRunners(args: {
     onSuccess: (result: TResult) => void | Promise<void>,
     successMessage: string | null | ((result: TResult) => string | null),
     options?: ActionOptions,
-  ) => {
+  ): Promise<void> => {
     const ownerStartRoute = jobFinderStatusRoute;
     const applyStatusMessage = (next: ActionState) =>
       writeActionStateWithOwner(
@@ -916,27 +945,31 @@ export function createPrimaryPageActions(
         );
 
         try {
-          agentDiscoveryResult = await actions.runAgentDiscovery((event) => {
-            if (!sawDiscoveryProgress) {
-              refreshCoordinator.notifyRunStarted();
-            }
-            sawDiscoveryProgress = true;
-            setLiveDiscoveryEvents((current) =>
-              appendDiscoveryLiveActivityEvent(current, event),
-            );
+          agentDiscoveryResult = await actions.runAgentDiscovery(
+            (event) => {
+              if (!sawDiscoveryProgress) {
+                refreshCoordinator.notifyRunStarted();
+              }
+              sawDiscoveryProgress = true;
+              setLiveDiscoveryEvents((current) =>
+                appendDiscoveryLiveActivityEvent(current, event),
+              );
 
-            if (event.terminalState === "completed" && event.targetId) {
-              refreshCoordinator.notifySourceCompleted();
-            } else if (
-              !event.terminalState &&
-              event.stage === "persistence" &&
-              (event.jobsPersisted ?? 0) + (event.jobsStaged ?? 0) > 0
-            ) {
-              // Mid-run checkpoint persistence committed usable jobs; refresh
-              // so Results can show them while the source keeps searching.
-              refreshCoordinator.notifyJobsPersisted();
-            }
-          }, targetId, searchRequest);
+              if (event.terminalState === "completed" && event.targetId) {
+                refreshCoordinator.notifySourceCompleted();
+              } else if (
+                !event.terminalState &&
+                event.stage === "persistence" &&
+                (event.jobsPersisted ?? 0) + (event.jobsStaged ?? 0) > 0
+              ) {
+                // Mid-run checkpoint persistence committed usable jobs; refresh
+                // so Results can show them while the source keeps searching.
+                refreshCoordinator.notifyJobsPersisted();
+              }
+            },
+            targetId,
+            searchRequest,
+          );
 
           // Finish with one authoritative workspace read after any bounded
           // progressive refresh has settled. A slower snapshot requested for
@@ -1079,16 +1112,7 @@ export function createPrimaryPageActions(
           return;
         }
 
-        if (destination) {
-          setResumeWorkspaceDirty(false);
-          navigate(
-            buildJobFinderContextRoute("/job-finder/applications", {
-              jobId: destination.jobId,
-            }),
-          );
-        }
-
-        void runAction(
+        const action = runAction(
           runner,
           () => {
             if (destination) {
@@ -1101,8 +1125,23 @@ export function createPrimaryPageActions(
           // Preparation can run for minutes and can hang on a job site; the
           // Applications screen and the Tasks panel show its real state, so
           // the buttons must not stay disabled for the whole call.
-          { scope, releasePendingAfterMs: COMMAND_PENDING_RELEASE_MS },
+          {
+            scope,
+            releasePendingAfterMs: COMMAND_PENDING_RELEASE_MS,
+            ...(destination
+              ? { statusOwnerPath: "/job-finder/applications" }
+              : {}),
+          },
         );
+        if (destination) {
+          setResumeWorkspaceDirty(false);
+          navigate(
+            buildJobFinderContextRoute("/job-finder/applications", {
+              jobId: destination.jobId,
+            }),
+          );
+        }
+        void action;
       },
     );
   };
@@ -1298,7 +1337,7 @@ export function createPrimaryPageActions(
       void runAction(
         () => actions.approveApplyRun(input),
         () => undefined,
-        "Safe preparation approved. Final submission and account creation remain disabled.",
+        "Application run approved. It follows the apply mode chosen for this run.",
         {
           scope: jobFinderPendingActions.applyRun(input.runId),
           releasePendingAfterMs: COMMAND_PENDING_RELEASE_MS,
@@ -1338,7 +1377,7 @@ export function createPrimaryPageActions(
             "Applications updated. Check the latest attempt and next step there.",
             {
               scope: jobFinderPendingActions.apply(),
-              startMessage: `Preparing the application in ${JOB_FINDER_BROWSER_NAME}. Job Finder has no final-submit action and never clicks Submit; verify the outcome on the site.`,
+              startMessage: `Filling in the application in ${JOB_FINDER_BROWSER_NAME}. It follows the apply mode chosen for this run.`,
             },
           );
         },
@@ -1348,7 +1387,7 @@ export function createPrimaryPageActions(
       void runAction(
         () => actions.revokeApplyRunApproval(input),
         () => undefined,
-        "Preparation approval revoked. Final submission remains disabled.",
+        "Application run approval revoked.",
         { scope: jobFinderPendingActions.applyRun(input.runId) },
       ),
     onResolveApplyConsentRequest: (input: JobFinderApplyConsentActionInput) =>
@@ -1356,13 +1395,14 @@ export function createPrimaryPageActions(
         () => actions.resolveApplyConsentRequest(input),
         () => undefined,
         input.action === "approve"
-          ? "Consent approved. The run resumes preparation only; Job Finder has no final-submit action and never clicks Submit. Verify the outcome on the site."
-          : "Consent declined. The run skips that job; Job Finder has no final-submit action and never clicks Submit.",
+          ? "Consent approved. Check the application's latest state as the run continues."
+          : "Consent declined. The run skips that job.",
         { scope: jobFinderPendingActions.applyRequest(input.requestId) },
       ),
     onStartAutoApplyQueue: async (
       jobIds: string[],
       applicationAutomationMode?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
+      options?: { stayOnCurrentPage?: boolean },
     ): Promise<JobFinderAutoApplyQueueStartOutcome> => {
       const capacityRefusal = getDailyCapacityRefusalMessage();
       if (capacityRefusal) {
@@ -1402,22 +1442,21 @@ export function createPrimaryPageActions(
       const confirmed = await runAction(
         () =>
           (applicationAutomationMode
-            ? actions.startAutoApplyQueueRun(
-                jobIds,
-                applicationAutomationMode,
-              )
-            : actions.startAutoApplyQueueRun(jobIds))
-            .catch((error: unknown) => {
-              backendRejected = true;
-              throw error;
-            }),
+            ? actions.startAutoApplyQueueRun(jobIds, applicationAutomationMode)
+            : actions.startAutoApplyQueueRun(jobIds)
+          ).catch((error: unknown) => {
+            backendRejected = true;
+            throw error;
+          }),
         () => {
           setResumeWorkspaceDirty(false);
-          navigate("/job-finder/applications");
+          if (!options?.stayOnCurrentPage) {
+            navigate("/job-finder/applications");
+          }
         },
         jobIds.length === 1
-          ? "Applying to 1 job. Watch it in Applications."
-          : `Applying to ${jobIds.length} jobs, one after another. Watch them in Applications.`,
+          ? "Application started. Watch it in Applications."
+          : `${jobIds.length} applications started. Watch them in Applications.`,
         { scope: jobFinderPendingActions.apply() },
       );
 
@@ -1461,6 +1500,19 @@ export function createPrimaryPageActions(
         "Application run finished.",
         jobFinderPendingActions.apply(),
         { jobId: input.jobId },
+      );
+    },
+    onSubmitPreparedApplication: async (jobId: string): Promise<void> => {
+      await runAction(
+        () => actions.submitPreparedApplication({ jobId }),
+        () => undefined,
+        (snapshot) => describePreparedApplicationSubmitResult(snapshot, jobId),
+        {
+          scope: jobFinderPendingActions.apply(),
+          releasePendingAfterMs: COMMAND_PENDING_RELEASE_MS,
+          pendingTimeoutMessage:
+            "This took too long to confirm. Check its status before trying again.",
+        },
       );
     },
     onCheckBrowserSession: () =>
@@ -1784,6 +1836,30 @@ export function createPrimaryPageActions(
           ...(options?.rethrowError ? { rethrowError: true } : {}),
         },
       ),
+    onFocusPreparedApplicationPage: (
+      input: JobFinderPreparedApplicationPageInput,
+      options?: JobFinderActionFailureReporting,
+    ) => {
+      let focused = false;
+      return runAction(
+        () => actions.focusPreparedApplicationPage(input),
+        (snapshot) => {
+          focused = snapshot.applyJobResults.some(
+            (result) =>
+              result.id === input.resultId &&
+              result.runId === input.runId &&
+              result.jobId === input.jobId &&
+              result.applicationRecordId === input.applicationRecordId &&
+              result.state === "awaiting_review",
+          );
+        },
+        null,
+        {
+          scope: jobFinderPendingActions.apply(),
+          ...(options?.rethrowError ? { rethrowError: true } : {}),
+        },
+      ).then((completed) => completed && focused);
+    },
     onOpenProfile: () => {
       void confirmLeaveDirtyResumeWorkspace("open your profile").then(
         (mayLeave) => {
@@ -2346,33 +2422,45 @@ export function createPrimaryPageActions(
       }),
     onExportResumePdf: (jobId: string) => {
       const ownerStartRoute = jobFinderStatusRoute;
-      void runResumeWorkspaceAction(
-        () => actions.exportResumePdf(jobId),
-        async (result) => {
-          await refreshResumeWorkspace(jobId);
-          // The export used to report success whatever happened, including
-          // when the save dialog was dismissed and no file was ever written.
-          // Each outcome says what the person actually has, and a written file
-          // carries its path as an action rather than as text to retype.
-          applyRouteScopedMessage(
-            {
-              message:
-                result.outcome === "cancelled"
-                  ? "Export cancelled. No file was saved."
-                  : result.outputPath
-                    ? `Saved your resume PDF to ${result.outputPath}.`
-                    : "Your resume PDF is ready in Job Finder. No folder was chosen, so nothing was written to disk.",
-              savedFilePath:
-                result.outcome === "cancelled"
-                  ? null
-                  : (result.outputPath ?? null),
-            },
-            ownerStartRoute,
-          );
-        },
-        null,
-        { scope: jobFinderPendingActions.resumeExport(jobId) },
-      );
+      void (async () => {
+        const completed: {
+          result: Awaited<
+            ReturnType<JobFinderShellActions["exportResumePdf"]>
+          > | null;
+        } = { result: null };
+        await runResumeWorkspaceAction(
+          () => actions.exportResumePdf(jobId),
+          async (result) => {
+            completed.result = result;
+            await refreshResumeWorkspace(jobId);
+          },
+          null,
+          { scope: jobFinderPendingActions.resumeExport(jobId) },
+        );
+        if (completed.result === null) {
+          return;
+        }
+
+        const result = completed.result;
+        // The action runner clears its pending status after onSuccess. Write
+        // the durable outcome afterwards so that final cleanup cannot erase
+        // the saved path and its Open folder action.
+        applyRouteScopedMessage(
+          {
+            message:
+              result.outcome === "cancelled"
+                ? "Export cancelled. No file was saved."
+                : result.outputPath
+                  ? `Saved your resume PDF to ${result.outputPath}.`
+                  : "Your resume PDF is ready in Job Finder. No folder was chosen, so nothing was written to disk.",
+            savedFilePath:
+              result.outcome === "cancelled"
+                ? null
+                : (result.outputPath ?? null),
+          },
+          ownerStartRoute,
+        );
+      })();
     },
     // "The imported resume identifies 'TAYLOR QUINN', but the visible resume
     // identity is 'Jamal Reyes'" is sometimes simply true: one document, one

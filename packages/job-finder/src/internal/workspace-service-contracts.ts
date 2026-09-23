@@ -13,6 +13,8 @@ import type {
   ApplicationPacket,
   CampaignRuleFunnelProjection,
   CandidateAsset,
+  CandidateAssetListInput,
+  CandidateAssetListResult,
   ClearApplicationAnswerCommandInput,
   CompanyIntelligenceMutationInput,
   ApplyRunDetails,
@@ -79,6 +81,7 @@ import type {
   SaveCampaignRuleRouteInput,
   SaveJobSearchCampaignInput,
   JobFinderActivityControl,
+  JobFinderPreparedApplicationPageInput,
   SetJobFinderActivityControlInput,
   SaveApplicationAnswerCommandInput,
   SourceDebugProgressEvent,
@@ -516,6 +519,9 @@ export interface JobFinderWorkspaceService {
     action: "approve" | "decline",
   ): Promise<JobFinderWorkspaceSnapshot>;
   revokeApplyRunApproval(runId: string): Promise<JobFinderWorkspaceSnapshot>;
+  focusPreparedApplicationPage(
+    input: JobFinderPreparedApplicationPageInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   /**
    * Sends one application the person already looked over.
    *
@@ -524,9 +530,7 @@ export interface JobFinderWorkspaceService {
    * on its own, so an application cannot be sent twice by taking a different
    * route to it.
    */
-  submitPreparedApplication(
-    jobId: string,
-  ): Promise<JobFinderWorkspaceSnapshot>;
+  submitPreparedApplication(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   approveApply(
     jobId: string,
     applicationRecordId?: string | null,
@@ -665,6 +669,10 @@ export interface ResolvedApplicationCandidateAsset {
 }
 
 export interface CandidateAssetResolver {
+  /** Lists assets the local library may offer to an application. */
+  list?(
+    input: CandidateAssetListInput,
+  ): Promise<CandidateAssetListResult>;
   resolveForApplication(
     assetId: string,
   ): Promise<ResolvedApplicationCandidateAsset>;
@@ -689,4 +697,6 @@ export interface CreateJobFinderWorkspaceServiceOptions {
   onActivityControlChanged?: (
     control: JobFinderActivityControl,
   ) => void | Promise<void>;
+  /** Publishes the terminal snapshot of a queue resumed after restart. */
+  onDetachedApplyRunFinished?: () => void;
 }

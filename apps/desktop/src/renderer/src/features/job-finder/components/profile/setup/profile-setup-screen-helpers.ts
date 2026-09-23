@@ -14,6 +14,7 @@ import {
   type ProfileSetupStep,
 } from "@unemployed/contracts";
 import { profileSetupStepDefinitions } from "./profile-setup-steps";
+import { deriveJobSourceLabel } from "../../../lib/job-source-display-name";
 
 /** Keep setup source editing bounded while leaving the complete catalog searchable. */
 export const PROFILE_SETUP_SOURCE_PAGE_SIZE = 25;
@@ -48,11 +49,7 @@ export function isValidProfileSetupSourceUrl(value: string): boolean {
 }
 
 export function getProfileSetupSourceHost(startingUrl: string): string {
-  try {
-    return new URL(startingUrl.trim()).hostname.replace(/^www\./, "");
-  } catch {
-    return startingUrl.trim() || "URL not set";
-  }
+  return deriveJobSourceLabel(startingUrl);
 }
 
 /** Hedged sign-in/public access expectation for known starter sources. */

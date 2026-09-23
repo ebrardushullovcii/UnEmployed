@@ -39,6 +39,26 @@ function buildResult(overrides: Partial<ApplyResult>): ApplyResult {
 }
 
 describe("the five apply states (ADR 0022)", () => {
+  it.each(["site_protection", "required_human_input"] as const)(
+    "keeps a CAPTCHA without a question in Needs you (%s)",
+    (blockerReason) => {
+      expect(
+        resolveApplyStatePresentation({
+          mode: "fill_only",
+          pendingQuestionCount: 0,
+          result: buildResult({
+            blockerReason,
+            summary: "The site asks you to complete a CAPTCHA.",
+          }),
+        }),
+      ).toMatchObject({
+        kind: "needs_you",
+        title: "Needs you",
+        action: "open_browser",
+      });
+    },
+  );
+
   it("gives each state one title and at most one button", () => {
     const cases: Array<{
       expected: { kind: string; title: string; actionLabel: string | null };
@@ -134,7 +154,90 @@ describe("the five apply states (ADR 0022)", () => {
       }),
     });
 
-    expect(presentation.kind).not.toBe("applied");
+    expect(presentation).toMatchObject({
+      kind: "needs_you",
+      title: "Needs you",
+      action: "open_browser",
+      actionLabel: OPEN_THE_BROWSER_ACTION,
+    });
+    expect(presentation.sentence).toContain("could not confirm");
+    expect(presentation.sentence).not.toContain("click Apply");
+  });
+
+  it("does not treat a failed run's not-submitted receipt as a filled form", () => {
+    expect(
+      resolveApplyStatePresentation({
+        mode: "apply_for_me",
+        result: buildResult({
+          state: "failed",
+          detail: "The assistant is unavailable. Try again shortly.",
+          privacyReceipt: {
+            submissionOutcome: { outcome: "not_submitted" },
+          } as unknown as ApplyResult["privacyReceipt"],
+        }),
+      }),
+    ).toMatchObject({
+      kind: "could_not_apply",
+      action: "try_again",
+    });
+  });
+
+  it("keeps uncertain submission ahead of retryable local record failures", () => {
+    expect(
+      resolveApplyStatePresentation({
+        mode: "apply_for_me",
+        recordFailure: {
+          lastActionLabel: "The application page closed.",
+          lastUpdatedAt: "2026-09-14T10:04:00.000Z",
+        },
+        result: buildResult({
+          state: "blocked",
+          blockerReason: "submission_outcome_uncertain",
+        }),
+      }),
+    ).toMatchObject({ kind: "needs_you", action: "open_browser" });
+  });
+
+  it("lets a newer durable failed record correct an older ready result", () => {
+    const result = buildResult({
+      state: "awaiting_review",
+      updatedAt: "2026-09-14T10:01:00.000Z",
+    });
+    const corrected = resolveApplyStatePresentation({
+      mode: "fill_only",
+      recordFailure: {
+        lastActionLabel: "The prepared application page is no longer open.",
+        lastUpdatedAt: "2026-09-14T10:02:00.000Z",
+      },
+      result,
+    });
+    expect(corrected).toMatchObject({
+      kind: "could_not_apply",
+      title: "Could not apply",
+      action: "try_again",
+      questionsLeftLabel: null,
+    });
+
+    expect(
+      resolveApplyStatePresentation({
+        mode: "fill_only",
+        recordFailure: {
+          lastActionLabel: "An older failure.",
+          lastUpdatedAt: "2026-09-14T09:59:00.000Z",
+        },
+        result,
+      }).kind,
+    ).toBe("ready_to_send");
+    expect(
+      resolveApplyStatePresentation({
+        mode: "apply_for_me",
+        recordFailure: {
+          lastActionLabel: "A stale local failure.",
+          lastUpdatedAt: "2026-09-14T10:03:00.000Z",
+        },
+        result: buildResult({ state: "submitted" }),
+      }).kind,
+    ).toBe("applied");
   });
 
   it("says how many questions are left for the person", () => {
@@ -158,7 +261,9 @@ describe("the five apply states (ADR 0022)", () => {
     expect(applyActionLabel("fill_only")).toBe("Apply");
     expect(applyActionLabel("apply_for_me")).toBe("Apply");
     expect(applyAllActionLabel("fill_only")).toBe("Fill in all shortlisted");
-    expect(applyAllActionLabel("apply_for_me")).toBe("Apply to all shortlisted");
+    expect(applyAllActionLabel("apply_for_me")).toBe(
+      "Apply to all shortlisted",
+    );
   });
 
   it("keeps the banned jargon out of every state sentence", () => {

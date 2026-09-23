@@ -290,7 +290,9 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     presentation.state === "site_saves_as_you_go" &&
     Boolean(onFinishInBrowser && visibleApplyResult);
   const hasSecondaryActions =
-    showSecondaryRunAgain || showQueueRecoveryAction || showSecondaryOpenBrowser;
+    showSecondaryRunAgain ||
+    showQueueRecoveryAction ||
+    showSecondaryOpenBrowser;
 
   // What the Job Finder browser hand-off reported for the exact result it ran
   // for; reset whenever a different result is selected.
@@ -299,7 +301,8 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     outcome: FinishInBrowserOutcome;
   } | null>(null);
   const finishInBrowserOutcome =
-    visibleApplyResult && finishInBrowserReport?.resultId === visibleApplyResult.id
+    visibleApplyResult &&
+    finishInBrowserReport?.resultId === visibleApplyResult.id
       ? finishInBrowserReport.outcome
       : null;
   /**
@@ -332,12 +335,11 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
 
     const resultId = visibleApplyResult.id;
     const reportOutcome = (outcome: FinishInBrowserOutcome | void) => {
+      if (outcome?.kind === "opened_application_page") {
+        void window.unemployed?.browser?.command({ type: "open" });
+      }
       setFinishInBrowserReport(outcome ? { resultId, outcome } : null);
     };
-    // The person asked to see the browser: show it, whatever the hand-off
-    // then reports. A hidden tab doing the right thing still reads as
-    // "nothing happened".
-    void window.unemployed?.browser?.command({ type: "open" });
     const outcome = onFinishInBrowser({
       jobId: visibleApplyResult.jobId,
       resultId,
@@ -367,8 +369,8 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   };
   const canConfirmFinished = Boolean(
     onConfirmFinishedInBrowser &&
-      canConfirmFinishedInBrowser &&
-      visibleApplyResult,
+    canConfirmFinishedInBrowser &&
+    visibleApplyResult,
   );
   const showConfirmFinishedAction = needsUserFinishPath && canConfirmFinished;
   // The verification runs in the background after the click. Until it settles,
@@ -449,7 +451,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
               data-testid="applications-recovery-progress-spinner"
             />
             <span>
-              {`Filling this application in ${JOB_FINDER_BROWSER_NAME} now. This can take a few minutes on a long form, and it stops before the employer's send control.`}
+              {`Filling this application in ${JOB_FINDER_BROWSER_NAME} now. This can take a few minutes on a long form. When it is ready, Job Finder follows the application mode chosen in Settings.`}
             </span>
           </p>
         ) : null}
@@ -459,8 +461,8 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             data-testid="submission-outcome-verification-guidance"
           >
             Check this application on the employer site before doing anything
-            else, then record what you saw below. Trying again stays
-            unavailable until you do.
+            else, then record what you saw below. Trying again stays unavailable
+            until you do.
           </p>
         ) : null}
         {primaryAction === "none" ? null : (
@@ -606,7 +608,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                       data-testid="confirm-finished-in-browser-spinner"
                     />
                     <span>
-                      {`Checking the application page in ${JOB_FINDER_BROWSER_NAME}… Job Finder only reads what that page shows and never submits.`}
+                      {`Checking this step in ${JOB_FINDER_BROWSER_NAME}… When it is complete, Job Finder continues in your chosen apply mode.`}
                     </span>
                   </>
                 ) : (
@@ -628,7 +630,10 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             closed by default — not a second row of buttons competing with the
             first. */}
         {hasSecondaryActions ? (
-          <details className="group min-w-0" data-testid="applications-recovery-more">
+          <details
+            className="group min-w-0"
+            data-testid="applications-recovery-more"
+          >
             <summary className="w-fit cursor-pointer text-(length:--text-small) font-semibold leading-6 text-foreground-soft">
               More
             </summary>
@@ -740,11 +745,13 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
               <h3 className="text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground">
-                Run outcome summary
+                {selectedRun.state === "running"
+                  ? "Run progress and outcomes"
+                  : "Run outcome summary"}
               </h3>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                Review how each job in the selected historical run finished
-                before you prepare anything again.
+                Check each job's progress and outcome before starting another
+                attempt.
               </p>
             </div>
             <StatusBadge tone={canRestageQueueRun ? "active" : "muted"}>
@@ -784,13 +791,21 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                 <QueueEntryList
                   entries={selectedQueueRecoveryEntries}
                   emptyMessage="No jobs from this run still need recovery."
-                  heading="Will be prepared"
+                  heading={
+                    selectedRun.state === "running"
+                      ? "Waiting or stopped"
+                      : "Will be prepared"
+                  }
                   statusFallback="planned"
                 />
                 <QueueEntryList
                   entries={excludedQueueRecoveryEntries}
                   emptyMessage="No jobs are excluded from this historical run yet."
-                  heading="Already completed or review-ready"
+                  heading={
+                    selectedRun.state === "running"
+                      ? "In progress or finished"
+                      : "Already completed or review-ready"
+                  }
                   statusFallback="awaiting_review"
                 />
               </div>

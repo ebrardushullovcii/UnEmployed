@@ -20,6 +20,7 @@ import { ArrowUpRight, Ban, BellOff, Check, ExternalLink } from "lucide-react";
 
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import { Input } from "@renderer/components/ui/input";
 import { Textarea } from "@renderer/components/ui/textarea";
 import {
   CollectionPagination,
@@ -226,6 +227,9 @@ export function toActionableInstructions(
 /** Below this many open actions the list is scannable without a search field. */
 const ACTION_SEARCH_MIN_ITEMS = 5;
 
+const SECRET_CREDENTIAL_QUESTION =
+  /\b(?:password|passcode|one[- ]time (?:password|code)|verification code|security code|otp)\b/i;
+
 export function createCommand(
   request: UserActionRequest,
   action: "open_page" | "confirm_done" | "skip" | "cancel",
@@ -242,6 +246,78 @@ export function createCommand(
   return action === "skip" || action === "cancel"
     ? { ...base, action, reason: null }
     : { ...base, action };
+}
+
+function TaskLocalCredentialsForm(props: {
+  isPending: boolean;
+  onCommand: (command: UserActionCommandInput) => void | Promise<void>;
+  request: UserActionRequest;
+}) {
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const canSubmit = identifier.trim().length > 0 && password.length > 0;
+
+  return (
+    <details className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-3">
+      <summary className="cursor-pointer text-sm font-medium text-foreground">
+        Use credentials for this task
+      </summary>
+      <p className="mt-3 text-xs leading-5 text-foreground-soft">
+        These are used once on this exact sign-in page. Job Finder does not save
+        them to your profile, answers, or application history.
+      </p>
+      <form
+        className="mt-3 grid max-w-md gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canSubmit) return;
+          const command: UserActionCommandInput = {
+            action: "submit_task_local_credentials",
+            requestId: props.request.id,
+            commandId: `user_action_task_local_credentials_${globalThis.crypto.randomUUID()}`,
+            expectedRevision: props.request.revision,
+            identifier: identifier.trim(),
+            password,
+            taskLocalUseAuthorized: true,
+            credentialsPolicy: "browser_only",
+            submitAuthorized: false,
+            accountCreationAuthorized: false,
+          };
+          setPassword("");
+          void props.onCommand(command);
+        }}
+      >
+        <label className="grid gap-1 text-sm text-foreground">
+          Account email or username
+          <Input
+            autoComplete="off"
+            disabled={props.isPending}
+            onChange={(event) => setIdentifier(event.target.value)}
+            value={identifier}
+          />
+        </label>
+        <label className="grid gap-1 text-sm text-foreground">
+          Password
+          <Input
+            autoComplete="off"
+            disabled={props.isPending}
+            onChange={(event) => setPassword(event.target.value)}
+            type="password"
+            value={password}
+          />
+        </label>
+        <Button
+          disabled={!canSubmit}
+          pending={props.isPending}
+          size="compact"
+          type="submit"
+          variant="secondary"
+        >
+          Sign in once and continue
+        </Button>
+      </form>
+    </details>
+  );
 }
 
 function ActionCard(props: {
@@ -264,10 +340,20 @@ function ActionCard(props: {
   const { isPending, jobLabel, onCommand, onOpenScope, questions, request } =
     props;
   const isVerifying = request.state === "verifying";
+  // Older runs could misclassify a password input as an ordinary application
+  // question. Never render a reusable-answer editor for that persisted data.
+  // It stays a browser handoff so the person can open, check, or cancel it.
+  const isLegacyCredentialQuestion =
+    request.kind === "manual_answer" &&
+    questions.some((question) =>
+      SECRET_CREDENTIAL_QUESTION.test(question.prompt.trim()),
+    );
   // One shape for the whole card: a question step is a question and an answer
   // box, not a browser hand-off with an answer editor bolted underneath it.
   const isQuestionStep =
-    request.kind === "manual_answer" && questions.length > 0;
+    request.kind === "manual_answer" &&
+    questions.length > 0 &&
+    !isLegacyCredentialQuestion;
   // A sign-in, account, or security-check step is a sentence and two buttons.
   // It used to stack five paraphrases of "do it in the browser and come back"
   // plus a retry-mechanics note the person cannot act on.
@@ -277,7 +363,8 @@ function ActionCard(props: {
     request.kind === "mfa" ||
     request.kind === "captcha" ||
     request.kind === "email_verification" ||
-    request.kind === "existing_account_choice";
+    request.kind === "existing_account_choice" ||
+    isLegacyCredentialQuestion;
   const stepHostLabel = (() => {
     const raw = request.actionUrl ?? request.displayOrigin;
     if (!raw) {
@@ -291,6 +378,12 @@ function ActionCard(props: {
   })();
   const attemptsExhausted = request.attemptCount >= request.maxAttempts;
   const presentation = userActionKindPresentations[request.kind];
+  const actionPresentation = isLegacyCredentialQuestion
+    ? userActionKindPresentations.login
+    : presentation;
+  const displayedTitle = isLegacyCredentialQuestion
+    ? "Sign in to continue"
+    : stripScrapedGlyphs(request.title);
   const scopeLabel =
     request.scope.type === "application" ? "application" : "job source";
   const missingBrowserLinkDescriptionId = `${request.id}-missing-browser-link`;
@@ -329,7 +422,7 @@ function ActionCard(props: {
             )}
             {/* "Other" names nothing; the request summary already says what
             the step is, so only classified kinds earn a category badge. */}
-            {request.kind === "other" ? null : (
+            {request.kind === "other" || isLegacyCredentialQuestion ? null : (
               <Badge variant="status">{presentation.label}</Badge>
             )}
             {/* Everything on Needs you is awaiting the user, so that state
@@ -344,7 +437,7 @@ function ActionCard(props: {
             )}
           </div>
           <h3 className="font-semibold text-(--text-headline)">
-            {stripScrapedGlyphs(request.title)}
+            {displayedTitle}
           </h3>
           {/* A question step's summary was four sentences restating the
               heading, the question, and "do it in the browser and come back"
@@ -353,7 +446,9 @@ function ActionCard(props: {
           <p className="max-w-3xl text-sm leading-6 text-foreground-soft">
             {isQuestionStep
               ? "Nothing in your profile, resume, or saved answers covers this."
-              : stripScrapedGlyphs(summaryParts.message)}
+              : isLegacyCredentialQuestion
+                ? "This older step cannot collect a password. Open the exact job page to sign in there, or cancel it and try the application again."
+                : stripScrapedGlyphs(summaryParts.message)}
           </p>
         </div>
         <Button
@@ -408,8 +503,8 @@ function ActionCard(props: {
           data-testid="needs-you-answered-status"
           role="status"
         >
-          Answered. Job Finder is putting your answers in and carrying on;
-          this step closes on its own when the form moves forward.
+          Answered. Job Finder is putting your answers in and carrying on; this
+          step closes on its own when the form moves forward.
         </p>
       ) : isQuestionStep ? (
         <QuestionAnswerForm
@@ -433,6 +528,16 @@ function ActionCard(props: {
           requestId={request.id}
         />
       ) : null}
+      {request.kind === "login" &&
+      request.scope.type === "application" &&
+      request.scope.resultId &&
+      !isVerifying ? (
+        <TaskLocalCredentialsForm
+          isPending={isPending}
+          onCommand={onCommand}
+          request={request}
+        />
+      ) : null}
       {/* The boxed treatment framed the boundary as fine print and repeated
           the steps above it inside a grey rectangle. The per-kind sentence
           and the one no-submit sentence stay; the box does not. */}
@@ -446,7 +551,7 @@ function ActionCard(props: {
       <div
         className="flex flex-wrap gap-2"
         role="group"
-        aria-label={`Actions for ${request.title}`}
+        aria-label={`Actions for ${displayedTitle}`}
       >
         {isQuestionStep ? null : request.actionUrl ? (
           <Button
@@ -457,7 +562,7 @@ function ActionCard(props: {
             size="compact"
             type="button"
           >
-            <ExternalLink aria-hidden="true" /> {presentation.openLabel}
+            <ExternalLink aria-hidden="true" /> {actionPresentation.openLabel}
           </Button>
         ) : (
           <Button
@@ -486,7 +591,7 @@ function ActionCard(props: {
               ? "Verifying"
               : attemptsExhausted
                 ? "Attempts exhausted"
-                : presentation.doneLabel}
+                : actionPresentation.doneLabel}
           </Button>
         ) : null}
         {/* "Skip" and "Cancel" were peers with no stated difference and the
@@ -810,6 +915,7 @@ export function ActionsScreen(props: {
   safeguardPauses?: readonly PlanSafeguardPause[];
   applicationAttempts?: JobFinderWorkspaceSnapshot["applicationAttempts"];
   applicationRecords?: JobFinderWorkspaceSnapshot["applicationRecords"];
+  applyJobResults?: JobFinderWorkspaceSnapshot["applyJobResults"];
   discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
   groupedDecisions?: readonly GroupedManualAnswerDecision[];
   isGroupedApplyPending?: (decisionId: string) => boolean;
@@ -858,9 +964,10 @@ export function ActionsScreen(props: {
     () =>
       listApplicationsAwaitingUser({
         applicationRecords: props.applicationRecords ?? [],
+        applyJobResults: props.applyJobResults ?? [],
         requests: props.requests,
       }),
-    [props.applicationRecords, props.requests],
+    [props.applicationRecords, props.applyJobResults, props.requests],
   );
   const view = usePersistedCollectionView("needs-you", "comfortable");
   const deferredQuery = useDeferredValue(view.query);
@@ -1136,6 +1243,8 @@ export function ActionsScreen(props: {
                           ? listPendingApplicationQuestions({
                               applicationAttempts:
                                 props.applicationAttempts ?? [],
+                              applicationRecordId:
+                                applicationScope.applicationRecordId,
                               jobId: applicationScope.jobId,
                             })
                           : [];

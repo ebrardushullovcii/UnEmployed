@@ -47,12 +47,119 @@ function resolve(result: ApplyResult | null, isApplyPending = false) {
 }
 
 describe("resolveApplicationRecoveryPresentation", () => {
+  it.each(["site_protection", "required_human_input"] as const)(
+    "opens the browser for a CAPTCHA instead of repeating preparation (%s)",
+    (blockerReason) => {
+      const result = buildResult({
+        state: "awaiting_review",
+        blockerReason,
+        summary: "The site asks you to complete a CAPTCHA.",
+      });
+      expect(resolve(result)).toMatchObject({
+        statusLine: "This application needs a security check",
+        primaryAction: "open_browser",
+      });
+      if (blockerReason === "required_human_input") {
+        expect(resolve({ ...result, state: "skipped" }).primaryAction).toBe(
+          "try_again",
+        );
+      }
+    },
+  );
+
+  it.each(["failed", "skipped"] as const)(
+    "offers retry after a question step ends as %s despite retained questions",
+    (state) => {
+      const result = buildResult({
+        state,
+        blockerReason: "required_human_input",
+        latestQuestionCount: 4,
+        detail: "The person closed this step. Choose Try again to continue.",
+      });
+      expect(
+        resolveApplicationRecoveryPresentation({
+          canOpenSafeguards: false,
+          isApplyPending: false,
+          pausedQuestionCount: 4,
+          visibleApplyResult: result,
+        }),
+      ).toMatchObject({
+        state: "retry",
+        statusLine: "This application did not finish",
+        primaryAction: "try_again",
+        primaryActionLabel: "Try again",
+        reasonSentence: result.detail,
+      });
+    },
+  );
+
+  it("does not retry a failed question result with an uncertain submission", () => {
+    expect(
+      resolve(
+        buildResult({
+          state: "failed",
+          blockerReason: "required_human_input",
+          latestQuestionCount: 4,
+          privacyReceipt: {
+            submissionOutcome: { outcome: "outcome_uncertain" },
+          } as ApplyResult["privacyReceipt"],
+        }),
+      ),
+    ).toMatchObject({ state: "verify_outcome", primaryAction: "none" });
+  });
+
+  it("shows a confirmed submission as terminal and never offers Try again", () => {
+    const presentation = resolve(
+      buildResult({
+        state: "submitted",
+        summary: "Application submitted",
+        detail: "The employer site confirmed that it received the application.",
+        privacyReceipt: {
+          submissionOutcome: { outcome: "submitted" },
+        } as ApplyResult["privacyReceipt"],
+      }),
+    );
+
+    expect(presentation.state).toBe("submitted");
+    expect(presentation.statusLine).toBe("Application submitted");
+    expect(presentation.primaryAction).toBe("none");
+    expect(presentation.primaryActionLabel).toBeNull();
+  });
+
+  it("keeps an uncertain submission terminal until a person verifies it", () => {
+    const presentation = resolve(
+      buildResult({ blockerReason: "submission_outcome_uncertain" }),
+    );
+
+    expect(presentation.state).toBe("verify_outcome");
+    expect(presentation.primaryAction).toBe("none");
+    expect(presentation.primaryActionLabel).toBeNull();
+  });
+
   it("gives a running preparation a sentence and no action", () => {
     const presentation = resolve(buildResult({ state: "filling" }), true);
 
     expect(presentation.state).toBe("preparing");
     expect(presentation.primaryAction).toBe("none");
     expect(presentation.primaryActionLabel).toBeNull();
+  });
+
+  it("does not repeat an obsolete blocker summary after exact-page verification reaches review", () => {
+    const result = buildResult({
+      state: "awaiting_review",
+      summary: "The CAPTCHA still needs to be completed.",
+      detail: "The CAPTCHA still needs to be completed.",
+      blockerReason: null,
+      blockerSummary: null,
+    });
+
+    expect(getApplicationStopReasonSentence(result)).toBeNull();
+    expect(resolve(result)).toMatchObject({
+      state: "finish_in_browser",
+      statusLine: "Ready for you to read over and send",
+      reasonSentence:
+        "Job Finder filled the form in and stopped before the send button.",
+    });
   });
 
   it("lets a pause the person must finish outrank the in-flight flag", () => {
@@ -114,6 +221,19 @@ describe("resolveApplicationRecoveryPresentation", () => {
         }),
       ),
     ).toBe(false);
+  });
+
+  it("offers Try again when the exact prepared browser page was lost", () => {
+    const presentation = resolve(
+      buildResult({
+        state: "failed",
+        blockerReason: "unexpected_navigation",
+        summary: "The prepared application page is no longer open.",
+      }),
+    );
+
+    expect(presentation.state).toBe("retry");
+    expect(presentation.primaryActionLabel).toBe("Try again");
   });
 
   it("always carries a reason sentence for a stopped run", () => {
@@ -341,6 +461,18 @@ describe("resolveApplicationRecoveryPresentation", () => {
 
     expect(presentation.state).toBe("retry");
     expect(presentation.primaryActionLabel).toBe("Try again");
+  });
+
+  it("does not reuse the previous attempt's age while a retry is starting", () => {
+    const presentation = resolveApplicationRecoveryPresentation({
+      canOpenSafeguards: true,
+      isApplyPending: true,
+      now: Date.parse("2026-09-01T11:37:00.000Z"),
+      visibleApplyResult: buildResult({ state: "blocked" }),
+    });
+
+    expect(presentation.state).toBe("preparing");
+    expect(presentation.statusLine).toBe("Job Finder is filling in the form");
   });
 
   it("keeps saying it is working for as long as the run record is running", () => {

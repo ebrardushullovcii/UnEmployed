@@ -12,7 +12,7 @@ import type {
 import { ApplicationCrmSettingsSchema } from "@unemployed/contracts";
 import type { CSSProperties, MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { cn } from "@renderer/lib/cn";
 import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
 import { SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CANCEL_CLASS } from "../../lib/job-finder-shell-gutters";
@@ -197,7 +197,18 @@ export function SettingsScreen(props: {
   const [activeSectionId, setActiveSectionId] = useState<string>(
     settingsSections[0].id,
   );
+  const location = useLocation();
   const { dirtySections, registry } = useSettingsDirtySections();
+
+  useLayoutEffect(() => {
+    const sectionId = location.hash.slice(1);
+    if (
+      settingsSections.some((section) => section.id === sectionId) &&
+      focusSettingsSection(sectionId)
+    ) {
+      setActiveSectionId(sectionId);
+    }
+  }, [location.hash]);
 
   // A workspace that has never saved tracker settings has no persisted
   // `applicationCrm`, and parsing a fresh default inline handed the Tracker
@@ -366,15 +377,14 @@ export function SettingsScreen(props: {
         description="Choose how the AI works for you, and set reusable defaults for resumes and applications."
         meta={
           <>
-            Your imported resume is managed in{" "}
+            Your resume and any extra files for applications are managed in{" "}
             <Link
               className="text-primary underline underline-offset-2 hover:text-primary/80"
               to={JOB_FINDER_ROUTE_PATHS.profile}
             >
               Profile
             </Link>
-            . Documents is for the extra files you attach to applications, like
-            a portfolio or transcript.
+            .
           </>
         }
         title="Settings"

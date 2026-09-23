@@ -8,6 +8,8 @@ import { assessLocationCompatibility } from "./matching";
 
 const REMOTE_LISTING_PATTERN =
   /\b(?:remote|anywhere|worldwide|work from home|wfh|global|distributed)\b/iu;
+const GLOBAL_REMOTE_PREFERENCE_PATTERN =
+  /^(?:remote(?:\s*[,/-]\s*(?:anywhere|worldwide|global))?|anywhere|worldwide|global)$/iu;
 
 function isRemoteListing(
   posting: Pick<
@@ -48,6 +50,9 @@ function hasNoNamedLocation(location: string): boolean {
 function requestedLocalWork(preferences: JobSearchPreferences): boolean {
   return (
     preferences.locations.length > 0 &&
+    !preferences.locations.some((location) =>
+      GLOBAL_REMOTE_PREFERENCE_PATTERN.test(location.trim()),
+    ) &&
     !preferences.workModes.includes("remote") &&
     (preferences.workModes.length === 0 ||
       preferences.workModes.includes("onsite") ||
@@ -74,7 +79,7 @@ export function correctRemoteOnlyLocationAlignment(
   if (
     !hasNoNamedLocation(posting.location) &&
     assessLocationCompatibility(posting.location, preferences.locations) ===
-    "compatible"
+      "compatible"
   ) {
     return assessment.locationReach === "in_area"
       ? assessment

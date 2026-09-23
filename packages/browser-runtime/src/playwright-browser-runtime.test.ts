@@ -20,8 +20,177 @@ import {
   type BrowserVisualAnalysisInput,
   type BrowserVisualObservationSet,
 } from "@unemployed/contracts";
-import type { Page } from "playwright";
+import type { BrowserContext, Page } from "playwright";
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+test("navigation failures distinguish an unreachable site from a blocked browser", async () => {
+  const { classifyBrowserNavigationFailure } =
+    await import("./playwright-browser-runtime");
+  expect(
+    classifyBrowserNavigationFailure(
+      "page.goto: net::ERR_CONNECTION_REFUSED at https://example.com/jobs",
+    ),
+  ).toMatchObject({ status: "ready", label: "Browser open" });
+  expect(classifyBrowserNavigationFailure("navigation failed")).toMatchObject({
+    status: "blocked",
+    label: "Browser navigation failed",
+  });
+});
+
+test("submission stays bound to the prepared page when another tab opens", async () => {
+  const { selectPreparedApplicationPage } =
+    await import("./playwright-browser-runtime");
+  const preparedPage = {
+    isClosed: () => false,
+    url: () => "https://example.com/apply/1",
+  };
+  const unrelatedLatestPage = {
+    isClosed: () => false,
+    url: () => "https://example.com/jobs/other",
+  };
+  const pages = new Map([
+    ["result_a", preparedPage],
+    ["result_b", unrelatedLatestPage],
+  ]);
+
+  expect(selectPreparedApplicationPage(pages, "result_a")).toBe(preparedPage);
+  expect(selectPreparedApplicationPage(pages, "result_a")).not.toBe(
+    unrelatedLatestPage,
+  );
+});
+
+test("submission fails closed when its prepared page was closed", async () => {
+  const { selectPreparedApplicationPage } =
+    await import("./playwright-browser-runtime");
+
+  expect(() =>
+    selectPreparedApplicationPage(
+      new Map([["result_a", { isClosed: () => true }]]),
+      "result_a",
+    ),
+  ).toThrow("prepared application page was closed");
+});
+
+test("submission never falls back to another page when its binding is missing after restart", async () => {
+  const { selectPreparedApplicationPage } =
+    await import("./playwright-browser-runtime");
+  const unrelatedPage = { isClosed: () => false };
+
+  expect(() =>
+    selectPreparedApplicationPage(
+      new Map([["result_b", unrelatedPage]]),
+      "result_a",
+    ),
+  ).toThrow("exact prepared application page is no longer open");
+});
+
+test("same-URL application bindings focus their own retained pages", async () => {
+  const { focusPreparedApplicationPage } =
+    await import("./playwright-browser-runtime");
+  const pageA = {
+    bringToFront: vi.fn().mockResolvedValue(undefined),
+    isClosed: () => false,
+    url: () => "https://example.com/apply/1",
+  };
+  const pageB = {
+    bringToFront: vi.fn().mockResolvedValue(undefined),
+    isClosed: () => false,
+    url: () => "https://example.com/apply/1",
+  };
+  const pages = new Map([
+    ["result_a", pageA],
+    ["result_b", pageB],
+  ]);
+
+  await expect(focusPreparedApplicationPage(pages, "result_a")).resolves.toBe(
+    true,
+  );
+  expect(pageA.bringToFront).toHaveBeenCalledOnce();
+  expect(pageB.bringToFront).not.toHaveBeenCalled();
+
+  await expect(focusPreparedApplicationPage(pages, "result_b")).resolves.toBe(
+    true,
+  );
+  expect(pageB.bringToFront).toHaveBeenCalledOnce();
+  await expect(
+    focusPreparedApplicationPage(pages, "result_missing"),
+  ).resolves.toBe(false);
+});
+
+test("preparation keeps exact result-bound pages isolated even when URLs match", async () => {
+  const { resolveAutomationPageForContext } =
+    await import("./playwright-browser-runtime");
+  const makePage = (url: string) => ({
+    bringToFront: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+    isClosed: () => false,
+    url: () => url,
+  });
+  const pageA = makePage("https://example.com/apply/1?stage=review#a");
+  const pageB = makePage("https://example.com/apply/1?stage=review#a");
+  const pageC = makePage("about:blank");
+  const newPage = vi.fn().mockResolvedValue(pageC);
+  const context = {
+    pages: () => [pageA, pageB],
+    newPage,
+  } as unknown as BrowserContext;
+
+  await expect(
+    resolveAutomationPageForContext(context, {
+      targetUrl: pageA.url(),
+      preferredPage: pageA as unknown as Page,
+      protectedPages: [pageB as unknown as Page],
+      closeOtherPages: false,
+    }),
+  ).resolves.toBe(pageA);
+  expect(newPage).not.toHaveBeenCalled();
+  expect(pageB.close).not.toHaveBeenCalled();
+
+  await expect(
+    resolveAutomationPageForContext(context, {
+      targetUrl: pageA.url(),
+      protectedPages: [pageA as unknown as Page, pageB as unknown as Page],
+      reuseExistingPage: false,
+      closeOtherPages: false,
+    }),
+  ).resolves.toBe(pageC);
+  expect(newPage).toHaveBeenCalledTimes(1);
+  expect(pageA.close).not.toHaveBeenCalled();
+  expect(pageB.close).not.toHaveBeenCalled();
+});
+
+test("preparation does not reuse a bound page when the exact target changed", async () => {
+  const { resolveAutomationPageForContext } =
+    await import("./playwright-browser-runtime");
+  const boundPage = {
+    bringToFront: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+    isClosed: () => false,
+    url: () => "https://example.com/apply/1?stage=review#person",
+  };
+  const replacement = {
+    bringToFront: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+    isClosed: () => false,
+    url: () => "about:blank",
+  };
+  const context = {
+    pages: () => [boundPage],
+    newPage: vi.fn().mockResolvedValue(replacement),
+  } as unknown as BrowserContext;
+
+  await expect(
+    resolveAutomationPageForContext(context, {
+      targetUrl: "https://example.com/apply/1?stage=review#agent",
+      preferredPage: boundPage as unknown as Page,
+      protectedPages: [boundPage as unknown as Page],
+      reuseExistingPage: false,
+      closeOtherPages: false,
+      requireExactTarget: true,
+    }),
+  ).resolves.toBe(replacement);
+  expect(boundPage.close).not.toHaveBeenCalled();
+});
 
 function createTestJob() {
   return SavedJobSchema.parse({
@@ -1478,6 +1647,81 @@ describe("playwright browser runtime", () => {
     }
   });
 
+  test("runAgentDiscovery stops at a missing starting page instead of wandering to another board route", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-agent-missing-start-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 54647 });
+      const jobExtractor = vi.fn().mockResolvedValue([]);
+      let pageUrl = "about:blank";
+      const page = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        goto: vi.fn((url: string) => {
+          pageUrl = url;
+          return Promise.resolve({ status: () => 404 });
+        }),
+        isClosed: () => false,
+        url: () => pageUrl,
+      };
+      const fakeContext = {
+        newPage: vi.fn().mockResolvedValue(page),
+        pages: () => [page],
+      };
+      const fakeBrowser = {
+        close: vi.fn(),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({}),
+        } as Response),
+      );
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+        jobExtractor,
+      });
+
+      const result = await runtime.runAgentDiscovery!("target_site", {
+        maxSteps: 1,
+        targetJobCount: 1,
+        userProfile: createTestProfile(),
+        searchPreferences: { targetRoles: [], locations: [] },
+        startingUrls: ["https://example.com/not-found"],
+        navigationHostnames: ["example.com"],
+        siteLabel: "Missing Jobs",
+        dedicatedPage: true,
+      });
+
+      expect(result.jobs).toEqual([]);
+      expect(result.warning).toContain("Starting page returned HTTP 404");
+      expect(jobExtractor).not.toHaveBeenCalled();
+      expect(page.close).toHaveBeenCalledOnce();
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
   test("runAgentDiscovery reuses an already-open matching page instead of navigating a blank tab", async () => {
     const userDataDir = await mkdtemp(
       join(tmpdir(), "unemployed-browser-runtime-agent-ready-blank-"),
@@ -1503,6 +1747,7 @@ describe("playwright browser runtime", () => {
       const backgroundTargetPage = {
         bringToFront: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
+        evaluate: vi.fn().mockResolvedValue(200),
         goto: vi.fn().mockResolvedValue(undefined),
         isClosed: () => false,
         url: () => "https://example.com/jobs",
@@ -1593,6 +1838,21 @@ describe("playwright browser runtime", () => {
       expect(backgroundTargetPage.close).not.toHaveBeenCalled();
       expect(backgroundTargetPage.bringToFront).not.toHaveBeenCalled();
       expect(blankPage.bringToFront).not.toHaveBeenCalled();
+
+      // An already-open starting page can be an HTTP error. Reuse must
+      // preserve the same 404 guard as a fresh navigation.
+      backgroundTargetPage.evaluate.mockResolvedValue(404);
+      const missing = await runtime.runAgentDiscovery!("target_site", {
+        maxSteps: 1,
+        targetJobCount: 1,
+        userProfile: createTestProfile(),
+        searchPreferences: { targetRoles: [], locations: [] },
+        startingUrls: ["https://example.com/jobs"],
+        navigationHostnames: ["example.com"],
+        siteLabel: "Example Jobs",
+      });
+      expect(missing.warning).toContain("Starting page returned HTTP 404");
+      expect(backgroundTargetPage.goto).not.toHaveBeenCalled();
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
     }
@@ -2268,6 +2528,9 @@ describe("managed context service worker blocking", () => {
         chromeExecutablePath,
         debugPort,
       });
+      let credentialSession: unknown = null;
+      const retainedWizardUrl = `${applyUrl}?stage=application#step-2`;
+      const prepareForm = createStubFormPreparer();
 
       const result = await runtime.executeApplicationFlow("target_site", {
         job: createTestJob(),
@@ -2278,11 +2541,27 @@ describe("managed context service worker blocking", () => {
         profile: createTestProfile(),
         settings: createTestSettings(),
         mode: "prepare_only",
-        prepareApplicationForm: createStubFormPreparer(),
+        prepareTaskLocalCredentials: ({ session }) => {
+          credentialSession = session;
+          pageUrl = retainedWizardUrl;
+          eventOrder.push("task_local_credentials");
+          return Promise.resolve();
+        },
+        prepareApplicationForm: (input) => {
+          expect(input.session).toBe(credentialSession);
+          expect(input.currentUrl).toBe(retainedWizardUrl);
+          eventOrder.push("form_preparation");
+          return prepareForm(input);
+        },
         submitAuthorized: false,
       });
 
-      expect(eventOrder).toEqual(["service_worker_block", "goto"]);
+      expect(eventOrder).toEqual([
+        "service_worker_block",
+        "goto",
+        "task_local_credentials",
+        "form_preparation",
+      ]);
       expect(fakePage.goto).toHaveBeenCalledWith(
         applyUrl,
         expect.objectContaining({ waitUntil: "domcontentloaded" }),
@@ -2618,6 +2897,7 @@ describe("managed context active service worker gate", () => {
     let pageUrl = "about:blank";
     const fakePage = {
       bringToFront: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
       goto: vi.fn((url: string) => {
         pageUrl = url;
         eventOrder.push("goto");
@@ -2626,6 +2906,18 @@ describe("managed context active service worker gate", () => {
       isClosed: () => false,
       url: () => pageUrl,
     };
+    let secondaryPageUrl = "about:blank";
+    const secondaryPage = {
+      bringToFront: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      goto: vi.fn((url: string) => {
+        secondaryPageUrl = url;
+        return Promise.resolve(undefined);
+      }),
+      isClosed: () => false,
+      url: () => secondaryPageUrl,
+    };
+    const pages = [fakePage];
     const installedInitScripts: string[] = [];
     const fakeContext = {
       addInitScript: vi.fn((script: string | (() => void)) => {
@@ -2635,7 +2927,11 @@ describe("managed context active service worker gate", () => {
         eventOrder.push("service_worker_block");
         return Promise.resolve();
       }),
-      pages: () => [fakePage],
+      newPage: vi.fn(() => {
+        if (!pages.includes(secondaryPage)) pages.push(secondaryPage);
+        return Promise.resolve(secondaryPage);
+      }),
+      pages: () => pages,
       ...(input.activeServiceWorkers
         ? { serviceWorkers: input.activeServiceWorkers }
         : {}),
@@ -2651,7 +2947,9 @@ describe("managed context active service worker gate", () => {
       applyUrl,
       eventOrder,
       fakeBrowser,
+      fakeContext,
       fakePage,
+      secondaryPage,
       installedInitScripts,
       launchedChromeProcess,
     };
@@ -2888,6 +3186,150 @@ describe("managed context active service worker gate", () => {
       expect(result.executionTimings.map((entry) => entry.stage)).toContain(
         "form_preparation",
       );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("continuation keeps the exact bound wizard page instead of a stale listing checkpoint", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-bound-continuation-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({ activeServiceWorkers: () => [] });
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+      const applicationPageBindingKey = "result_wizard";
+
+      await runtime.executeApplicationFlow("target_site", {
+        ...prepareInput,
+        applicationPageBindingKey,
+      });
+      await harness.fakePage.goto(
+        "https://example.com/apply/job_visual_runtime?step=2#captcha",
+      );
+      harness.fakePage.goto.mockClear();
+
+      await runtime.executeApplicationFlow("target_site", {
+        ...prepareInput,
+        applicationPageBindingKey,
+        startingUrl:
+          "https://example.com/apply/job_visual_runtime?step=1#checkpoint",
+      });
+
+      expect(harness.fakePage.goto).not.toHaveBeenCalled();
+      expect(harness.fakePage.url()).toBe(
+        "https://example.com/apply/job_visual_runtime?step=2#captcha",
+      );
+
+      await harness.fakePage.goto("https://unrelated.example.net/account");
+      harness.fakePage.goto.mockClear();
+      await expect(
+        runtime.executeApplicationFlow("target_site", {
+          ...prepareInput,
+          applicationPageBindingKey,
+          startingUrl:
+            "https://example.com/apply/job_visual_runtime?step=2#captcha",
+        }),
+      ).rejects.toThrow("left the allowed application origins");
+      expect(harness.fakePage.goto).not.toHaveBeenCalled();
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("opening another target preserves an older result-bound application page", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-bound-open-session-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({ activeServiceWorkers: () => [] });
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+      const applicationPageBindingKey = "result_prepared_first";
+
+      await runtime.executeApplicationFlow("target_site", {
+        ...prepareInput,
+        applicationPageBindingKey,
+      });
+      harness.fakePage.close.mockClear();
+      harness.fakePage.goto.mockClear();
+
+      await runtime.openSession("target_site", {
+        targetUrl: "https://example.com/jobs/second",
+      });
+
+      expect(harness.fakeContext.newPage).toHaveBeenCalledOnce();
+      expect(harness.secondaryPage.goto).toHaveBeenCalledWith(
+        "https://example.com/jobs/second",
+        { timeout: 8_000, waitUntil: "domcontentloaded" },
+      );
+      expect(harness.fakePage.goto).not.toHaveBeenCalled();
+      expect(harness.fakePage.close).not.toHaveBeenCalled();
+      await expect(
+        runtime.hasApplicationPageBinding?.(
+          "target_site",
+          applicationPageBindingKey,
+        ),
+      ).resolves.toBe(true);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("continuation fails closed when its exact bound wizard page was closed", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-closed-continuation-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({ activeServiceWorkers: () => [] });
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+      const applicationPageBindingKey = "result_closed_wizard";
+
+      await runtime.executeApplicationFlow("target_site", {
+        ...prepareInput,
+        applicationPageBindingKey,
+      });
+      vi.spyOn(harness.fakePage, "isClosed").mockReturnValue(true);
+      harness.fakePage.goto.mockClear();
+
+      await expect(
+        runtime.executeApplicationFlow("target_site", {
+          ...prepareInput,
+          applicationPageBindingKey,
+          startingUrl:
+            "https://example.com/apply/job_visual_runtime?step=2#captcha",
+        }),
+      ).rejects.toThrow("prepared application page was closed");
+      expect(harness.fakePage.goto).not.toHaveBeenCalled();
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
     }

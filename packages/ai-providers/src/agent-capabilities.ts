@@ -35,6 +35,7 @@ import {
   type TailoredResumeDraft,
   type ExtractResumeImportStageTransportInput,
   describeProfileAssistantBehavior,
+  PROFILE_RESUME_APPROACH_VOCABULARY,
 } from "./shared";
 import { completeTailoredResumeDraft } from "./openai-compatible-shared";
 import {
@@ -62,8 +63,14 @@ const ResumeBulletTextInputSchema = z.object({
   bulletId: z.string().trim().min(1),
   newText: z.string().trim().min(1),
 });
+const ResumeBulletIncludedInputSchema = z.object({
+  sectionId: z.string().trim().min(1),
+  bulletId: z.string().trim().min(1),
+  included: z.boolean(),
+});
 const ResumeGenerationProposalInputSchema = z.object({
   proposal: z.record(z.string(), z.unknown()),
+  reasonForRevision: z.string().trim().min(1).optional(),
 });
 const ResumeImportCandidateSetInputSchema = z.object({
   candidates: z.array(ResumeImportFieldCandidateDraftSchema),
@@ -140,10 +147,46 @@ const SearchPreferenceFieldsInputSchema = profileOperationInputSchema(
 const CompensationFieldsInputSchema = profileOperationInputSchema(
   ProfileCompensationPreferencePatchFieldsSchema,
 );
-const ProfileOperationsInputSchema = z.object({
-  summary: z.string().trim().min(1),
-  operations: z.array(ProfileCopilotPatchOperationSchema).min(1),
-});
+const ProfileOperationsInputSchema = z
+  .object({
+    summary: z.string().trim().min(1),
+    operations: z.array(ProfileCopilotPatchOperationSchema).min(1),
+  })
+  .superRefine((value, context) => {
+    for (const [index, operation] of value.operations.entries()) {
+      let hasCreationIdentity = true;
+      switch (operation.operation) {
+        case "upsert_experience_record":
+          hasCreationIdentity = Boolean(
+            operation.record.title || operation.record.companyName,
+          );
+          break;
+        case "upsert_education_record":
+          hasCreationIdentity = Boolean(
+            operation.record.schoolName || operation.record.degree,
+          );
+          break;
+        case "upsert_certification_record":
+          hasCreationIdentity = Boolean(operation.record.name);
+          break;
+        case "upsert_link_record":
+          hasCreationIdentity = Boolean(
+            operation.record.label || operation.record.url,
+          );
+          break;
+        default:
+          continue;
+      }
+      if (operation.record.id === null && !hasCreationIdentity) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["operations", index, "record", "id"],
+          message:
+            "An update to an existing card must include that card's id. A new card must include identifying details.",
+        });
+      }
+    }
+  });
 
 function jsonObject(
   properties: Record<string, unknown>,
@@ -242,6 +285,10 @@ export async function runResumeGenerationAgentTask(input: {
     input.request.selectedTemplateId ?? input.request.settings.resumeTemplateId;
   let hasComposedProposal = false;
   let hasRenderedPreview = false;
+  let hasInspectedRenderedPreview = false;
+  let lastRenderedPreview: Awaited<
+    ReturnType<NonNullable<typeof input.request.renderPreview>>
+  > | null = null;
   const groundedResumePayload = buildGroundedResumeRewriteModelPayload(
     input.request,
   );
@@ -252,6 +299,8 @@ export async function runResumeGenerationAgentTask(input: {
       input.substantivePrompt,
       "Work through the task tools instead of returning a final JSON object.",
       "Read the complete context and template options, compose a material proposal, render and inspect the resulting full-text preview, revise the proposal when the inspection exposes a weak result, then finish.",
+      "The rendered preview can report requiredModelRepairs and personConfirmationCount. Repair every requiredModelRepairs item by removing or rephrasing unsupported model wording; never invent missing candidate facts, dates, or chronology. Aggressive person confirmations are deliberate review decisions for the person, not defects for you to erase or confirm.",
+      "When the current proposal has been rendered and inspected with no validation issue, call finish_task unless the inspection exposed a concrete defect. If you revise, name the defect you are fixing, render and inspect that revision, then finish when it is acceptable. Do not keep restyling an already valid preview.",
       "The runtime preserves identity, chronology, selected strategy, and the final typed resume shape. Your job is to do the actual job-targeted writing within the mode-specific instructions above.",
     ].join(" "),
     state: input.request,
@@ -369,7 +418,11 @@ export async function runResumeGenerationAgentTask(input: {
           }
           const changed = selectedTemplateId !== templateId;
           selectedTemplateId = templateId;
-          if (changed) hasRenderedPreview = false;
+          if (changed) {
+            hasRenderedPreview = false;
+            hasInspectedRenderedPreview = false;
+            lastRenderedPreview = null;
+          }
           return {
             summary: `Resume template selected: ${template.label}`,
             value: { selectedTemplateId },
@@ -380,7 +433,7 @@ export async function runResumeGenerationAgentTask(input: {
       {
         name: "compose_resume_proposal",
         description:
-          "Write or revise the sparse job-targeted resume proposal. Use the exact proposal shape described in the task instructions. Calling this again replaces the working proposal so you can improve it after inspection.",
+          "Write or revise the sparse job-targeted resume proposal. Use the exact proposal shape described in the task instructions. After inspecting a rendered preview, call this again only to fix a concrete defect and name that defect in reasonForRevision.",
         inputSchema: ResumeGenerationProposalInputSchema,
         parameters: jsonObject(
           {
@@ -390,14 +443,39 @@ export async function runResumeGenerationAgentTask(input: {
               description:
                 "Sparse summary, experienceEntries, projectEntries, and optional coreSkills proposal from the task instructions.",
             },
+            reasonForRevision: {
+              type: "string",
+              description:
+                "Required only when revising an already rendered and inspected proposal: name the concrete defect this revision fixes.",
+            },
           },
           ["proposal"],
         ),
         permission: "draft_write",
         execute(toolInput, context) {
           const parsed = ResumeGenerationProposalInputSchema.parse(toolInput);
+          if (
+            hasInspectedRenderedPreview &&
+            parsed.reasonForRevision === undefined
+          ) {
+            return {
+              summary:
+                "Revision not applied: name a concrete preview defect, or finish the valid inspected proposal",
+              validationIssues: [
+                {
+                  code: "resume_revision_reason_required",
+                  message:
+                    "The current proposal is already rendered and inspected. Call finish_task if it is acceptable. To revise it, call compose_resume_proposal with reasonForRevision naming the concrete defect you are fixing.",
+                  path: ["reasonForRevision"],
+                },
+              ],
+              progressMade: false,
+            };
+          }
           hasComposedProposal = true;
           hasRenderedPreview = false;
+          hasInspectedRenderedPreview = false;
+          lastRenderedPreview = null;
           return {
             draft: parsed.proposal,
             summary: "Resume proposal composed",
@@ -427,6 +505,7 @@ export async function runResumeGenerationAgentTask(input: {
               : null,
           ).then((rendered) => {
             hasRenderedPreview = true;
+            lastRenderedPreview = rendered;
             return {
               summary: rendered
                 ? "Formatted resume preview rendered"
@@ -460,9 +539,36 @@ export async function runResumeGenerationAgentTask(input: {
         parameters: jsonObject({}),
         permission: "read",
         execute(_toolInput, context) {
+          if (hasRenderedPreview) hasInspectedRenderedPreview = true;
           return {
-            summary: "Completed resume inspected",
-            value: completeTailoredResumeDraft(context.draft, context.state),
+            summary: hasRenderedPreview
+              ? "Completed resume inspected; call finish_task now unless you found a concrete defect"
+              : "No current rendered preview to inspect; render it before finishing",
+            value: {
+              resume: completeTailoredResumeDraft(context.draft, context.state),
+              formattedArtifact: lastRenderedPreview,
+              resumeGenerationPhase: {
+                proposalComposed: hasComposedProposal,
+                previewRenderedForCurrentProposal: hasRenderedPreview,
+                previewInspectedForCurrentProposal: hasInspectedRenderedPreview,
+                readyToFinish:
+                  hasComposedProposal &&
+                  hasRenderedPreview &&
+                  hasInspectedRenderedPreview &&
+                  (lastRenderedPreview?.requiredModelRepairs?.length ?? 0) ===
+                    0,
+                nextAction:
+                  hasComposedProposal &&
+                  hasRenderedPreview &&
+                  hasInspectedRenderedPreview &&
+                  (lastRenderedPreview?.requiredModelRepairs?.length ?? 0) === 0
+                    ? "Call finish_task unless inspection found a concrete defect. To revise, call compose_resume_proposal with reasonForRevision naming that defect."
+                    : (lastRenderedPreview?.requiredModelRepairs?.length ?? 0) >
+                        0
+                      ? "Repair every requiredModelRepairs item, then render and inspect the revision. Do not resolve person confirmation items."
+                      : "Render and inspect the current proposal before finishing.",
+              },
+            },
             progressMade: false,
           };
         },
@@ -470,7 +576,7 @@ export async function runResumeGenerationAgentTask(input: {
       {
         name: "finish_task",
         description:
-          "Finish after composing and inspecting a useful resume proposal.",
+          "Finish after composing, rendering, and inspecting a useful resume proposal. This is the required next action when the inspected preview is acceptable.",
         inputSchema: EmptyInputSchema,
         parameters: jsonObject({}),
         permission: "read",
@@ -499,8 +605,20 @@ export async function runResumeGenerationAgentTask(input: {
             },
           ]
         : []),
+      ...(lastRenderedPreview?.requiredModelRepairs ?? []).map((issue) => ({
+        code: `resume_preview_${issue.id}`,
+        message: issue.flaggedText
+          ? `${issue.message} Flagged text: ${issue.flaggedText}`
+          : issue.message,
+        path: [
+          "preview",
+          issue.sectionId ?? "",
+          issue.entryId ?? "",
+          issue.bulletId ?? "",
+        ],
+      })),
     ],
-    buildContext: ({ state, draft }) =>
+    buildContext: ({ state, draft, validationIssues }) =>
       compactOpenAiCompatibleUserPayload({
         operation: "createResumeDraft",
         modelContextWindowTokens: 196_000,
@@ -514,6 +632,19 @@ export async function runResumeGenerationAgentTask(input: {
           generationStrategy: state.strategy ?? null,
           settings: state.settings,
           workingProposal: draft,
+          resumeGenerationPhase: {
+            proposalComposed: hasComposedProposal,
+            previewRenderedForCurrentProposal: hasRenderedPreview,
+            previewInspectedForCurrentProposal: hasInspectedRenderedPreview,
+            formattedArtifact: lastRenderedPreview,
+            readyToFinish:
+              hasComposedProposal &&
+              hasRenderedPreview &&
+              hasInspectedRenderedPreview &&
+              (lastRenderedPreview?.requiredModelRepairs?.length ?? 0) === 0 &&
+              validationIssues.length === 0,
+            validationIssues,
+          },
         }),
       }),
     timeBudgetMs: 600_000,
@@ -529,10 +660,7 @@ export async function runResumeGenerationAgentTask(input: {
   // the real timeout/failure provenance.
   if (result.receipt.stopReason !== "completed") {
     if (result.receipt.stopReason === "time_budget") {
-      const seconds = Math.max(
-        1,
-        Math.ceil(result.receipt.durationMs / 1_000),
-      );
+      const seconds = Math.max(1, Math.ceil(result.receipt.durationMs / 1_000));
       throw new Error(
         `Resume generation agent timed out after ${seconds}s before completing.`,
       );
@@ -878,7 +1006,10 @@ export async function runProfileCopilotAgentTask(input: {
     systemPrompt: [
       "You are the Profile Copilot. Work through the typed tools instead of returning a final JSON object.",
       ...describeProfileAssistantBehavior(input.request.assistantBehavior),
+      PROFILE_RESUME_APPROACH_VOCABULARY,
       "Use propose_profile_operations for profile edits: it is the universal path that accepts every schema-valid operation kind and wraps them into one needs_review group per call with runtime-assigned id, apply mode, and timestamp. The dedicated set_* tools remain as conveniences.",
+      "For record upserts, include only fields the person asked to change and the existing record id. Omit every unchanged field. Send null or an empty list only when the person explicitly asks to clear that field. New records may include only the details that are known; the runtime supplies safe defaults.",
+      "For education reordering, use reorder_education_records with every existing education record id exactly once in the requested order; do not use upserts to simulate ordering.",
       "Answer grounded questions directly. For edits, set helpful response content and add one or more bounded patch groups.",
       "Never invent experience, credentials, dates, compensation currency, or metrics. Broad or ambiguous edits need review.",
       "Call validate_profile_draft, repair every issue, then finish_task.",
@@ -924,7 +1055,7 @@ export async function runProfileCopilotAgentTask(input: {
       {
         name: "set_identity_fields",
         description:
-          "Propose bounded identity changes such as headline, summary, location, portfolio, GitHub, or website fields. Supply only fields the user requested or evidence supports; proposal metadata is added automatically.",
+          "Propose bounded identity changes such as headline, location, portfolio, GitHub, or website fields. Use set_professional_summary_fields for the professional summary shown in Basics. Supply only fields the user requested or evidence supports; proposal metadata is added automatically.",
         inputSchema: IdentityFieldsInputSchema,
         parameters: jsonObject(
           {
@@ -933,7 +1064,7 @@ export async function runProfileCopilotAgentTask(input: {
               type: "object",
               additionalProperties: true,
               description:
-                "Supported examples: headline, summary, currentLocation, githubUrl, portfolioUrl, personalWebsiteUrl, yearsExperience.",
+                "Supported examples: headline, currentLocation, githubUrl, portfolioUrl, personalWebsiteUrl, yearsExperience. For the professional summary shown in Basics, use set_professional_summary_fields with fullSummary.",
             },
           },
           ["summary", "fields"],
@@ -954,7 +1085,7 @@ export async function runProfileCopilotAgentTask(input: {
       {
         name: "set_professional_summary_fields",
         description:
-          "Propose bounded professional-summary fields such as shortValueProposition, fullSummary, strengths, or careerThemes.",
+          "Propose bounded professional-summary fields such as shortValueProposition, fullSummary, strengths, or careerThemes. The editable Professional summary field in Basics is fullSummary.",
         inputSchema: ProfessionalSummaryFieldsInputSchema,
         parameters: jsonObject(
           {
@@ -1012,7 +1143,7 @@ export async function runProfileCopilotAgentTask(input: {
       {
         name: "set_search_preferences",
         description:
-          "Propose bounded search-preference changes such as targetRoles, locations, workModes, employmentTypes, or seniorityLevels.",
+          "Propose bounded search-preference changes such as targetRoles, locations, workModes, employmentTypes, seniorityLevels, or the resume tailoring strength. For the Settings names, use tailoringMode conservative for Light, balanced for Tailored, and aggressive for Aggressive.",
         inputSchema: SearchPreferenceFieldsInputSchema,
         parameters: jsonObject(
           {
@@ -1072,7 +1203,7 @@ export async function runProfileCopilotAgentTask(input: {
               minItems: 1,
               items: { type: "object", additionalProperties: true },
               description:
-                "Each entry carries an operation discriminator (for example replace_identity_fields, upsert_experience_record, remove_link_record, remove_profile_list_entries, resolve_review_items) plus its payload: value, record, recordId, field with values, or reviewItemIds with resolutionStatus. To take one skill, saved location, or target role out of a list, use remove_profile_list_entries with the field and the exact entries to remove; never resend the whole list to drop one item, and never remove an entry the person did not name.",
+                "Each entry carries an operation discriminator (for example replace_identity_fields, upsert_experience_record, reorder_education_records, remove_link_record, remove_profile_list_entries, resolve_review_items) plus its payload: value, record, recordId, orderedRecordIds, field with values, or reviewItemIds with resolutionStatus. To reorder education, pass every existing education id exactly once in orderedRecordIds. To take one skill, saved location, or target role out of a list, use remove_profile_list_entries with the field and the exact entries to remove; never resend the whole list to drop one item, and never remove an entry the person did not name.",
             },
           },
           ["summary", "operations"],
@@ -1172,10 +1303,12 @@ export async function runResumeEditAgentTask(input: {
     capability: "guided_resume_edits",
     systemPrompt: [
       "You are a grounded résumé editing agent. Work through tools, not a final JSON response.",
-      "Prefer replace_resume_section_text for ordinary section prose changes and update_resume_bullet for one bullet in one entry; use add_resume_patch only when no dedicated tool fits.",
+      "Prefer replace_resume_section_text for ordinary section prose changes, update_resume_bullet for one bullet in one entry, and set_resume_bullet_included to show or hide an existing top-level skill or keyword; use add_resume_patch only when no dedicated tool fits.",
       describeAggressiveResumeEditPolicy(input.request.tailoringStrength) ??
         "Never state a fact, metric, employer, tool, or date that the saved evidence does not carry. If part of a request asks for one, do the grounded part and say plainly in the response which part you did not do and why.",
       "Set a useful response and add only bounded patches supported by the supplied draft and job evidence.",
+      "For Light or Tailored resumes, job-only wording is not candidate evidence. Before proposing a change, compare every factual word in the new wording with the supplied draft and saved evidence. A suggestion that the deterministic approval gate would reject is not useful: remove the unsupported job term and make a safe edit by trimming, reordering, or paraphrasing the candidate's existing statements instead.",
+      "When the person asks what you would change, propose at least one concrete apply-safe patch when the saved draft has a safe clarity or focus improvement. If no safe improvement exists, explain that plainly and return no patch rather than borrowing an unsupported claim from the job.",
       "Never invent dates, credentials, or outcomes that neither the saved evidence nor — in aggressive tailoring — the job listing itself carries. Do not touch locked content.",
       "Validate the draft, repair every issue, then finish_task.",
     ].join(" "),
@@ -1312,6 +1445,57 @@ export async function runResumeEditAgentTask(input: {
               patches: [...context.draft.patches, patch],
             },
             summary: `Proposed a rewrite of one bullet in ${entry.title ?? section.label}`,
+            progressMade: true,
+          };
+        },
+      },
+      {
+        name: "set_resume_bullet_included",
+        description:
+          "Show or hide one existing top-level résumé bullet, such as a skill or keyword. Use exact section and bullet ids from read_resume_context. This never creates a new candidate fact.",
+        inputSchema: ResumeBulletIncludedInputSchema,
+        parameters: jsonObject(
+          {
+            sectionId: { type: "string" },
+            bulletId: { type: "string" },
+            included: { type: "boolean" },
+          },
+          ["sectionId", "bulletId", "included"],
+        ),
+        permission: "draft_write",
+        execute(toolInput, context) {
+          const parsed = ResumeBulletIncludedInputSchema.parse(toolInput);
+          const section = context.state.draft.sections.find(
+            (candidate) => candidate.id === parsed.sectionId,
+          );
+          if (!section)
+            throw new Error("The requested résumé section does not exist.");
+          if (section.locked)
+            throw new Error("The requested résumé section is locked.");
+          const bullet = section.bullets.find(
+            (candidate) => candidate.id === parsed.bulletId,
+          );
+          if (!bullet)
+            throw new Error(
+              `Bullet '${parsed.bulletId}' is not a top-level bullet in section '${section.id}'. Top-level bullet ids in this section: ${section.bullets.map((candidate) => candidate.id).join(", ") || "none"}.`,
+            );
+          if (bullet.locked) throw new Error("The requested bullet is locked.");
+          const patch = ResumeDraftPatchSchema.parse({
+            id: `resume_patch_${context.draft.patches.length + 1}`,
+            draftId: context.state.draft.id,
+            operation: "toggle_include",
+            targetSectionId: section.id,
+            targetBulletId: bullet.id,
+            newIncluded: parsed.included,
+            appliedAt: new Date().toISOString(),
+            origin: "assistant",
+          });
+          return {
+            draft: {
+              ...context.draft,
+              patches: [...context.draft.patches, patch],
+            },
+            summary: `${parsed.included ? "Showed" : "Hid"} ${bullet.text}`,
             progressMade: true,
           };
         },

@@ -16,17 +16,18 @@ export function createApplySystemPrompt(config: ApplyAgentConfig): string {
         ? "Fill everything in and say so with submit_application when it is complete. You do not send it — the person reads it and presses send."
         : "Fill everything in and stop. This application is set to fill in only.";
   // The saved AI applying behavior (Settings). Absent means the defaults.
-  const coverLetterPolicy = config.writing?.coverLetterPolicy ?? "when_required";
+  const coverLetterPolicy =
+    config.writing?.coverLetterPolicy ?? "when_required";
   const coverLetterSentence =
     coverLetterPolicy === "never"
       ? "- The person has asked you not to write cover letters, motivation letters, or supporting statements. If the form asks for one, leave that field and say so at the end."
       : coverLetterPolicy === "when_possible"
-        ? "- When the form has any place for a cover letter, motivation letter, or supporting statement — required or optional — and none is already available, use create_application_document. Inspect the result with list_application_documents, then attach it with upload. Creating a local draft does not authorize uploading or submitting anything beyond the saved application authority."
-        : "- When the form requests a cover letter, motivation letter, or supporting statement file that is not already available, use create_application_document. Inspect the result with list_application_documents, then attach it with upload. Creating a local draft does not authorize uploading or submitting anything beyond the saved application authority.";
+        ? "- When the form has any place for a cover letter, motivation letter, or supporting statement — required or optional — attach the person's own cover letter if it is among the files above; only when none is already available, use create_application_document. Inspect the result with list_application_documents, then attach it with upload. Creating a local draft does not authorize uploading or submitting anything beyond the saved application authority."
+        : "- Write a cover letter, motivation letter, or supporting statement only when that field is required; leave an optional letter field blank unless the person's own cover letter is already among the files above, in which case attach that file wherever the form has a place for it. For a required letter or statement that is not already available, use create_application_document, inspect it with list_application_documents, then attach it with upload. Creating a local draft does not authorize uploading or submitting anything beyond the saved application authority.";
   const writtenAnswerSentence =
     (config.writing?.writtenAnswerLength ?? "short") === "full"
-      ? "- When you write an answer yourself, write it fully: a short paragraph or two that answers the question with specifics from the resume and profile."
-      : "- When you write an answer yourself, keep it short: a few sentences that answer the question directly, with one specific from the resume or profile.";
+      ? "- When you write an answer yourself, write it fully: a short paragraph or two that answers the question with specifics from the resume and profile. A prose question inside the form, such as why the person wants the role, is a written answer even when it mentions motivation."
+      : "- When you write an answer yourself, keep it short: one brief paragraph of a few direct sentences, with one specific from the resume or profile. A prose question inside the form, such as why the person wants the role, is a written answer even when it mentions motivation. Do not turn that answer into a letter with an address, date, greeting, or sign-off.";
 
   const declarationNames: Record<string, string> = {
     truthfulness_certification: "certifying that the answers are true",
@@ -41,6 +42,9 @@ export function createApplySystemPrompt(config: ApplyAgentConfig): string {
     .map((kind) => declarationNames[kind] ?? kind)
     .join("; ");
   const declarationSentence = `- Declarations the person makes about themselves are ticked by Job Finder, not by you: always call set_checkbox on a required declaration box and let Job Finder decide. It ticks the kinds the person allowed in advance (${approvedDeclarations || "none yet"}) and any box they answered Yes to before; anything else it leaves for them and tells you so. Never skip a required declaration box without trying it.`;
+  const continuationSentence = config.application.continuation
+    ? "- This is a continuation on the exact retained application page. Keep the current form and everything already entered on it. Do not follow the site header or navigate back to its home page or job listing, and do not reload the form."
+    : null;
 
   return [
     "You are applying for a job on this person's behalf, in their browser, with the ordinary powers a person has: you can look at the page, read it, click anything, follow links, type, go back, wait, and scroll.",
@@ -50,15 +54,17 @@ export function createApplySystemPrompt(config: ApplyAgentConfig): string {
     "You work in one tab. When something you press wants a new tab, Job Finder opens that address in this tab and tells you; carry on from there. If a step fails in the browser you are told what happened and shown the page again — look, and try another way. A button that does nothing, a page that will not load, a link that leads somewhere else: those are things to notice, try around once or twice, and then report exactly, not reasons to keep pressing the same thing.",
     "",
     "What is not yours to decide:",
-    "- Answers about this person come from their own profile, resume and saved answers. Call suggest_answer and use what it gives you. If it has nothing and the question wants prose, write it from the resume, the profile and the posting — and never state a fact none of those support.",
+    "- Answers about this person come from their own profile, resume and saved answers. Call suggest_answer and use what it gives you. If it has nothing and the question wants prose, write from those candidate facts. The posting describes the employer and role; it is not evidence of the person's skills, experience, achievements, or qualifications. You may explain interest in the advertised work, but never turn a job requirement into a claim that the person has done it. Leave unsupported candidate claims out.",
     "- A choice question the resume plainly answers (years of experience from the dated roles, highest education from the education section, a language the profile lists) is yours to pick: choose the option the evidence supports and say what you based it on. Hand a question back only when nothing on file answers it.",
     writtenAnswerSentence,
     coverLetterSentence,
+    continuationSentence,
+    '- A separate cover-letter, motivation-letter, or supporting-statement field follows the cover-letter choice above. Do not paste a cover letter into a prose question such as "Why do you want to work here?"; answer that question using the written-answer length instead.',
     declarationSentence,
     "- If set_checkbox tells you a box was left for the person, do not try it again: carry on with every other field, attach the files, and finish; the box goes back to them with the finished form.",
-    "- A form that wants a file you do not have (a letter, a statement) is not a reason to stop: create_application_document makes one as PDF, Word, or plain text, and upload attaches it.",
-    "- Never sign in, never create an account, never type a password, never work around a security check or a code sent to their phone. If the site needs one of those, finish and say so.",
-    "- A page that says it is checking the browser (\"Just a moment\", \"Performing security verification\") is not one of those: it finishes by itself. Wait 20 to 30 seconds and look again, for up to two minutes, before you report it. Only a box to tick or a puzzle to solve is the person's.",
+    "- A form that wants a letter or statement you do not have is not a reason to stop: create_application_document makes one as PDF, Word, or plain text, and upload attaches it. A portfolio, work sample, transcript, or certificate must be the person's own file; never generate a substitute.",
+    "- You may follow a site's existing Sign in link to expose the real credential form; navigating there is not signing in. When a page offers Sign in or Create account, choose Sign in, then stop at the credential form. Never create an account, type a password, work around a security check, or enter a code sent to their phone. If the site needs one of those, finish and say so.",
+    '- A page that says it is checking the browser ("Just a moment", "Performing security verification") is not one of those: it finishes by itself. Wait 20 to 30 seconds and look again, for up to two minutes, before you report it. Only a box to tick or a puzzle to solve is the person\'s.',
     `- ${modeSentence}`,
     "",
     "Pacing: there is no step budget. A short form takes a few steps; a listing that leads through a redirect to a five-screen form takes many more, and that is fine. Finish when the form is complete, when only the person can go further, or when you are genuinely stuck — and say which, in your own words, because the person reads exactly what you write.",
@@ -77,9 +83,13 @@ export function createApplyUserPrompt(config: ApplyAgentConfig): string {
     .join("\n");
 
   return [
-    `Apply for ${posting.title} at ${posting.company}${posting.location ? ` (${posting.location})` : ""} on ${config.siteLabel}.`,
+    config.application.continuation
+      ? `Continue the retained ${posting.title} application at ${posting.company}${posting.location ? ` (${posting.location})` : ""} on ${config.siteLabel}.`
+      : `Apply for ${posting.title} at ${posting.company}${posting.location ? ` (${posting.location})` : ""} on ${config.siteLabel}.`,
     "",
-    `The form is open at ${config.application.startingUrl}.`,
+    config.application.continuation
+      ? `The exact live form is already open at ${config.application.startingUrl}. Inspect and continue that page without returning to the listing or reloading it.`
+      : `The form is open at ${config.application.startingUrl}.`,
     "",
     documents.length > 0
       ? `Files Job Finder already has for this application:\n${documents}`

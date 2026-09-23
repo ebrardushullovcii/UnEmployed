@@ -5,6 +5,8 @@ import type {
   ApplicationAutomationMode,
   ApplyPageSession,
   ApplyRawPageHands,
+  RawApplyPage,
+  ApplicationFormActionHandoff,
   ApplicationSalaryDisclosureRule,
   ApplyExecutionResult,
   ApplyRecoveryContext,
@@ -16,6 +18,7 @@ import type {
   BrowserSourceAccessProbeInput,
   BrowserSourceAccessProbeResult,
   CandidateProfile,
+  CandidateAssetKind,
   DiscoveryRunResult,
   JobFinderSettings,
   JobFinderSearchRequest,
@@ -67,7 +70,13 @@ export type ApplicationExecutionMode = "prepare_only" | "submit_when_ready";
  */
 export interface ApplicationAttachmentArtifact {
   assetId: string;
-  questionId: string;
+  /** The kind the person chose in Profile, independently of the form question. */
+  assetKind?: CandidateAssetKind;
+  /**
+   * The exact question that selected this asset. Library-wide application
+   * assets are available before a form question exists, so they carry null.
+   */
+  questionId: string | null;
   prompt: string;
   questionKind: ApplicationQuestionKind;
   fileName: string;
@@ -77,6 +86,11 @@ export interface ApplicationAttachmentArtifact {
 }
 
 export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
+  /**
+   * Opaque identity for the exact prepared browser page. Later submission
+   * hands must present the same key; it carries no permission by itself.
+   */
+  applicationPageBindingKey?: string;
   applicationAttachments?: readonly ApplicationAttachmentArtifact[];
   mode: ApplicationExecutionMode;
   /**
@@ -170,6 +184,16 @@ export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
    */
   salaryDisclosure?: ApplicationSalaryDisclosureRule;
   /**
+   * Optional main-owned, one-use setup before application preparation. The
+   * runtime supplies only generic page mechanics; the caller owns the policy
+   * that authorizes and recognizes the exact sign-in step. No value from this
+   * callback is persisted or exposed to the renderer.
+   */
+  prepareTaskLocalCredentials?: (input: {
+    session: ApplyPageSession;
+    signal?: AbortSignal;
+  }) => Promise<void>;
+  /**
    * Fills in the application form on the page the runtime has opened.
    *
    * The runtime owns the browser: opening the page, watching for service
@@ -179,6 +203,8 @@ export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
    */
   prepareApplicationForm: (input: {
     session: ApplyPageSession;
+    /** The live URL of this exact bound page after any authorized setup. */
+    currentUrl: string;
     startedAt: string;
     signal?: AbortSignal;
     onProgress?: (
@@ -236,6 +262,31 @@ export interface BrowserSessionRuntime {
     input: ExecuteApplicationFlowInput,
     options?: BrowserApplicationExecutionOptions,
   ): Promise<ApplyExecutionResult>;
+  /** Whether the exact page retained for this preparation is still live. */
+  hasApplicationPageBinding?(
+    source: JobSource,
+    pageBindingKey: string,
+  ): Promise<boolean>;
+  /** Bring the exact retained application page to the person without URL matching. */
+  focusApplicationPageBinding?(
+    source: JobSource,
+    pageBindingKey: string,
+  ): Promise<boolean>;
+  /** Read the exact retained page for workflow policy, with passwords redacted. */
+  readApplicationPageBinding?(
+    source: JobSource,
+    pageBindingKey: string,
+  ): Promise<RawApplyPage>;
+  /** Arm one native POST action on the exact retained page for a person. */
+  armApplicationFormAction?(
+    source: JobSource,
+    input: ApplicationFormActionHandoff,
+  ): Promise<void>;
+  /** Re-lock a retained handoff when the run resumes or another action opens. */
+  closeApplicationFormAction?(
+    source: JobSource,
+    pageBindingKey: string,
+  ): Promise<void>;
   /**
    * Main-process-only application hand. The runtime retains Page ownership
    * and returns a redacted, transient observation with no DOM handle.

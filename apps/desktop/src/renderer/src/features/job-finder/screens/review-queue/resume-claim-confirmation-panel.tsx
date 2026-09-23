@@ -481,23 +481,23 @@ export function ResumeClaimConfirmationPanel(
           Lines to confirm
         </h3>
         <StatusBadge tone={undecidedCount > 0 ? "warning" : "positive"}>
-          {undecidedCount > 0
-            ? `${undecidedCount} to decide`
-            : "All decided"}
+          {undecidedCount > 0 ? `${undecidedCount} to decide` : "All decided"}
         </StatusBadge>
       </div>
       <p aria-live="polite" role="status">
         {undecidedCount > 0
           ? "These lines go a little past what your saved evidence proves, to help this resume clear screening. Keep the ones you can back up in an interview and remove the rest. Keeping a line records that it is accurate and your own."
-          : "Every line is decided. Approve the resume when you are ready."}
+          : props.draft.status === "approved" && !props.hasUnsavedChanges
+            ? "Every line is decided. This resume is approved."
+            : "Every line is decided. Approve the resume when you are ready."}
       </p>
       {props.hasUnsavedChanges ? (
         <p
           className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-(length:--text-small) leading-5 text-(--warning-text)"
           role="status"
         >
-          This list describes the last saved version. Save your edits to
-          refresh it.
+          This list describes the last saved version. Save your edits to refresh
+          it.
         </p>
       ) : null}
       {feedback ? (

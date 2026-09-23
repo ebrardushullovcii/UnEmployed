@@ -100,6 +100,12 @@ export interface AgentLoopCeilings {
   /** One model request may not consume the whole run while the page sits idle. */
   modelTurnTimeoutMs?: number;
   /**
+   * Retries a model turn that produced no response or a typed transient HTTP
+   * failure and therefore executed no tools. The same messages are reused and
+   * the run's existing time budget is never extended.
+   */
+  modelTurnTimeoutRetries?: number;
+  /**
    * Longest one tool call may take before the loop gives up on it and tells
    * the model so. A page read or a save that hangs must never freeze the run
    * or swallow a stop request.
@@ -168,6 +174,18 @@ const DEFAULT_MODEL_TURN_TIMEOUT_MS = 240_000;
 const DEFAULT_TOOL_TIMEOUT_MS = 90_000;
 const DEFAULT_COMPACTION_MAX_CHARS = 360_000;
 const COMPACTION_KEEP_RECENT = 14;
+
+const RETRYABLE_MODEL_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+function isRetryableModelHttpError(error: unknown): boolean {
+  if (!(error instanceof Error) || error.name !== "ModelRequestHttpError") {
+    return false;
+  }
+  const status = Reflect.get(error, "status");
+  return (
+    typeof status === "number" && RETRYABLE_MODEL_HTTP_STATUSES.has(status)
+  );
+}
 
 export function parseToolArguments(raw: string): Record<string, unknown> {
   if (!raw || raw.trim().length === 0) {
@@ -265,6 +283,10 @@ export async function runAgentLoop(
   const modelTurnTimeoutMs = Math.max(
     10,
     options.ceilings?.modelTurnTimeoutMs ?? DEFAULT_MODEL_TURN_TIMEOUT_MS,
+  );
+  const modelTurnTimeoutRetries = Math.max(
+    0,
+    Math.floor(options.ceilings?.modelTurnTimeoutRetries ?? 0),
   );
   const compactionMaxChars =
     options.compactionMaxChars ?? DEFAULT_COMPACTION_MAX_CHARS;
@@ -364,61 +386,84 @@ export async function runAgentLoop(
 
     steps += 1;
     await note("asking the assistant what to do next");
-    const modelStartedAt = now().getTime();
     let response: Awaited<ReturnType<AgentLoopModel["chatWithTools"]>>;
-    const turnTimeout = new AbortController();
-    const turnTimeoutMs = Math.max(
-      1,
-      Math.min(modelTurnTimeoutMs, timeBudgetMs - elapsed()),
-    );
-    const turnTimer = setTimeout(() => turnTimeout.abort(), turnTimeoutMs);
-    const turnSignal = options.signal
-      ? AbortSignal.any([options.signal, turnTimeout.signal])
-      : turnTimeout.signal;
-    try {
-      response = await Promise.race([
-        options.model.chatWithTools(messages, definitions, {
-          signal: turnSignal,
-          ...(options.modelMaxOutputTokens
-            ? { maxOutputTokens: options.modelMaxOutputTokens }
-            : {}),
-        }),
-        // The race must end on a stop request too, not only on the turn
-        // timer: a provider that ignores its abort signal would otherwise
-        // hold the loop, and the person's Stop, until the model answered.
-        new Promise<never>((_resolve, reject) => {
-          if (turnSignal.aborted) {
-            reject(new DOMException("Timed out", "AbortError"));
-            return;
-          }
-          turnSignal.addEventListener(
-            "abort",
-            () => reject(new DOMException("Timed out", "AbortError")),
-            { once: true },
+    let modelTurnAttempt = 0;
+    while (true) {
+      const modelStartedAt = now().getTime();
+      const turnTimeout = new AbortController();
+      const turnTimeoutMs = Math.max(
+        1,
+        Math.min(modelTurnTimeoutMs, timeBudgetMs - elapsed()),
+      );
+      const turnTimer = setTimeout(() => turnTimeout.abort(), turnTimeoutMs);
+      const turnSignal = options.signal
+        ? AbortSignal.any([options.signal, turnTimeout.signal])
+        : turnTimeout.signal;
+      try {
+        response = await Promise.race([
+          options.model.chatWithTools(messages, definitions, {
+            signal: turnSignal,
+            ...(options.modelMaxOutputTokens
+              ? { maxOutputTokens: options.modelMaxOutputTokens }
+              : {}),
+          }),
+          // The race must end on a stop request too, not only on the turn
+          // timer: a provider that ignores its abort signal would otherwise
+          // hold the loop, and the person's Stop, until the model answered.
+          new Promise<never>((_resolve, reject) => {
+            if (turnSignal.aborted) {
+              reject(new DOMException("Timed out", "AbortError"));
+              return;
+            }
+            turnSignal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Timed out", "AbortError")),
+              { once: true },
+            );
+          }),
+        ]);
+        break;
+      } catch (error) {
+        if (options.signal?.aborted) {
+          return result(
+            "aborted",
+            `Job Finder stopped work on ${options.subjectLabel} before it was finished.`,
           );
-        }),
-      ]);
-    } catch (error) {
-      if (options.signal?.aborted) {
-        return result(
-          "aborted",
-          `Job Finder stopped work on ${options.subjectLabel} before it was finished.`,
-        );
+        }
+        if (turnTimeout.signal.aborted) {
+          await note(
+            "the assistant did not answer before this turn's time limit",
+          );
+          if (
+            modelTurnAttempt < modelTurnTimeoutRetries &&
+            elapsed() < timeBudgetMs
+          ) {
+            modelTurnAttempt += 1;
+            await note("retrying the same unanswered assistant turn once");
+            continue;
+          }
+          return result(
+            "timed_out",
+            `Job Finder stopped on ${options.subjectLabel} because the assistant did not answer in time. The work completed so far is kept.`,
+          );
+        }
+        if (
+          isRetryableModelHttpError(error) &&
+          modelTurnAttempt < modelTurnTimeoutRetries &&
+          elapsed() < timeBudgetMs
+        ) {
+          modelTurnAttempt += 1;
+          await note(
+            "retrying the same assistant turn after a temporary service failure",
+          );
+          continue;
+        }
+        throw error;
+      } finally {
+        clearTimeout(turnTimer);
+        modelMs += now().getTime() - modelStartedAt;
+        modelTurns += 1;
       }
-      if (turnTimeout.signal.aborted) {
-        await note(
-          "the assistant did not answer before this turn's time limit",
-        );
-        return result(
-          "timed_out",
-          `Job Finder stopped on ${options.subjectLabel} because the assistant did not answer in time. Nothing was submitted, and everything completed so far is kept.`,
-        );
-      }
-      throw error;
-    } finally {
-      clearTimeout(turnTimer);
-      modelMs += now().getTime() - modelStartedAt;
-      modelTurns += 1;
     }
 
     const toolCalls = response.toolCalls ?? [];
@@ -648,7 +693,6 @@ export async function runAgentLoop(
     `Job Finder stopped on ${options.subjectLabel} after a very long run without finishing. Everything it did so far is kept.`,
   );
 }
-
 
 class ToolDeadlineError extends Error {
   constructor() {

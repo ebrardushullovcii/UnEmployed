@@ -461,7 +461,8 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
       "job_3",
     ]);
     const batchMessages = getActionMessages().filter(
-      (message) => message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message),
+      (message) =>
+        message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message),
     );
     expect(batchMessages).toHaveLength(1);
     expect(getTailoredDraftPreparation()).toMatchObject({
@@ -604,7 +605,8 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
       totalCount: 3,
     });
     const batchMessage = getActionMessages().find(
-      (message) => message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message),
+      (message) =>
+        message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message),
     );
     expect(batchMessage).toMatch(/Wrote 2 resumes/);
     expect(batchMessage).toMatch(/1 failed/);
@@ -852,7 +854,8 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
       totalCount: 10,
     });
     const batchMessage = getActionMessages().find(
-      (message) => message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message),
+      (message) =>
+        message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message),
     );
     expect(batchMessage).toMatch(/Wrote 10 resumes/);
     expect(batchMessage).toMatch(/2 more jobs still need a resume/);
@@ -1077,7 +1080,11 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
     });
     const batchMessage = run
       .getActionMessages()
-      .find((message) => message !== null && /^(Wrote|Stopped after) \d+ resume/i.test(message));
+      .find(
+        (message) =>
+          message !== null &&
+          /^(Wrote|Stopped after) \d+ resume/i.test(message),
+      );
     expect(batchMessage).toMatch(/Wrote 3 resumes/);
     expect(batchMessage).toMatch(/1 more job still needs a resume/);
   });
@@ -1174,7 +1181,12 @@ describe("Applications browser hand-off failure reporting", () => {
         id: "request_a",
         revision: 3,
         state: "pending",
-        scope: { type: "application", runId: "run_a", jobId: "job_a" },
+        scope: {
+          type: "application",
+          runId: "run_a",
+          jobId: "job_a",
+          applicationRecordId: "record_a",
+        },
       },
     ] as unknown as JobFinderWorkspaceSnapshot["userActionRequests"];
   }
@@ -1209,6 +1221,43 @@ describe("Applications browser hand-off failure reporting", () => {
         "application and nothing was sent to the employer. The browser runtime " +
         "is disabled. Try again, or open this step from Needs you.",
     );
+  });
+
+  it("reports a closed prepared page after the refreshed workspace exposes Try again", async () => {
+    const performUserAction = vi
+      .fn<JobFinderShellActions["performUserAction"]>()
+      .mockResolvedValue({
+        userActionRequests: [],
+        applicationRecords: [
+          {
+            id: "record_a",
+            lastAttemptState: "failed",
+            lastActionLabel: "The prepared application page is no longer open.",
+          },
+        ],
+      } as unknown as JobFinderWorkspaceSnapshot);
+    const { context } = buildContext({
+      actions: { performUserAction },
+      workspace: {
+        activeCampaignId: "campaign_active",
+        userActionRequests: pendingRequests(),
+      } as JobFinderWorkspaceSnapshot,
+    });
+
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession: () =>
+        context.onOpenBrowserSession(undefined, { rethrowError: true }),
+      onPerformUserAction: (command) =>
+        context.onPerformUserAction(command, { rethrowError: true }),
+      requests: pendingRequests(),
+      target,
+    });
+
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason:
+        "That prepared application page is no longer open. Choose Try again in Applications to prepare it again.",
+    });
   });
 
   it("carries the real cause when only the window could be opened", async () => {

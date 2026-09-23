@@ -140,6 +140,51 @@ function renderScreen(props: {
 }
 
 describe("ActionsScreen persisted grouped reusable answers", () => {
+  it("never renders a persisted legacy password question as an answer form", () => {
+    const request = createManualAnswerRequest({
+      id: "legacy_password_request",
+      jobId: "job_a",
+    });
+    const applicationAttempts = [
+      {
+        applicationRecordId: "application_job_a",
+        jobId: "job_a",
+        blocker: { code: "missing_candidate_answer" },
+        questions: [
+          {
+            id: "question_password",
+            prompt: "Password *",
+            kind: "other",
+            status: "detected",
+          },
+        ],
+        updatedAt: "2026-08-15T09:00:00.000Z",
+      },
+    ] as unknown as JobFinderWorkspaceSnapshot["applicationAttempts"];
+    const onCommand = vi.fn();
+    const { getByRole, getByText, queryByLabelText, queryByRole } = render(
+      <ActionsScreen
+        applicationAttempts={applicationAttempts}
+        discoveryJobs={createJobs()}
+        isPending={() => false}
+        onCommand={onCommand}
+        onNavigate={vi.fn()}
+        requests={[request]}
+      />,
+    );
+
+    expect(getByText("Sign in to continue")).toBeTruthy();
+    expect(getByText(/cannot collect a password/i)).toBeTruthy();
+    expect(queryByLabelText("Password *")).toBeNull();
+    expect(queryByRole("button", { name: "Answer and continue" })).toBeNull();
+    expect(
+      getByRole("button", { name: "Open the Job Finder browser" }),
+    ).toBeTruthy();
+    expect(
+      getByRole("button", { name: "Check whether this step is done" }),
+    ).toBeTruthy();
+  });
+
   it("projects the typed draft as a reusable-profile command rooted at the request revision", () => {
     const request = createManualAnswerRequest({
       id: "request_a",
@@ -435,10 +480,9 @@ describe("Needs you question step shapes", () => {
   }
 
   it("renders every pending question and submits them all behind one button", async () => {
-    const onCommand =
-      vi.fn<(command: UserActionCommandInput) => Promise<void>>(() =>
-        Promise.resolve(),
-      );
+    const onCommand = vi.fn<(command: UserActionCommandInput) => Promise<void>>(
+      () => Promise.resolve(),
+    );
     const { getByLabelText, getByRole } = renderStep(
       [
         {
@@ -566,16 +610,16 @@ describe("Needs you question step shapes", () => {
     expect((getByLabelText("Phone") as HTMLTextAreaElement).value).toBe(
       "+1 555 0100",
     );
-    expect(
-      getByRole("button", { name: "Answer and continue" }),
-    ).toHaveProperty("disabled", false);
+    expect(getByRole("button", { name: "Answer and continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
   });
 
   it("lets optional questions stay blank without holding the button back", async () => {
-    const onCommand =
-      vi.fn<(command: UserActionCommandInput) => Promise<void>>(() =>
-        Promise.resolve(),
-      );
+    const onCommand = vi.fn<(command: UserActionCommandInput) => Promise<void>>(
+      () => Promise.resolve(),
+    );
     const { getByLabelText, getByRole, getByTestId } = renderStep(
       [
         {

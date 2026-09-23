@@ -7,7 +7,11 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import type { ApplicationRecord } from "@unemployed/contracts";
+import {
+  ApplicationRecordSchema,
+  ApplyJobResultSchema,
+  type ApplicationRecord,
+} from "@unemployed/contracts";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApplicationsRecordsPanel } from "./applications-records-panel";
@@ -25,6 +29,68 @@ import {
 afterEach(cleanup);
 
 describe("ApplicationsRecordsPanel", () => {
+  it.each(["filling", "submitted"] as const)(
+    "announces the current %s result instead of a stale attempt",
+    (state) => {
+      const record = ApplicationRecordSchema.parse({
+        id: "application_latest",
+        jobId: "job_latest",
+        title: "Product Engineer",
+        company: "Acme",
+        status: "ready_for_review",
+        lastActionLabel: "Application created",
+        nextActionLabel: null,
+        lastUpdatedAt: new Date().toISOString(),
+        lastAttemptState: state === "filling" ? null : "paused",
+      });
+      const result = ApplyJobResultSchema.parse({
+        id: "result_latest",
+        runId: "run_latest",
+        jobId: record.jobId,
+        applicationRecordId: record.id,
+        state,
+        summary: "Current application result",
+        detail: "Current application result",
+        startedAt: record.lastUpdatedAt,
+        updatedAt: record.lastUpdatedAt,
+      });
+      render(
+        <MemoryRouter>
+          <ApplicationsRecordsPanel
+            activeFilter="all"
+            applicationRecords={[record]}
+            latestApplyResultByRecordId={new Map([[record.id, result]])}
+            filterCounts={{
+              all: 1,
+              needs_action: 0,
+              in_progress: 0,
+              submitted: 0,
+              manual_only: 0,
+            }}
+            hasAnyApplications
+            onFilterChange={vi.fn()}
+            onSelectRecord={vi.fn()}
+            selectedRecord={null}
+          />
+        </MemoryRouter>,
+      );
+      const row = screen.getByRole("button", {
+        name: "View details for Product Engineer at Acme",
+      });
+      const description = document.getElementById(
+        row.getAttribute("aria-describedby") ?? "",
+      )?.textContent;
+      expect(description).toContain(
+        state === "filling"
+          ? "Preparation attempt Filling in"
+          : "Preparation attempt Applied",
+      );
+      expect(description).not.toMatch(
+        /No apply attempt|Needs follow-up|Ready to send/,
+      );
+    },
+  );
+
   it("titles the preparation workspace after its own view instead of the tracker", () => {
     render(
       <MemoryRouter>
@@ -88,7 +154,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
-    automationMode: "prepare_only" as const,
+      automationMode: "prepare_only" as const,
     };
 
     render(
@@ -146,7 +212,7 @@ describe("ApplicationsRecordsPanel", () => {
           },
           events: [],
           crm: null,
-    automationMode: "prepare_only" as const,
+          automationMode: "prepare_only" as const,
         }) as ApplicationRecord,
     );
 
@@ -236,7 +302,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
-    automationMode: "prepare_only" as const,
+      automationMode: "prepare_only" as const,
     };
 
     render(
@@ -335,7 +401,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
-    automationMode: "prepare_only" as const,
+      automationMode: "prepare_only" as const,
     };
 
     const { container } = render(
@@ -414,7 +480,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
-    automationMode: "prepare_only" as const,
+      automationMode: "prepare_only" as const,
     } as const;
     const pausedOnBrowserStep = {
       ...baseRecord,
@@ -487,6 +553,38 @@ describe("ApplicationsRecordsPanel", () => {
     expect(within(rows[1]!).getByText("Needs recovery")).toBeTruthy();
   });
 
+  it("filters by the newest five-state result instead of the older record stage", () => {
+    const ready = {
+      id: "application_ready",
+      jobId: "job_ready",
+      automationMode: "prepare_only",
+      nextActionLabel: "Review",
+      status: "ready_for_review",
+      lastAttemptState: "in_progress",
+    } as unknown as ApplicationRecord;
+    const needsYou = {
+      id: "application_question",
+      jobId: "job_question",
+      automationMode: "prepare_only",
+      nextActionLabel: "Answer",
+      status: "ready_for_review",
+      lastAttemptState: "failed",
+    } as unknown as ApplicationRecord;
+
+    expect(
+      matchesApplicationsFilter(ready, "in_progress", "ready_to_send"),
+    ).toBe(false);
+    expect(
+      matchesApplicationsFilter(ready, "needs_action", "ready_to_send"),
+    ).toBe(false);
+    expect(
+      matchesApplicationsFilter(needsYou, "needs_action", "needs_you"),
+    ).toBe(true);
+    expect(
+      matchesApplicationsFilter(needsYou, "in_progress", "needs_you"),
+    ).toBe(false);
+  });
+
   it("keeps a large application list bounded to one page", () => {
     const applicationRecords = Array.from(
       { length: 226 },
@@ -517,7 +615,7 @@ describe("ApplicationsRecordsPanel", () => {
           },
           events: [],
           crm: null,
-    automationMode: "prepare_only" as const,
+          automationMode: "prepare_only" as const,
         }) as ApplicationRecord,
     );
 
@@ -577,7 +675,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
-    automationMode: "prepare_only" as const,
+      automationMode: "prepare_only" as const,
     };
 
     const { container } = render(
@@ -638,7 +736,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
-    automationMode: "prepare_only" as const,
+      automationMode: "prepare_only" as const,
     };
 
     render(
@@ -709,7 +807,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
-    automationMode: "prepare_only" as const,
+      automationMode: "prepare_only" as const,
     };
 
     const { rerender } = render(
@@ -812,7 +910,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
-    automationMode: "prepare_only" as const,
+      automationMode: "prepare_only" as const,
     };
 
     render(

@@ -141,15 +141,19 @@ describe("openai-compatible chat and draft behavior", () => {
         deterministicFallback.compatibilityScore,
       );
       expect(result.notes).toEqual([
-        ...deterministicFallback.notes,
-        "AI could not produce usable rewrite suggestions this time.",
+        "AI completed the review without proposing wording changes, so your wording stayed unchanged.",
+        ...deterministicFallback.notes.filter(
+          (note) => note !== "Used the built-in deterministic resume tailorer.",
+        ),
+        "Generated with Primary AI (test-model).",
       ]);
       expect(result.generationProvenance).toEqual({
-        method: "deterministic",
-        reason: "provider_output_unverified",
-        detail: "AI could not produce usable rewrite suggestions this time.",
+        method: "ai",
+        reason: null,
+        detail:
+          "AI completed the review without proposing wording changes, so your wording stayed unchanged.",
       });
-      expect(result.notes.join(" ")).not.toContain("Generated with Primary AI");
+      expect(result.notes.join(" ")).toContain("Generated with Primary AI");
       expect(result.fullText).not.toContain("Model draft partial");
     } finally {
       restoreFetch();
@@ -1797,7 +1801,10 @@ describe("openai-compatible chat and draft behavior", () => {
         `Job description ${"requirement ".repeat(5000)}`.length,
       );
       expect(body.messages?.[0]?.content).toContain(
-        "Return {} when the cited evidence is already as clear and professional",
+        "Compose {} when the cited evidence is already as clear and professional",
+      );
+      expect(body.messages?.[0]?.content).not.toContain(
+        "Return one JSON object",
       );
       expect(body.messages?.[0]?.content).toContain('"profileRecordId":"..."');
     } finally {

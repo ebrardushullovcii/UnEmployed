@@ -92,6 +92,37 @@ function deferred<T>() {
 describe("DiscoveryDetailPanel listing capture copy", () => {
   afterEach(cleanup);
 
+  it("copies the canonical listing URL through the desktop bridge", async () => {
+    const writeClipboardText = vi.fn().mockResolvedValue({ written: true });
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: { jobFinder: { writeClipboardText } },
+    });
+
+    render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          applicationRecords={[]}
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onOpenApplication={vi.fn()}
+          onQueueJob={vi.fn()}
+          selectedJob={baseSelectedJob}
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+    await waitFor(() => {
+      expect(writeClipboardText).toHaveBeenCalledWith(
+        baseSelectedJob.canonicalUrl,
+      );
+      expect(screen.getByRole("button", { name: "Link copied" })).toBeTruthy();
+    });
+  });
+
   it("explains a refused detail read as a title-only estimate", () => {
     const blockedJob = {
       ...baseSelectedJob,
@@ -120,14 +151,10 @@ describe("DiscoveryDetailPanel listing capture copy", () => {
     );
 
     expect(
-      screen.getByText(
-        "This site did not let Job Finder read the listing",
-      ),
+      screen.getByText("This site did not let Job Finder read the listing"),
     ).toBeTruthy();
     expect(
-      screen.queryByText(
-        "Headway Featured Full-Time United States of America",
-      ),
+      screen.queryByText("Headway Featured Full-Time United States of America"),
     ).toBeNull();
   });
 });
@@ -1307,9 +1334,7 @@ describe("DiscoveryDetailPanel", () => {
         .hasAttribute("disabled"),
     ).toBe(true);
     expect(screen.getByText(canonicalUrl)).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Copy link" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
   });
 
   it("moves source chronology behind a closed source timeline disclosure", () => {

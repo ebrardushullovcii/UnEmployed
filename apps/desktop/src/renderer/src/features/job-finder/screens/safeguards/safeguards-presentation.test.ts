@@ -199,6 +199,7 @@ describe("buildSafeguardsPresentationModel", () => {
             batchId: "batch_1",
             preparedCount: 10,
             sampleCount: 2,
+            sampledItemIds: ["result_a", "result_b"],
             reviewedCount: 1,
             requiredSampleRatio: 0.2,
             reviewCompleted: false,
@@ -207,13 +208,30 @@ describe("buildSafeguardsPresentationModel", () => {
           },
         ],
       }),
-      workspace: workspaceWith(),
+      workspace: workspaceWith({
+        applyJobResults: [
+          {
+            id: "result_a",
+            jobId: "job_ready",
+            applicationRecordId: "application_a",
+          },
+          {
+            id: "result_b",
+            jobId: "job_generating",
+            applicationRecordId: null,
+          },
+        ] as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
     });
 
     const reviewRows = model.rows.filter((row) => row.kind === "reviews");
     expect(reviewRows).toHaveLength(1);
     expect(reviewRows[0]?.title).toBe("Quality sample review");
     expect(reviewRows[0]?.blocked).toBe(true);
+    expect(reviewRows[0]?.sampleLinks?.[0]).toMatchObject({
+      label: "Senior Product Designer · Signal Systems",
+      href: expect.stringContaining("applicationRecordId=application_a"),
+    });
     const increment = reviewRows[0]?.controls.find(
       (control) => control.kind === "review_increment",
     );

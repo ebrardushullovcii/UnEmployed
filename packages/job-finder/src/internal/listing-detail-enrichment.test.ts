@@ -110,6 +110,20 @@ describe("jobNeedsListingDetail", () => {
     expect(
       jobNeedsListingDetail(
         cardOnlyJob({
+          listingDetailFetch: {
+            attemptedAt: "2026-09-05T08:30:00.000Z",
+            outcome: "blocked",
+            method: null,
+            detail: "Rate limited.",
+            retryAfterAt: "2026-09-05T10:30:00.000Z",
+          },
+        }),
+        NOW,
+      ),
+    ).toBe(false);
+    expect(
+      jobNeedsListingDetail(
+        cardOnlyJob({
           detailQuality: "detail_enriched",
           listingDetailFetch: {
             attemptedAt: "2026-09-05T09:30:00.000Z",
@@ -331,8 +345,150 @@ describe("enrichSavedJobListingDetails", () => {
       enriched: 0,
     });
     expect(describeListingDetailEnrichment(result.summary)).toBe(
-      "Read 0 of 4 listing pages · 1 had no listing text · 1 wanted a sign-in · 2 could not be reached.",
+      "Read 0 of 4 listing pages · 1 had no listing text · 1 was blocked or rate-limited · 2 could not be reached.",
     );
+
+    const rateLimited = cardOnlyJob({
+      id: "job_rate_limited",
+      canonicalUrl: "https://jobs.example.test/rate-limited",
+    });
+    const rateLimitedResult = await enrichSavedJobListingDetails({
+      jobs: [rateLimited],
+      fetchHtml: vi
+        .fn<ListingHtmlFetcher>()
+        .mockResolvedValueOnce({
+          status: 429,
+          html: "",
+          finalUrl: rateLimited.canonicalUrl,
+          retryAfterMs: 0,
+        })
+        .mockResolvedValueOnce({
+          status: 429,
+          html: "",
+          finalUrl: rateLimited.canonicalUrl,
+          retryAfterMs: 0,
+        }),
+      assess,
+      now: () => NOW,
+    });
+    expect(rateLimitedResult.jobs[0]?.listingDetailFetch).toMatchObject({
+      outcome: "blocked",
+      detail:
+        "The page answered 429 because it rate-limited listing reads. Job Finder will try again later.",
+    });
+
+    const recoversAfterRateLimit = cardOnlyJob({
+      id: "job_rate_limit_recovers",
+      canonicalUrl: "https://jobs.example.test/rate-limit-recovers",
+    });
+    const controlledFetcher = vi
+      .fn<ListingHtmlFetcher>()
+      .mockResolvedValueOnce({
+        status: 429,
+        html: "",
+        finalUrl: recoversAfterRateLimit.canonicalUrl,
+        retryAfterMs: 0,
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        html: RECORD_PAGE,
+        finalUrl: recoversAfterRateLimit.canonicalUrl,
+      });
+    const recovered = await enrichSavedJobListingDetails({
+      jobs: [recoversAfterRateLimit],
+      fetchHtml: controlledFetcher,
+      assess,
+      now: () => NOW,
+    });
+    expect(controlledFetcher).toHaveBeenCalledTimes(2);
+    expect(recovered.summary).toMatchObject({ enriched: 1, blocked: 0 });
+    expect(recovered.jobs[0]?.detailQuality).toBe("detail_enriched");
+
+    const longWait = cardOnlyJob({
+      id: "job_long_rate_limit",
+      canonicalUrl: "https://jobs.example.test/long-rate-limit",
+    });
+    const deferredSibling = cardOnlyJob({
+      id: "job_deferred_sibling",
+      canonicalUrl: "https://jobs.example.test/deferred-sibling",
+    });
+    const longWaitFetcher = vi.fn<ListingHtmlFetcher>().mockResolvedValue({
+      status: 429,
+      html: "",
+      finalUrl: longWait.canonicalUrl,
+      retryAfterMs: 120_000,
+    });
+    const deferred = await enrichSavedJobListingDetails({
+      jobs: [longWait, deferredSibling],
+      fetchHtml: longWaitFetcher,
+      assess,
+      now: () => NOW,
+      concurrency: 1,
+    });
+    expect(longWaitFetcher).toHaveBeenCalledTimes(1);
+    expect(deferred.summary).toMatchObject({
+      attempted: 1,
+      blocked: 1,
+      skipped: 1,
+    });
+    expect(deferred.jobs[0]?.listingDetailFetch?.retryAfterAt).toBe(
+      "2026-09-05T10:02:00.000Z",
+    );
+
+    const shortWait = cardOnlyJob({
+      id: "job_short_rate_limit",
+      canonicalUrl: "https://jobs.example.test/short-rate-limit",
+    });
+    const concurrentLongWait = cardOnlyJob({
+      id: "job_concurrent_long_rate_limit",
+      canonicalUrl: "https://jobs.example.test/concurrent-long-rate-limit",
+    });
+    const neverFetched = cardOnlyJob({
+      id: "job_never_fetched_after_rate_limit",
+      canonicalUrl: "https://jobs.example.test/never-fetched",
+    });
+    const concurrentFetcher = vi.fn<ListingHtmlFetcher>(async (url) => {
+      if (url === shortWait.canonicalUrl) {
+        return {
+          status: 429,
+          html: "",
+          finalUrl: url,
+          retryAfterMs: 10,
+        };
+      }
+      if (url === concurrentLongWait.canonicalUrl) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return {
+          status: 429,
+          html: "",
+          finalUrl: url,
+          retryAfterMs: 120_000,
+        };
+      }
+      return { status: 200, html: RECORD_PAGE, finalUrl: url };
+    });
+    const concurrentDeferred = await enrichSavedJobListingDetails({
+      jobs: [shortWait, concurrentLongWait, neverFetched],
+      fetchHtml: concurrentFetcher,
+      assess,
+      now: () => NOW,
+      concurrency: 2,
+    });
+    expect(concurrentFetcher).toHaveBeenCalledTimes(2);
+    expect(concurrentFetcher).not.toHaveBeenCalledWith(
+      neverFetched.canonicalUrl,
+      expect.anything(),
+    );
+    expect(concurrentDeferred.summary).toMatchObject({
+      attempted: 2,
+      blocked: 2,
+      skipped: 1,
+    });
+    expect(
+      concurrentDeferred.jobs
+        .slice(0, 2)
+        .map((job) => job.listingDetailFetch?.retryAfterAt),
+    ).toEqual(["2026-09-05T10:02:00.000Z", "2026-09-05T10:02:00.000Z"]);
   });
 
   it("skips jobs that do not need a read and caps how many it reads", async () => {

@@ -52,7 +52,10 @@ import {
   buildSearchPreferencesPayload,
 } from "../lib/profile-editor";
 import type { ProfileSection } from "../lib/profile-screen-progress";
-import { useProfileScreenForms } from "./profile-screen-hooks";
+import {
+  buildCanonicalAwareProfilePayload,
+  useProfileScreenForms,
+} from "./profile-screen-hooks";
 
 const unsavedProfileCopilotMessage =
   "Save this page before asking the Assistant to edit it so your current profile draft does not get overwritten.";
@@ -70,6 +73,7 @@ function parseProfileSection(value: string | null): ProfileSection | null {
     case "background":
     case "preferences":
     case "sources":
+    case "files":
       return value;
     default:
       return null;
@@ -322,9 +326,15 @@ export function ProfileScreen(props: {
     pendingActions.importResume && resumeImportProgress !== null;
   const resumeAnalysisPending =
     isResumeImportProcessing || pendingActions.analyzeProfile;
+  // Job sources and Files hold no profile facts, so the assistant talks about
+  // preferences while either tab is open.
+  const copilotSection =
+    activeSection === "sources" || activeSection === "files"
+      ? "preferences"
+      : activeSection;
   const profileCopilotContext: ProfileCopilotContext = {
     surface: "profile",
-    section: activeSection === "sources" ? "preferences" : activeSection,
+    section: copilotSection,
   };
 
   // Keep one durable profile conversation visible while the section changes;
@@ -334,7 +344,7 @@ export function ProfileScreen(props: {
   );
   const starterQuestion = buildProfileSectionStarterQuestion(
     profileSetupState.reviewItems,
-    activeSection === "sources" ? "preferences" : activeSection,
+    copilotSection,
   );
 
   const savedTargetsById = new Map(
@@ -423,7 +433,12 @@ export function ProfileScreen(props: {
       : null;
 
   function handleSaveAll() {
-    const profileResult = buildProfilePayload(profile, profileForm.getValues());
+    const profileResult = buildCanonicalAwareProfilePayload({
+      draftValues: profileForm.getValues(),
+      dirtyFields: profileForm.formState.dirtyFields,
+      latestResumeImportReviewCandidates,
+      profile,
+    });
 
     if (!profileResult.payload) {
       setValidationMessage(
@@ -450,7 +465,12 @@ export function ProfileScreen(props: {
   }
 
   function handleResumeIdentityChoice(choice: "profile_name" | "resume_name") {
-    const profileResult = buildProfilePayload(profile, profileForm.getValues());
+    const profileResult = buildCanonicalAwareProfilePayload({
+      draftValues: profileForm.getValues(),
+      dirtyFields: profileForm.formState.dirtyFields,
+      latestResumeImportReviewCandidates,
+      profile,
+    });
     const preferencesResult = buildSearchPreferencesPayload(
       searchPreferences,
       preferencesForm.getValues(),
@@ -569,9 +589,7 @@ export function ProfileScreen(props: {
         </>
       }
     >
-      <section
-        className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0"
-      >
+      <section className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0">
         <div className="grid min-h-0 min-w-0 gap-2 xl:grid-rows-[auto_minmax(0,1fr)]">
           <div className="sticky top-0 z-20 bg-(--surface-canvas)">
             <ProfileSectionTabs

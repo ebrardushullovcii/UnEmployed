@@ -131,9 +131,13 @@ export type ApplicationFinalActionResult =
 export interface ObserveApplicationFormOptions {
   /** Optional cap against pathological pages; the default is intentionally bounded. */
   readonly maxControls?: number;
+  /** Exact opaque preparation identity retained by the owning browser runtime. */
+  readonly pageBindingKey?: string;
 }
 
 export interface ExecuteExactlyOneFinalActionInput {
+  /** Exact opaque preparation identity retained by the owning browser runtime. */
+  readonly pageBindingKey?: string;
   readonly expectedObservation: SubmissionObservationIdentity;
   readonly expectedControl: SubmissionFinalControlIdentity;
   /** Current page origin captured by the preflight; origin scope is separate. */

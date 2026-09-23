@@ -875,6 +875,7 @@ describe("transaction-current authority decision-policy gate", () => {
         ...expectedResult,
         completedAt: verifiedAt,
         privacyReceipt: {
+          finalSubmitAuthorized: true,
           finalSubmitOccurred: outcome === "submitted",
           submissionOutcome: operatorOutcome,
         },
@@ -918,6 +919,37 @@ describe("transaction-current authority decision-policy gate", () => {
       await repository.close();
     },
   );
+
+  test("does not project final-submit authorization before an exact attempt is armed", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const fixture = createAuthorityFixture(
+      "receipt_without_arm",
+      "confirm_before_submit",
+    );
+    await persistAuthorityFixture(repository, fixture);
+    const outcome = createOutcome(fixture.preflight, "not_submitted");
+
+    expect(
+      await repository.commitSubmissionOutcome({
+        outcome,
+        expectedIdempotencyRevision: 1,
+      }),
+    ).toMatchObject({ status: "blocked" });
+    expect(
+      (
+        await repository.listApplyJobResults({
+          runId: fixture.preflight.runId,
+          jobId: fixture.preflight.jobId,
+          applicationRecordId: fixture.preflight.applicationRecordId,
+        })
+      )[0]?.privacyReceipt,
+    ).toMatchObject({
+      finalSubmitAuthorized: false,
+      finalSubmitOccurred: false,
+      submissionOutcome: null,
+    });
+    await repository.close();
+  });
 
   test("blocks stale or cross-lineage operator resolution without mutation", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
@@ -1573,6 +1605,7 @@ describe("application authority repository", () => {
         applicationRecordId: fixture.preflight.applicationRecordId,
         state: "submitting",
         privacyReceipt: {
+          finalSubmitAuthorized: true,
           submissionOutcome: outcome,
         },
       });

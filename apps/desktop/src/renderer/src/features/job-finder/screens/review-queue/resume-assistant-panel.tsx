@@ -93,6 +93,15 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
     (message) =>
       message.role === "assistant" && message.proposalStatus === "pending",
   );
+  const latestAssistantResponse = [...props.assistantMessages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const latestApplySafeProposal =
+    latestAssistantResponse?.proposalStatus === "pending" &&
+    latestAssistantResponse.patches.length > 0 &&
+    (latestAssistantResponse.approvalBlockers?.length ?? 0) === 0
+      ? latestAssistantResponse
+      : undefined;
 
   // The proposal's Accept/Reject controls are the last thing in the transcript,
   // and the transcript is the only region that shrinks when the panel does.
@@ -170,7 +179,21 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
       return;
     }
 
-    props.onSendAssistantMessage(nextInput);
+    if (
+      latestApplySafeProposal &&
+      props.onResolveProposal &&
+      /^(?:do it|apply it|make (?:that|those) changes?|accept (?:it|them))\.?$/iu.test(
+        nextInput,
+      )
+    ) {
+      props.onResolveProposal(
+        latestApplySafeProposal.id,
+        "accept",
+        latestApplySafeProposal.patches.map((patch) => patch.id),
+      );
+    } else {
+      props.onSendAssistantMessage(nextInput);
+    }
     setInput("");
   }
 
@@ -432,7 +455,7 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
                 type="button"
                 variant="secondary"
               >
-                Try the AI draft again — this replaces your edits
+                Create a new AI draft — this replaces your edits
               </Button>
             )}
           </div>

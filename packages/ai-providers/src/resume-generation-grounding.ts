@@ -1747,6 +1747,7 @@ const LISTING_SKILL_FLUFF_TOKENS = new Set([
   "has",
   "communication",
   "communications",
+  "clear",
   "teamwork",
   "collaboration",
   "collaborative",
@@ -2006,11 +2007,7 @@ function looksLikeListingTechnology(
   ) {
     return false;
   }
-  if (
-    /[+#]/u.test(trimmed) ||
-    /\./u.test(trimmed) ||
-    /\//u.test(trimmed)
-  ) {
+  if (/[+#]/u.test(trimmed) || /\./u.test(trimmed) || /\//u.test(trimmed)) {
     return true;
   }
   if (tokens.length === 1 && /[A-Z][a-z]+[A-Z]/u.test(trimmed)) {
@@ -2038,7 +2035,9 @@ function looksLikeListingTechnology(
   );
 }
 
-function collectPromptCapturedListingSkills(lines: readonly string[]): string[] {
+function collectPromptCapturedListingSkills(
+  lines: readonly string[],
+): string[] {
   const captured: string[] = [];
   for (const line of lines) {
     const matches = line.matchAll(LISTING_SKILL_PROMPT_PATTERN);
@@ -2165,7 +2164,12 @@ export function mergeAggressiveVisibleSkills(input: {
  * technologies the candidate still has to confirm.
  */
 export function describeAggressiveResumeEditPolicy(
-  tailoringStrength: "conservative" | "balanced" | "aggressive" | null | undefined,
+  tailoringStrength:
+    | "conservative"
+    | "balanced"
+    | "aggressive"
+    | null
+    | undefined,
 ): string | null {
   if (tailoringStrength !== "aggressive") {
     return null;

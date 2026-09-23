@@ -20,7 +20,11 @@ import type { APIResponse, Page } from "playwright";
 import { isAllowedUrl } from "../allowlist";
 import type { JobExtractor, LLMClient } from "../agent/contracts";
 import { sanitizeUrl } from "../agent/evidence";
-import type { ApplyPageHands } from "../apply/types";
+import {
+  normalizeExtractedJobSourceId,
+  repairExtractedJobTitle,
+} from "../agent/job-extraction";
+import type { ApplyFormObservation, ApplyPageHands } from "../apply/types";
 import { captureCompactDiscoveryObservation } from "../compact-discovery-observer";
 import { describeObservation } from "../apply/apply-prompts";
 import { createPageTools } from "../page-tools";
@@ -54,6 +58,36 @@ export interface JobSearchAgentInput {
 const DEFAULT_MAX_STEPS = 300;
 const DEFAULT_TIME_BUDGET_MS = 20 * 60_000;
 
+function repairExtractedTitleFromOwnHeading(
+  job: Awaited<ReturnType<JobExtractor["extractJobsFromPage"]>>[number],
+  headings: readonly { level: number; text: string }[],
+  pageType: "search_results" | "job_detail",
+) {
+  if (pageType !== "job_detail") {
+    return job;
+  }
+  const title = job.title.trim().replace(/\s+/gu, " ");
+  if (!title) {
+    return job;
+  }
+  const normalizedTitle = title.toLowerCase();
+  const primaryLevel = Math.min(...headings.map((heading) => heading.level));
+  const ownHeading = headings.find((heading) => {
+    if (heading.level !== primaryLevel) {
+      return false;
+    }
+    const text = heading.text.trim().replace(/\s+/gu, " ");
+    return (
+      text.length >= title.length &&
+      text.toLowerCase().startsWith(normalizedTitle) &&
+      !/^(?:jobs?|careers?|open positions?|opportunities)$/iu.test(text)
+    );
+  });
+  return ownHeading
+    ? repairExtractedJobTitle({ ...job, title: ownHeading.text })
+    : job;
+}
+
 function jobKey(
   job: Pick<JobPosting, "canonicalUrl" | "sourceJobId" | "source">,
 ): string {
@@ -63,16 +97,29 @@ function jobKey(
     : `id:${job.source}:${job.sourceJobId}`;
 }
 
-function toBlockerReason(value: unknown): DiscoveryAccessBlockerReason | null {
+function toBlockerReason(
+  value: unknown,
+  observation: ApplyFormObservation | null,
+): DiscoveryAccessBlockerReason | null {
   switch (value) {
     case "sign_in":
       return "auth_required";
     case "security_check":
       return "site_protection";
     case "manual_step":
-      return "manual_step_required";
+      // The model may call an ordinary password form a generic manual step.
+      // The visible credential field is firmer evidence for the handoff copy.
+      return observation?.controls.some(
+        (control) => control.visible && control.credentialRole === "password",
+      ) || observation?.blocker?.code === "site_login_required"
+        ? "auth_required"
+        : "manual_step_required";
     default:
-      return null;
+      return observation?.controls.some(
+        (control) => control.visible && control.credentialRole === "password",
+      ) || observation?.blocker?.code === "site_login_required"
+        ? "auth_required"
+        : null;
   }
 }
 
@@ -306,7 +353,15 @@ export async function runJobSearchAgent(
       });
       const added: JobPosting[] = [];
       for (const partial of found) {
-        const posting = toPosting(partial);
+        const posting = toPosting(
+          normalizeExtractedJobSourceId(
+            repairExtractedTitleFromOwnHeading(
+              partial,
+              observation.headings,
+              pageType,
+            ),
+          ),
+        );
         if (posting && keep(posting)) added.push(posting);
       }
       if (added.length > 0) await checkpoint();
@@ -716,7 +771,8 @@ export async function runJobSearchAgent(
       !finish.stuck &&
       !finish.needsPerson;
     const blocker = finish?.needsPerson
-      ? (toBlockerReason(finish.data.blockedBy) ?? "manual_step_required")
+      ? (toBlockerReason(finish.data.blockedBy, pageTools.state.observation) ??
+        "manual_step_required")
       : null;
 
     const error =

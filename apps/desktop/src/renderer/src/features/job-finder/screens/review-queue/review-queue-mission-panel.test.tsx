@@ -134,9 +134,9 @@ describe("ReviewQueueMissionPanel", () => {
       screen.getByRole("radiogroup", { name: "Resume level for this job" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("radio", { name: /Tailored/ }).getAttribute(
-        "aria-checked",
-      ),
+      screen
+        .getByRole("radio", { name: /Tailored/ })
+        .getAttribute("aria-checked"),
     ).toBe("true");
 
     const apply = screen.getByRole("button", { name: "Apply" });
@@ -165,7 +165,9 @@ describe("ReviewQueueMissionPanel", () => {
     ]) {
       expect(screen.queryByText(text)).toBeNull();
     }
-    expect(screen.getByRole("button", { name: "Open the listing" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Open the listing" }),
+    ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Remove from shortlist" }),
     ).toBeTruthy();
@@ -243,7 +245,9 @@ describe("ReviewQueueMissionPanel", () => {
       selectedItem: createItem(),
     });
 
-    expect(screen.getByRole("button", { name: "Writing the resume…" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Writing the resume…" }),
+    ).toBeTruthy();
     expect(
       document.querySelector("[data-resume-draft-elapsed]")?.textContent,
     ).toBe("0:42");
@@ -311,6 +315,74 @@ describe("ReviewQueueMissionPanel", () => {
     expect(screen.queryByTestId("apply-outcome")).toBeNull();
   });
 
+  it.each([
+    "ready",
+    "submitted",
+    "failed",
+    "not_started",
+    "in_progress",
+  ] as const)(
+    "opens an existing %s application without preparing another form",
+    (lastAttemptState) => {
+      const onOpenApplication = vi.fn();
+      const props = renderPanel({
+        applicationRecords: [
+          ApplicationRecordSchema.parse({
+            id: "application_existing",
+            jobId: "job_1",
+            title: "Product Designer",
+            company: "Example Co",
+            status: lastAttemptState === "submitted" ? "submitted" : "approved",
+            lastAttemptState,
+            lastActionLabel: "Existing application",
+            nextActionLabel: "Open application",
+            lastUpdatedAt: "2026-09-22T10:00:00.000Z",
+          }),
+        ],
+        safeguardBlocker: "Automatic runs are paused.",
+        onOpenApplication,
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Open application" }));
+      expect(onOpenApplication).toHaveBeenCalledWith("application_existing");
+      expect(props.onStartApplyCopilot).not.toHaveBeenCalled();
+      expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Open Safeguards" }),
+      ).toBeNull();
+      expect(screen.queryByTestId("apply-outcome")).toBeNull();
+    },
+  );
+
+  it("opens the newest record for this job in one press even when an older one needs help", () => {
+    const record = (id: string, jobId: string, lastUpdatedAt: string) =>
+      ApplicationRecordSchema.parse({
+        id,
+        jobId,
+        title: "Product Designer",
+        company: "Example Co",
+        status: "approved",
+        lastAttemptState: id === "older" ? "paused" : "ready",
+        lastActionLabel: "Existing application",
+        nextActionLabel: "Open application",
+        lastUpdatedAt,
+      });
+    const onOpenApplication = vi.fn();
+    const props = renderPanel({
+      applicationRecords: [
+        record("older", "job_1", "2026-09-21T10:00:00.000Z"),
+        record("unrelated", "job_2", "2026-09-23T10:00:00.000Z"),
+        record("newest", "job_1", "2026-09-22T10:00:00.000Z"),
+      ],
+      onOpenApplication,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open application" }));
+    expect(onOpenApplication).toHaveBeenCalledWith("newest");
+    expect(props.onStartApplyCopilot).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Continue one, or start new/)).toBeNull();
+  });
+
   it("replaces Apply with Open Safeguards while a safeguard holds", () => {
     const onOpenSafeguards = vi.fn();
     renderPanel({
@@ -367,7 +439,9 @@ describe("ReviewQueueMissionPanel", () => {
     expect(screen.getByTestId("apply-outcome").textContent).toContain(
       "attaches your original resume",
     );
-    expect(screen.getByText(/base-resume\.pdf goes out exactly as imported/)).toBeTruthy();
+    expect(
+      screen.getByText(/base-resume\.pdf goes out exactly as imported/),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit resume" })).toBeNull();
   });
 });

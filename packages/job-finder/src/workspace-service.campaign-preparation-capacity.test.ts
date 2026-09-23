@@ -364,6 +364,21 @@ describe("workspace campaign preparation capacity", () => {
     ).rejects.toThrow("at most 20 begun employer applications per local day");
   });
 
+  test("enforces a configured daily application limit below the default", async () => {
+    const seed = createCapacitySeed();
+    seed.settings = {
+      ...seed.settings,
+      maxApplicationsPerLocalDay: 1,
+    };
+    seedBegunPreparations(seed, 1);
+    const harness = createWorkspaceServiceHarness({ seed });
+    await seedActiveCampaign(harness);
+
+    await expect(
+      harness.workspaceService.startAutoApplyRun("job_generating"),
+    ).rejects.toThrow("at most 1 begun employer application per local day");
+  });
+
   test("does not count staged or cancelled-before-start work", async () => {
     const seed = createCapacitySeed();
     seed.applyRuns = Array.from({ length: 30 }, (_, index) =>
@@ -1132,9 +1147,7 @@ describe("workspace campaign preparation capacity", () => {
     const harness = createWorkspaceServiceHarness({ seed });
     await seedActiveCampaign(harness);
 
-    await harness.workspaceService.startAutoApplyQueueRun([
-      "job_ready",
-    ]);
+    await harness.workspaceService.startAutoApplyQueueRun(["job_ready"]);
     const inherited = (
       await harness.repository.listApplySubmitApprovals()
     ).find(

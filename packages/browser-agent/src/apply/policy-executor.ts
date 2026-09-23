@@ -8,6 +8,7 @@ import {
 import { normalizeSignal } from "./control-classification";
 import {
   buildCoverLetterRequest,
+  coverLetterPolicyAllows,
   coverLetterDeliveryFor,
   isCoverLetterControl,
   looksLikeUsableLetter,
@@ -105,6 +106,13 @@ export interface ApplyExecutorDeps {
   config: ApplyAgentConfig;
   now: () => Date;
   guardState: ApplyGuardState;
+  checkWrittenAnswer?: (
+    question: string,
+    answer: string,
+  ) => Promise<{
+    supported: boolean;
+    reason: string;
+  }>;
 }
 
 export interface ApplyGuardState {
@@ -153,8 +161,22 @@ function questionIdFor(
   siblings: readonly ApplyFormControl[] = [],
 ): string {
   const identity = (candidate: ApplyFormControl): string =>
-    `${normalizeSignal(candidate.groupLabel)}|${normalizeSignal(candidate.label)}|${candidate.kind}`;
-  const slug = `${control.groupLabel} ${control.label} ${control.kind}`
+    candidate.kind === "radio" && candidate.choiceGroupKey
+      ? `radio|${candidate.choiceGroupKey}`
+      : `${normalizeSignal(candidate.groupLabel)}|${normalizeSignal(candidate.label)}|${candidate.kind}`;
+  const digest = (value: string): string => {
+    let hash = 2166136261;
+    for (const character of value) {
+      hash ^= character.codePointAt(0) ?? 0;
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  };
+  const semanticIdentity =
+    control.kind === "radio"
+      ? `${control.groupLabel || "choice"} ${control.kind}`
+      : `${control.groupLabel} ${control.label} ${control.kind}`;
+  const slug = semanticIdentity
     .toLowerCase()
     .replace(/[^a-z0-9]+/gu, "_")
     .replace(/^_+|_+$/gu, "")
@@ -163,7 +185,12 @@ function questionIdFor(
     (candidate) => identity(candidate) === identity(control),
   );
   const ordinal = same.findIndex((candidate) => candidate.ref === control.ref);
-  const suffix = same.length > 1 && ordinal > 0 ? `_${ordinal + 1}` : "";
+  const choiceSuffix =
+    control.kind === "radio" && control.choiceGroupKey
+      ? `_${digest(control.choiceGroupKey)}`
+      : "";
+  const suffix =
+    choiceSuffix || (same.length > 1 && ordinal > 0 ? `_${ordinal + 1}` : "");
   return `question_${jobId}_${slug || "field"}${suffix}`;
 }
 
@@ -179,6 +206,7 @@ export function questionPrompt(control: ApplyFormControl): string {
   const group = control.groupLabel.trim();
   const normalizedLabel = normalizeSignal(label);
   const normalizedGroup = normalizeSignal(group);
+  if (control.kind === "radio" && group.length > 0) return group;
   const groupAddsSomething =
     normalizedGroup.length > 0 &&
     normalizedLabel.length > 0 &&
@@ -198,6 +226,18 @@ export function buildPendingQuestion(input: {
   siblings?: readonly ApplyFormControl[];
 }): ApplicationAttemptQuestion {
   const { control, suggestion } = input;
+  const radioSiblings =
+    control.kind === "radio" && control.choiceGroupKey
+      ? (input.siblings ?? []).filter(
+          (candidate) =>
+            candidate.kind === "radio" &&
+            candidate.choiceGroupKey === control.choiceGroupKey,
+        )
+      : [];
+  const answerOptions =
+    radioSiblings.length > 0
+      ? radioSiblings.map((candidate) => candidate.value || candidate.label)
+      : control.options;
   return {
     id: questionIdFor(control, input.jobId, input.siblings ?? []),
     prompt: questionPrompt(control),
@@ -206,7 +246,7 @@ export function buildPendingQuestion(input: {
     isRequired: control.required,
     detectedAt: input.detectedAt,
     // A list's blank first choice is not an answer anyone could give.
-    answerOptions: control.options
+    answerOptions: answerOptions
       .filter((option) => option.trim().length > 0)
       .slice(0, 40),
     suggestedAnswers: suggestion
@@ -233,6 +273,78 @@ function bareOrigin(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+function continuationSectionRoot(value: string): string | null {
+  try {
+    const url = new URL(value);
+    const firstSegment = url.pathname.split("/").filter(Boolean)[0];
+    return firstSegment ? `${url.origin}/${firstSegment}/` : `${url.origin}/`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A continued run may advance inside the retained wizard, but it must not
+ * discard that form by returning to the exact old source page or its site
+ * header. Those addresses are supplied by Job Finder from this application;
+ * no ATS route names are guessed here.
+ */
+function refuseContinuationBacktrack(
+  targetUrl: string,
+  current: ApplyFormObservation,
+  deps: ApplyExecutorDeps,
+): string | null {
+  const continuation = deps.config.application.continuation;
+  if (!continuation || !current.url) return null;
+  // A sign-in may land on an account page with a search or newsletter field
+  // before the application is visible. It still needs to follow the known job
+  // link. Protect only a page with actual application-form evidence.
+  const candidateControls = current.controls.filter(
+    (control) =>
+      control.credentialRole !== "identifier" &&
+      control.credentialRole !== "password" &&
+      control.questionKind !== "other",
+  );
+  const hasApplicationFormEvidence =
+    current.step.index !== null ||
+    current.controls.some((control) => control.kind === "file") ||
+    candidateControls.length >= 2 ||
+    (candidateControls.length > 0 &&
+      current.actions.some(
+        (action) => action.kind === "advance" || action.kind === "final",
+      ));
+  if (!hasApplicationFormEvidence) return null;
+  let target: URL;
+  let here: URL;
+  try {
+    target = new URL(targetUrl, current.url);
+    here = new URL(current.url);
+  } catch {
+    return null;
+  }
+  if (target.toString() === here.toString() || target.origin !== here.origin) {
+    return null;
+  }
+  const oldSources = continuation.sourceUrls.flatMap((sourceUrl) => {
+    try {
+      return [new URL(sourceUrl).toString()];
+    } catch {
+      return [];
+    }
+  });
+  const sourceSectionRoots = continuation.sourceUrls.flatMap((sourceUrl) => {
+    const root = continuationSectionRoot(sourceUrl);
+    return root ? [root] : [];
+  });
+  if (
+    !oldSources.includes(target.toString()) &&
+    !sourceSectionRoots.includes(target.toString())
+  ) {
+    return null;
+  }
+  return "This run is continuing the retained application form. Stay on that form instead of returning to the site home or the older job listing.";
 }
 
 /**
@@ -503,6 +615,19 @@ export async function executeApplyProposal(
     }
     case "navigate": {
       const reason = proposal.reason ?? null;
+      const current = await config.hands.observe();
+      const continuationRefusal = refuseContinuationBacktrack(
+        proposal.url,
+        current,
+        deps,
+      );
+      if (continuationRefusal) {
+        return {
+          kind: "refused",
+          reason: continuationRefusal,
+          observation: current,
+        };
+      }
       const before = await authorizeOrigin(proposal.url, reason, deps);
       if (before.refuse) {
         return {
@@ -535,6 +660,38 @@ export async function executeApplyProposal(
       const current = await config.hands.observe();
       const link =
         current.links.find((entry) => entry.ref === proposal.ref) ?? null;
+      const continuationRefusal = link
+        ? refuseContinuationBacktrack(link.href, current, deps)
+        : null;
+      if (continuationRefusal) {
+        return {
+          kind: "refused",
+          reason: continuationRefusal,
+          observation: current,
+        };
+      }
+      const accountCreationLink = link
+        ? /^(?:create (?:an? )?account|register|sign up)(?:\b|$)/iu.test(
+            link.label.trim(),
+          ) ||
+          /(?:^|\/)(?:signup|sign-up|register|registration)(?:\/|$)/iu.test(
+            (() => {
+              try {
+                return new URL(link.href).pathname;
+              } catch {
+                return link.href;
+              }
+            })(),
+          )
+        : false;
+      if (accountCreationLink && config.accountCreationAuthorized !== true) {
+        return {
+          kind: "refused",
+          reason:
+            "Creating an account has not been authorized. Use an existing sign-in path, or finish and leave account creation with the person.",
+          observation: current,
+        };
+      }
       const before = link
         ? await authorizeOrigin(link.href, reason, deps)
         : { refuse: null, note: null };
@@ -672,6 +829,51 @@ export async function executeApplyProposal(
 
   switch (proposal.tool) {
     case "click": {
+      const finalAction = observation.actions.find(
+        (candidate) =>
+          candidate.ref === proposal.ref && candidate.kind === "final",
+      );
+      if (finalAction) {
+        const preflight = runSubmitPreflight({
+          observation,
+          proposedActionRef: proposal.ref,
+          authority: config.authority,
+        });
+        if (!preflight.ok) {
+          return { kind: "refused", reason: preflight.reason, observation };
+        }
+        // Models sometimes choose the generic click tool for the visible send
+        // button. Treat that as the same intent as submit_application so the
+        // irreversible action still belongs to the separately authorized
+        // submission path and is never pressed from the preparation loop.
+        return {
+          kind: "ready_to_send",
+          finalActionRef: proposal.ref,
+          finalActionLabel: finalAction.label,
+          observation,
+        };
+      }
+      const livePage = await config.hands.observe();
+      const personOwnedBlocker = livePage.blocker?.requiresPerson
+        ? livePage.blocker
+        : null;
+      if (
+        personOwnedBlocker &&
+        !(
+          personOwnedBlocker.code === "account_creation_required" &&
+          config.accountCreationAuthorized === true
+        )
+      ) {
+        return {
+          kind: "paused",
+          pause: {
+            code: "page_blocked",
+            summary: personOwnedBlocker.summary,
+            question: null,
+            blocker: personOwnedBlocker,
+          },
+        };
+      }
       const blockedSavesBefore = deps.guardState.blockedSaveCount;
       const write = await writeUnderGuard(deps, {
         declaredValue: null,
@@ -781,11 +983,57 @@ export async function executeApplyProposal(
           observation,
         };
       }
+      if (observation.blocker?.requiresPerson === true) {
+        return {
+          kind: "paused",
+          pause: {
+            code: "page_blocked",
+            summary: observation.blocker.summary,
+            question: null,
+            blocker: observation.blocker,
+          },
+        };
+      }
 
       // One application sends one letter. A box asking for it gets the same
       // words as a file field would, so the person never discovers they sent
       // two different letters for the same job.
-      if (isCoverLetterControl(control) && config.letters) {
+      if (isCoverLetterControl(control)) {
+        const policy = config.writing?.coverLetterPolicy ?? "when_required";
+        if (!coverLetterPolicyAllows(control, policy)) {
+          if (policy === "never" && control.required) {
+            return {
+              kind: "paused",
+              pause: {
+                code: "document_needs_you",
+                summary:
+                  "This form requires a letter, but your settings say Job Finder should not write one. Add the letter yourself or change that setting, then continue.",
+                question: buildPendingQuestion({
+                  control,
+                  jobId: config.application.jobId,
+                  detectedAt: at,
+                  suggestion: null,
+                }),
+                blocker: null,
+              },
+            };
+          }
+          return {
+            kind: "refused",
+            reason:
+              policy === "never"
+                ? "Your settings say not to write or attach letters. Leave this field blank and continue."
+                : "Your settings say to write a letter only when the form requires one. This field is optional, so leave it blank and continue.",
+            observation,
+          };
+        }
+        if (!config.letters) {
+          return {
+            kind: "refused",
+            reason: "Job Finder has no letter for this application.",
+            observation,
+          };
+        }
         const letter = await provideApplicationLetter(deps, control);
         if (letter.kind !== "ok") {
           return letter.outcome;
@@ -829,6 +1077,30 @@ export async function executeApplyProposal(
         sources: config.sources,
         salaryDisclosure: config.authority.salaryDisclosure,
       });
+      if (resolution.status !== "answered" && deps.checkWrittenAnswer) {
+        const check = await deps.checkWrittenAnswer(
+          questionPrompt(control),
+          proposal.text,
+        );
+        if (!check.supported) {
+          return {
+            kind: "suggestion",
+            answer: null,
+            note: `That answer was not written because it contains an unsupported applicant claim: ${check.reason} Use only supported facts, or leave this field blank and continue with the other fields. ${control.required ? "The required question has been kept for the person if no supported answer is available." : "This field is optional; do not ask the person to fill it."}`,
+            question: control.required
+              ? buildPendingQuestion({
+                  control,
+                  jobId: config.application.jobId,
+                  detectedAt: at,
+                  suggestion: null,
+                  siblings: observation.controls,
+                })
+              : null,
+            controlRef: control.ref,
+            observation,
+          };
+        }
+      }
       const answer: ApplyAnswer =
         resolution.status === "answered"
           ? resolution.answer
@@ -880,10 +1152,44 @@ export async function executeApplyProposal(
           observation,
         };
       }
+      const resolution = resolveApplyAnswer({
+        control,
+        sources: config.sources,
+        salaryDisclosure: config.authority.salaryDisclosure,
+      });
+      const groundedOption =
+        resolution.status === "answered"
+          ? matchOption(control.options, resolution.answer.value)
+          : null;
+      if (resolution.status === "needs_you" && resolution.suggestion) {
+        return {
+          kind: "refused",
+          reason: resolution.reason,
+          observation,
+        };
+      }
+      if (
+        resolution.status === "answered" &&
+        control.options.length > 0 &&
+        !groundedOption
+      ) {
+        return {
+          kind: "refused",
+          reason: `The saved answer for ${questionPrompt(control)} does not match an option on the form.`,
+          observation,
+        };
+      }
       const option =
-        control.options.length > 0
+        groundedOption ??
+        (control.options.length > 0
           ? (matchOption(control.options, proposal.option) ?? proposal.option)
-          : proposal.option;
+          : resolution.status === "answered"
+            ? resolution.answer.value
+            : proposal.option);
+      const usedGroundedAnswer =
+        resolution.status === "answered" &&
+        (groundedOption === option ||
+          (control.options.length === 0 && resolution.answer.value === option));
       const write = await writeUnderGuard(deps, {
         declaredValue: option,
         write: () => config.hands.chooseOption(control.ref, option),
@@ -896,11 +1202,6 @@ export async function executeApplyProposal(
       if (stop) {
         return { kind: "paused", pause: stop };
       }
-      const resolution = resolveApplyAnswer({
-        control,
-        sources: config.sources,
-        salaryDisclosure: config.authority.salaryDisclosure,
-      });
       return {
         kind: "filled",
         filled: {
@@ -908,8 +1209,7 @@ export async function executeApplyProposal(
           label: questionPrompt(control),
           questionKind: control.questionKind,
           answer:
-            resolution.status === "answered" &&
-            resolution.answer.value === option
+            resolution.status === "answered" && usedGroundedAnswer
               ? resolution.answer
               : {
                   value: option,
@@ -934,6 +1234,43 @@ export async function executeApplyProposal(
           observation,
         };
       }
+      const groundedRadioResolution =
+        control.kind === "radio"
+          ? resolveApplyAnswer({
+              control,
+              sources: config.sources,
+              salaryDisclosure: config.authority.salaryDisclosure,
+            })
+          : null;
+      if (control.kind === "radio" && proposal.checked) {
+        if (groundedRadioResolution?.status === "answered") {
+          const groupControls = observation.controls.filter(
+            (candidate) =>
+              candidate.kind === "radio" &&
+              (control.choiceGroupKey
+                ? candidate.choiceGroupKey === control.choiceGroupKey
+                : candidate.ref === control.ref),
+          );
+          const offeredValues = groupControls.map(
+            (candidate) => candidate.value || candidate.label,
+          );
+          const groundedOption = matchOption(
+            offeredValues,
+            groundedRadioResolution.answer.value,
+          );
+          const proposedOption = control.value || control.label;
+          if (
+            !groundedOption ||
+            normalizeSignal(groundedOption) !== normalizeSignal(proposedOption)
+          ) {
+            return {
+              kind: "refused",
+              reason: `That choice contradicts ${groundedRadioResolution.answer.provenanceLabel}. The grounded answer is "${groundedRadioResolution.answer.value}"; select its matching option instead.`,
+              observation,
+            };
+          }
+        }
+      }
       // A declaration the person makes about themselves is theirs. This is the
       // one place the model is overruled rather than advised. It is not,
       // however, a reason to stop: the run used to end on the first such box
@@ -949,7 +1286,10 @@ export async function executeApplyProposal(
           ? resolveReusableAnswer(control, config.sources.reusableAnswers)
           : null;
       const savedDeclarationSaysYes =
-        savedDeclaration !== null && /^(yes|true|agree|i agree|accept|checked|on|1)\b/iu.test(savedDeclaration.value.trim());
+        savedDeclaration !== null &&
+        /^(yes|true|agree|i agree|accept|checked|on|1)\b/iu.test(
+          savedDeclaration.value.trim(),
+        );
       if (
         control.attestationKind !== null &&
         proposal.checked &&
@@ -991,24 +1331,34 @@ export async function executeApplyProposal(
           ref: control.ref,
           label: questionPrompt(control),
           questionKind: control.questionKind,
-          answer: savedDeclarationSaysYes && savedDeclaration
-            ? savedDeclaration
-            : {
-                value: proposal.checked ? "Yes" : "No",
-                kind: control.questionKind,
-                sourceKind: control.attestationKind ? "profile" : "generated",
-                sourceId: control.attestationKind
-                  ? `authority.attestation.${control.attestationKind}`
-                  : `chosen.${control.ref}`,
-                provenanceLabel: control.attestationKind
-                  ? "a declaration you approved in advance"
-                  : "chosen on the form",
-                groundedIn: [
-                  control.attestationKind
-                    ? "a declaration you approved in advance"
-                    : "the form",
-                ],
-              },
+          answer:
+            savedDeclarationSaysYes && savedDeclaration
+              ? savedDeclaration
+              : groundedRadioResolution?.status === "answered"
+                ? groundedRadioResolution.answer
+                : {
+                    value:
+                      control.kind === "radio" && proposal.checked
+                        ? control.value || control.label
+                        : proposal.checked
+                          ? "Yes"
+                          : "No",
+                    kind: control.questionKind,
+                    sourceKind: control.attestationKind
+                      ? "profile"
+                      : "generated",
+                    sourceId: control.attestationKind
+                      ? `authority.attestation.${control.attestationKind}`
+                      : `chosen.${control.ref}`,
+                    provenanceLabel: control.attestationKind
+                      ? "a declaration you approved in advance"
+                      : "chosen on the form",
+                    groundedIn: [
+                      control.attestationKind
+                        ? "a declaration you approved in advance"
+                        : "the form",
+                    ],
+                  },
           at,
         },
         observation: await config.hands.observe(),
@@ -1024,7 +1374,83 @@ export async function executeApplyProposal(
           observation,
         };
       }
-      if (isCoverLetterControl(control) && config.letters) {
+      if (isCoverLetterControl(control)) {
+        const policy = config.writing?.coverLetterPolicy ?? "when_required";
+        // The person's own cover letter (Profile › Files) beats a written one
+        // and beats the "only when required" rule: they added the file in
+        // order to send it, so an optional letter field gets it too. Only
+        // "never" keeps every letter field for them.
+        const ownLetter =
+          policy === "never"
+            ? undefined
+            : config.sources.documents.find(
+                (candidate) => candidate.kind === "cover_letter",
+              );
+        if (ownLetter) {
+          const ownBytes = await ownLetter.loadBytes();
+          const ownUpload = await writeUnderGuard(deps, {
+            declaredValue: ownLetter.fileName,
+            write: () =>
+              config.hands.uploadFile(control.ref, {
+                name: ownLetter.fileName,
+                mimeType: ownLetter.mimeType,
+                bytes: ownBytes,
+              }),
+          });
+          if (!ownUpload.ok) {
+            return { kind: "refused", reason: ownUpload.error, observation };
+          }
+          afterWrite(deps, questionPrompt(control));
+          const ownStop = await guardStop(deps, observation.url);
+          if (ownStop) {
+            return { kind: "paused", pause: ownStop };
+          }
+          return {
+            kind: "attached",
+            attachment: {
+              documentId: ownLetter.id,
+              fileName: ownLetter.fileName,
+              label: ownLetter.label,
+              controlLabel: questionPrompt(control),
+              at,
+            },
+            observation: await config.hands.observe(),
+          };
+        }
+        if (!coverLetterPolicyAllows(control, policy)) {
+          if (policy === "never" && control.required) {
+            return {
+              kind: "paused",
+              pause: {
+                code: "document_needs_you",
+                summary:
+                  "This form requires a letter, but your settings say Job Finder should not write one. Attach the letter yourself or change that setting, then continue.",
+                question: buildPendingQuestion({
+                  control,
+                  jobId: config.application.jobId,
+                  detectedAt: at,
+                  suggestion: null,
+                }),
+                blocker: null,
+              },
+            };
+          }
+          return {
+            kind: "refused",
+            reason:
+              policy === "never"
+                ? "Your settings say not to write or attach letters. Leave this field blank and continue."
+                : "Your settings say to write a letter only when the form requires one. This field is optional, so leave it blank and continue.",
+            observation,
+          };
+        }
+        if (!config.letters) {
+          return {
+            kind: "refused",
+            reason: "Job Finder has no letter for this application.",
+            observation,
+          };
+        }
         const letter = await provideApplicationLetter(deps, control);
         if (letter.kind !== "ok") {
           return letter.outcome;
@@ -1084,6 +1510,35 @@ export async function executeApplyProposal(
         return {
           kind: "refused",
           reason: `There is no file called ${proposal.documentId}. The ones available are listed in your instructions; if the form wants something else, finish and say what it asked for.`,
+          observation,
+        };
+      }
+      if (
+        (control.questionKind === "portfolio" ||
+          /\b(?:portfolio|work samples?)\b/iu.test(
+            `${control.groupLabel} ${control.label}`,
+          )) &&
+        document.kind !== "portfolio" &&
+        document.kind !== "work_sample"
+      ) {
+        return {
+          kind: "refused",
+          reason:
+            "A portfolio upload needs the person's portfolio or work sample. Job Finder cannot create a substitute for it.",
+          observation,
+        };
+      }
+      const fileLabel = `${control.groupLabel} ${control.label}`;
+      if (
+        (/\btranscripts?\b/iu.test(fileLabel) &&
+          document.kind !== "transcript") ||
+        (/\bcertificates?\b/iu.test(fileLabel) &&
+          document.kind !== "certificate")
+      ) {
+        return {
+          kind: "refused",
+          reason:
+            "This upload needs the person's matching file. Job Finder cannot create a substitute for it.",
           observation,
         };
       }

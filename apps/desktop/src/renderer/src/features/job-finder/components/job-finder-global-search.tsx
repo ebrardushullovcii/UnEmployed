@@ -22,7 +22,7 @@ const kindLabels: Record<JobFinderGlobalSearchKind, string> = {
   application: "Applications",
   campaign: "Search plans",
   company: "Companies",
-  document: "Documents",
+  document: "Resumes",
   job: "Jobs and companies",
 };
 

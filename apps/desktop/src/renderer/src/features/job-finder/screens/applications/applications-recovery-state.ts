@@ -10,9 +10,7 @@ import {
   getCustomerFacingApplyText,
 } from "./applications-detail-panel-helpers";
 
-type ApplyResult =
-  | JobFinderWorkspaceSnapshot["applyJobResults"][number]
-  | null;
+type ApplyResult = JobFinderWorkspaceSnapshot["applyJobResults"][number] | null;
 
 /**
  * One state, one sentence, one action.
@@ -26,6 +24,7 @@ type ApplyResult =
  */
 export type ApplicationRecoveryState =
   | "preparing"
+  | "submitted"
   | "verify_outcome"
   | "site_blocked"
   | "finish_in_browser"
@@ -146,9 +145,7 @@ export function formatQuestionPrompt(prompt: string): string {
     if (!text) {
       continue;
     }
-    if (
-      kept.some((seen) => seen.toLowerCase() === text.toLowerCase())
-    ) {
+    if (kept.some((seen) => seen.toLowerCase() === text.toLowerCase())) {
       continue;
     }
     kept.push(text);
@@ -251,6 +248,19 @@ function readReasonCorpus(result: ApplyResult): string {
   }
 
   return `${result.detail ?? ""} ${result.blockerSummary ?? ""} ${result.summary ?? ""}`;
+}
+
+/** Older CAPTCHA handoffs used the generic human-input code, without a question. */
+export function applyResultNeedsSecurityCheck(result: ApplyResult): boolean {
+  if (result?.state !== "awaiting_review" && result?.state !== "blocked")
+    return false;
+  return (
+    result.blockerReason === "site_protection" ||
+    (result.blockerReason === "required_human_input" &&
+      /\b(?:captcha|verify (?:that )?you are human|security check)\b/i.test(
+        readReasonCorpus(result),
+      ))
+  );
 }
 
 /**
@@ -360,6 +370,14 @@ export function getApplicationStopReasonSentence(
     return null;
   }
 
+  // A completed prepare-only run can retain the model's earlier observation
+  // in its summary even after the exact page check resolved the blocker. Once
+  // the durable result says it is awaiting review with no blocker, that old
+  // prose is history rather than a current stop reason.
+  if (result.state === "awaiting_review" && !result.blockerReason) {
+    return null;
+  }
+
   // The run's own stop detail first — that is where the agent writes its
   // "Job Finder got stuck: …" sentence, and it was reachable only three
   // disclosures down in Run details. The general summary is the last resort
@@ -393,6 +411,13 @@ export function applyResultStoppedStructurally(result: ApplyResult): boolean {
   }
 
   if (result.state !== "blocked" && result.state !== "failed") {
+    return false;
+  }
+
+  // Losing the exact in-memory prepared page after restart is recoverable by
+  // preparing the application again. "Page is no longer open" describes the
+  // browser binding, not a closed employer listing.
+  if (result.blockerReason === "unexpected_navigation") {
     return false;
   }
 
@@ -437,9 +462,8 @@ export function resolveApplicationRecoveryPresentation(input: {
     visibleApplyResult,
   } = input;
   const reasonSentence = getApplicationStopReasonSentence(visibleApplyResult);
-  const isServiceWorkerBlocked = applyResultIsServiceWorkerBlocked(
-    visibleApplyResult,
-  );
+  const isServiceWorkerBlocked =
+    applyResultIsServiceWorkerBlocked(visibleApplyResult);
   // A pause with questions on file is a question step, not a browser
   // hand-off: the answers are typed here, and the run carries on itself.
   const needsManualFieldFinish =
@@ -453,6 +477,22 @@ export function resolveApplicationRecoveryPresentation(input: {
     visibleApplyResult?.privacyReceipt?.submissionOutcome?.outcome ===
       "outcome_uncertain";
 
+  if (
+    visibleApplyResult?.state === "submitted" &&
+    visibleApplyResult.privacyReceipt?.submissionOutcome?.outcome ===
+      "submitted"
+  ) {
+    return {
+      state: "submitted",
+      statusLine: "Application submitted",
+      reasonSentence:
+        reasonSentence ??
+        "The employer site confirmed that it received the application.",
+      primaryAction: "none",
+      primaryActionLabel: null,
+    };
+  }
+
   if (requiresSubmissionOutcomeVerification) {
     return {
       state: "verify_outcome",
@@ -462,6 +502,25 @@ export function resolveApplicationRecoveryPresentation(input: {
         "The last action finished without the employer site confirming one way or the other.",
       primaryAction: "none",
       primaryActionLabel: null,
+    };
+  }
+
+  // Cancelling a question handoff ends its result, but retains the questions
+  // as history. They must not send the person back to a closed answer step.
+  // Uncertain submissions above still require verification before any retry.
+  if (
+    (visibleApplyResult?.state === "failed" ||
+      visibleApplyResult?.state === "skipped") &&
+    applyResultPausedOnQuestion(visibleApplyResult)
+  ) {
+    return {
+      state: "retry",
+      statusLine: "This application did not finish",
+      reasonSentence:
+        reasonSentence ??
+        "The previous question step ended. Try again to continue this application.",
+      primaryAction: "try_again",
+      primaryActionLabel: TRY_AGAIN_ACTION,
     };
   }
 
@@ -476,6 +535,18 @@ export function resolveApplicationRecoveryPresentation(input: {
       primaryActionLabel: canOpenSafeguards
         ? `Open Safeguards to reset ${JOB_FINDER_BROWSER_NAME}`
         : OPEN_JOB_FINDER_BROWSER_ACTION,
+    };
+  }
+
+  if (applyResultNeedsSecurityCheck(visibleApplyResult)) {
+    return {
+      state: "needs_sign_in",
+      statusLine: "This application needs a security check",
+      reasonSentence:
+        reasonSentence ??
+        "Complete the security check in the Job Finder browser.",
+      primaryAction: "open_browser",
+      primaryActionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
     };
   }
 
@@ -605,7 +676,9 @@ export function resolveApplicationRecoveryPresentation(input: {
   // The run record, not a local pending flag: a seven-minute run kept the
   // flag for ninety seconds and then offered "Try again" beside itself.
   if (isApplyPending || applyResultIsStillRunning(visibleApplyResult)) {
-    const elapsed = formatElapsedMinutes(visibleApplyResult?.startedAt, now);
+    const elapsed = applyResultIsStillRunning(visibleApplyResult)
+      ? formatElapsedMinutes(visibleApplyResult?.startedAt, now)
+      : null;
     return {
       state: "preparing",
       statusLine: elapsed

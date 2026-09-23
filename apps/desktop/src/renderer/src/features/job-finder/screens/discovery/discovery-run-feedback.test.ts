@@ -99,6 +99,7 @@ describe("discovery run failure recovery classification", () => {
       "fetch failed",
       "getaddrinfo ENOTFOUND jobs.example.com",
       "request to https://api.example.com timed out",
+      "The dedicated browser could not open https://jobs.example.com: page.goto: net::ERR_CONNECTION_REFUSED",
     ]) {
       expect(getDiscoveryRunFailureRecovery(detail).kind).toBe("connection");
     }

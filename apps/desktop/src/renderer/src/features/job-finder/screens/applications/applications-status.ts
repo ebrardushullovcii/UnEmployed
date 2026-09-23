@@ -110,8 +110,7 @@ export function getApplicationLatestActivityLabel(
  * one sentence that does, and it leads the detail pane uncollapsed.
  *
  * It is deliberately conservative: only a recorded submission says submitted.
- * Preparing, pausing and blocking all say not submitted, because that is what
- * is true — Job Finder never submits.
+ * Preparation, pauses and blockers do not establish a confirmed submission.
  */
 export function getApplicationSubmissionAnswer(
   record: ApplicationRecord,
@@ -262,7 +261,9 @@ export const APPLICATION_NEEDS_YOU_STAGE_LABEL = "Needs you";
  * from the stage presentation itself, so a new stage rule cannot make them
  * drift apart again.
  */
-export function applicationRecordAwaitsUser(record: ApplicationRecord): boolean {
+export function applicationRecordAwaitsUser(
+  record: ApplicationRecord,
+): boolean {
   if (!shouldPresentConsentState(record)) return false;
   // An application filled in under "ask me before sending" is waiting on the
   // person just as much as a paused one: it will never go out until they read
@@ -422,8 +423,7 @@ export function getApplicationNextStepLabel(record: ApplicationRecord): string {
     record.consentSummary.status === "declined"
   ) {
     return (
-      record.nextActionLabel ??
-      "Press Try again to have another go later."
+      record.nextActionLabel ?? "Press Try again to have another go later."
     );
   }
 
@@ -494,19 +494,25 @@ export function getApplicationReadableNextStepLabel(
  */
 export function listPendingApplicationQuestions(input: {
   applicationAttempts: readonly ApplicationAttempt[];
+  applicationRecordId?: string | null;
   jobId: string;
 }): readonly ApplicationAttemptQuestion[] {
-  const { applicationAttempts, jobId } = input;
-  const latestBlockedAttempt = [...applicationAttempts]
+  const { applicationAttempts, applicationRecordId, jobId } = input;
+  const latestAttempt = [...applicationAttempts]
     .filter(
       (attempt) =>
         attempt.jobId === jobId &&
-        attempt.blocker?.code === "missing_candidate_answer",
+        (applicationRecordId === undefined ||
+          attempt.applicationRecordId === applicationRecordId),
     )
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 
+  if (latestAttempt?.blocker?.code !== "missing_candidate_answer") {
+    return [];
+  }
+
   return (
-    latestBlockedAttempt?.questions.filter(
+    latestAttempt.questions.filter(
       (question) => question.status === "detected",
     ) ?? []
   );

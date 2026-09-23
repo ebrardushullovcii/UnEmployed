@@ -33,7 +33,10 @@ const INTERNAL_CODE_PARENTHETICAL = /\s*\((?=[^)]*[_:])[a-z0-9_:.\-\s,]+\)/gi;
 
 /** The blocker sentence as a person should read it: no internal codes. */
 export function stripInternalCodeParenthetical(value: string): string {
-  return value.replace(INTERNAL_CODE_PARENTHETICAL, "").replace(/\s{2,}/g, " ").trim();
+  return value
+    .replace(INTERNAL_CODE_PARENTHETICAL, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 export interface PrimaryApplicationRecovery {
   kind: PrimaryApplicationRecoveryKind;
@@ -337,7 +340,7 @@ export function getReadinessDescription(input: {
 
   if (isGenerating) {
     return isSelectedJobPendingTooLong
-      ? "This is taking longer than usual. It is still running; open the resume and reload to check for a saved result. Do not start it again yet."
+      ? "This is taking longer than usual. It is still running and will update here when ready. You can leave this page."
       : "Writing the resume for this job. You can leave this page; it finishes on its own.";
   }
 

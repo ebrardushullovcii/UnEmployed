@@ -21,6 +21,7 @@ import {
   type StringMap,
   type TailorResumeInput,
   describeProfileAssistantBehavior,
+  PROFILE_RESUME_APPROACH_VOCABULARY,
 } from "./shared";
 import {
   buildDeterministicResumeProfileExtraction,
@@ -140,8 +141,8 @@ function buildResumeRewriteProposalPrompt(
 
   const returnGuidance =
     tailoringMode === "aggressive"
-      ? "Return one JSON object of material improvements. Do not return {}: name every targetJob.listingRequestedSkills item that is missing from the cited evidence in inferred:true prose and in coreSkills, and round evidenced years up by one on an inferred line when the listing itself states that higher figure."
-      : "Return one JSON object containing only material improvements. Return {} when the cited evidence is already as clear and professional as you can safely make it.";
+      ? "Compose one sparse proposal of material improvements with compose_resume_proposal. Do not compose {}: name every targetJob.listingRequestedSkills item that is missing from the cited evidence in inferred:true prose and in coreSkills, and round evidenced years up by one on an inferred line when the listing itself states that higher figure."
+      : "Compose one sparse proposal containing only material improvements with compose_resume_proposal. Compose {} when the cited evidence is already as clear and professional as you can safely make it.";
   const jobWordingGuidance =
     tailoringMode === "aggressive"
       ? "Use job-description wording for technologies in targetJob.listingRequestedSkills and for work the cited evidence supports. Never copy employer language that is not a technology or a supported skill, and never add target-company claims."
@@ -158,7 +159,7 @@ function buildResumeRewriteProposalPrompt(
     jobWordingGuidance,
     modeGuidance,
     ...strategyGuidance,
-    "Do not return a full resume, identity metadata, compatibility scores, labels, notes, explanations, or uncited text. In aggressive mode return coreSkills covering the candidate's key skills plus targetJob.listingRequestedSkills.",
+    "Do not compose a full resume, identity metadata, compatibility scores, labels, notes, explanations, or uncited text. In aggressive mode include coreSkills covering the candidate's key skills plus targetJob.listingRequestedSkills.",
   ].join(" ");
 }
 
@@ -233,8 +234,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     ? configuredOptions.data
     : null;
   const agentReasoningEffort =
-    validatedOptions?.agentReasoningEffort ??
-    validatedOptions?.reasoningEffort;
+    validatedOptions?.agentReasoningEffort ?? validatedOptions?.reasoningEffort;
   const status = AgentProviderStatusSchema.parse({
     kind: "openai_compatible",
     ready: configuredOptions.success,
@@ -518,6 +518,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
         [
           "You are a profile editing assistant.",
           ...describeProfileAssistantBehavior(input.assistantBehavior),
+          PROFILE_RESUME_APPROACH_VOCABULARY,
           "Return JSON only with content and typed patchGroups.",
           "Patch groups must use the provided bounded profile copilot operations only.",
           "Answer grounded factual questions directly when the request is asking what is already in the profile, even if no edit is needed.",

@@ -326,6 +326,189 @@ describe("runAgentLoop", () => {
     ]);
   });
 
+  test("retries one unanswered model turn without replaying any tool", async () => {
+    let calls = 0;
+    let toolCalls = 0;
+    const countedFinish = tool("finish", () => {
+      toolCalls += 1;
+      return Promise.resolve({
+        kind: "finish",
+        finish: {
+          reason: "Recovered",
+          stuck: false,
+          needsPerson: false,
+          data: {},
+        },
+      });
+    });
+    const result = await runAgentLoop({
+      messages: opening,
+      model: {
+        chatWithTools: () => {
+          calls += 1;
+          return calls === 1
+            ? new Promise(() => undefined)
+            : Promise.resolve({
+                toolCalls: [call("finish", { reason: "Recovered" })],
+              });
+        },
+      },
+      tools: [countedFinish],
+      subjectLabel: "the site",
+      ceilings: { modelTurnTimeoutMs: 10, modelTurnTimeoutRetries: 1 },
+    });
+
+    expect(result.ending).toBe("finished");
+    expect(calls).toBe(2);
+    expect(toolCalls).toBe(1);
+    expect(result.turnNotes.join("\n")).toContain(
+      "retrying the same unanswered assistant turn once",
+    );
+  });
+
+  test("stops after the bounded unanswered-turn retry is exhausted", async () => {
+    let calls = 0;
+    const result = await runAgentLoop({
+      messages: opening,
+      model: {
+        chatWithTools: () => {
+          calls += 1;
+          return new Promise(() => undefined);
+        },
+      },
+      tools: [finishTool],
+      subjectLabel: "the site",
+      ceilings: { modelTurnTimeoutMs: 10, modelTurnTimeoutRetries: 1 },
+    });
+
+    expect(result.ending).toBe("timed_out");
+    expect(result.reason).toContain("did not answer in time");
+    expect(calls).toBe(2);
+  });
+
+  test("shares the bounded no-response retry with a typed transient HTTP failure", async () => {
+    let calls = 0;
+    let toolCalls = 0;
+    const countedFinish = tool("finish", () => {
+      toolCalls += 1;
+      return Promise.resolve({
+        kind: "finish",
+        finish: {
+          reason: "Recovered",
+          stuck: false,
+          needsPerson: false,
+          data: {},
+        },
+      });
+    });
+    const transientError = Object.assign(new Error("Service unavailable"), {
+      name: "ModelRequestHttpError",
+      status: 503,
+    });
+    const result = await runAgentLoop({
+      messages: opening,
+      model: {
+        chatWithTools: () => {
+          calls += 1;
+          return calls === 1
+            ? Promise.reject(transientError)
+            : Promise.resolve({
+                toolCalls: [call("finish", { reason: "Recovered" })],
+              });
+        },
+      },
+      tools: [countedFinish],
+      subjectLabel: "the site",
+      ceilings: { modelTurnTimeoutRetries: 1 },
+    });
+
+    expect(result.ending).toBe("finished");
+    expect(calls).toBe(2);
+    expect(toolCalls).toBe(1);
+    expect(result.turnNotes.join("\n")).toContain(
+      "retrying the same assistant turn after a temporary service failure",
+    );
+  });
+
+  test.each([
+    { name: "auth failure", errorName: "ModelRequestHttpError", status: 401 },
+    {
+      name: "validation failure",
+      errorName: "ModelRequestHttpError",
+      status: 400,
+    },
+    { name: "untyped server error", errorName: "Error", status: 503 },
+  ])("does not retry $name", async ({ errorName, status }) => {
+    let calls = 0;
+    const error = Object.assign(new Error("Provider request failed"), {
+      name: errorName,
+      status,
+    });
+
+    await expect(
+      runAgentLoop({
+        messages: opening,
+        model: {
+          chatWithTools: () => {
+            calls += 1;
+            return Promise.reject(error);
+          },
+        },
+        tools: [finishTool],
+        subjectLabel: "the site",
+        ceilings: { modelTurnTimeoutRetries: 1 },
+      }),
+    ).rejects.toBe(error);
+    expect(calls).toBe(1);
+  });
+
+  test("stops after the bounded transient HTTP retry is exhausted", async () => {
+    let calls = 0;
+    const error = Object.assign(new Error("Service unavailable"), {
+      name: "ModelRequestHttpError",
+      status: 500,
+    });
+
+    await expect(
+      runAgentLoop({
+        messages: opening,
+        model: {
+          chatWithTools: () => {
+            calls += 1;
+            return Promise.reject(error);
+          },
+        },
+        tools: [finishTool],
+        subjectLabel: "the site",
+        ceilings: { modelTurnTimeoutRetries: 1 },
+      }),
+    ).rejects.toBe(error);
+    expect(calls).toBe(2);
+  });
+
+  test("a person stopping an unanswered turn never triggers its retry", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const resultPromise = runAgentLoop({
+      messages: opening,
+      model: {
+        chatWithTools: () => {
+          calls += 1;
+          return new Promise(() => undefined);
+        },
+      },
+      tools: [finishTool],
+      subjectLabel: "the site",
+      ceilings: { modelTurnTimeoutMs: 100, modelTurnTimeoutRetries: 1 },
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    const result = await resultPromise;
+    expect(result.ending).toBe("aborted");
+    expect(calls).toBe(1);
+  });
+
   test("a long conversation is trimmed in the middle and the opening survives", async () => {
     const chatty = tool("look", () =>
       Promise.resolve({
@@ -383,8 +566,7 @@ describe("runAgentLoop", () => {
     expect(result.ending).toBe("finished");
     const gaveUp = result.messages.find(
       (message) =>
-        message.role === "tool" &&
-        message.content.includes("took longer than"),
+        message.role === "tool" && message.content.includes("took longer than"),
     );
     expect(gaveUp).toBeDefined();
     expect(result.turnNotes.join("\n")).toContain("took too long");

@@ -647,6 +647,7 @@ function createInitialRunRecord(input: {
   scope: DiscoveryRunScope;
   activeRun: DiscoveryRunRecord | null;
   previousRuns?: readonly DiscoveryRunRecord[];
+  searchRequest?: JobFinderSearchRequest;
 }): DiscoveryRunRecord {
   return DiscoveryRunRecordSchema.parse({
     id: input.id,
@@ -656,6 +657,15 @@ function createInitialRunRecord(input: {
     startedAt: new Date().toISOString(),
     completedAt: null,
     targetIds: input.targets.map((target) => target.id),
+    ...(input.searchRequest
+      ? {
+          searchIntent: input.searchRequest.intent,
+          ...(input.searchRequest.breadth
+            ? { searchBreadth: input.searchRequest.breadth }
+            : {}),
+          searchFreshness: input.searchRequest.freshness,
+        }
+      : {}),
     targetExecutions: input.targets.map((target) => ({
       targetId: target.id,
       adapterKind: target.adapterKind,
@@ -1414,6 +1424,9 @@ export function createWorkspaceDiscoveryMethods(
         scope: options.scope,
         activeRun: startingDiscovery.activeRun,
         previousRuns: startingDiscovery.recentRuns,
+        ...(options.searchRequest
+          ? { searchRequest: options.searchRequest }
+          : {}),
       });
       emptyRun = updateRunSummary(emptyRun, {
         warnings: uniqueStrings([
@@ -1585,6 +1598,9 @@ export function createWorkspaceDiscoveryMethods(
       scope: options.scope,
       activeRun: startingDiscovery.activeRun,
       previousRuns: startingDiscovery.recentRuns,
+      ...(options.searchRequest
+        ? { searchRequest: options.searchRequest }
+        : {}),
     });
 
     const recordActivity = (event: DiscoveryActivityEvent) => {
@@ -2871,7 +2887,12 @@ export function createWorkspaceDiscoveryMethods(
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       };
       const workers = Array.from(
-        { length: Math.max(1, Math.min(DISCOVERY_SOURCE_CONCURRENCY, targets.length)) },
+        {
+          length: Math.max(
+            1,
+            Math.min(DISCOVERY_SOURCE_CONCURRENCY, targets.length),
+          ),
+        },
         async () => {
           for (;;) {
             const next = await readyTargets.next();
@@ -3252,7 +3273,11 @@ export function createWorkspaceDiscoveryMethods(
           );
     }
 
-    return ctx.getWorkspaceSnapshot();
+    // Discovery can run inside source-access recovery. Starting recovery
+    // again here would find the same verifying request and await its own
+    // in-flight promise forever. The outer user action performs the recovered
+    // snapshot after this exact continuation completes.
+    return ctx.readWorkspaceSnapshot();
   }
 
   return {

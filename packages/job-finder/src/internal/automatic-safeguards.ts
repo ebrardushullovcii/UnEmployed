@@ -379,6 +379,7 @@ async function persistAutomaticFailurePause(input: {
   /** Overrides the plan's own rule when a safeguard sets its own floor. */
   minimumSample?: number;
   failureRateThresholdPercent?: number;
+  workKind?: "application";
   now: string;
 }): Promise<void> {
   if (typeof input.ctx.withIntelligenceTransition !== "function") return;
@@ -408,9 +409,13 @@ async function persistAutomaticFailurePause(input: {
           input.minimumSample ??
           input.campaign.stopRules.failureRateMinimumSample,
         explanation:
-          "Too many searches or source checks failed in a row, so this search plan paused itself.",
+          input.workKind === "application"
+            ? "Too many application attempts failed, so this search plan paused further application preparation."
+            : "Too many searches or source checks failed in a row, so this search plan paused itself.",
         recoveryGuidance:
-          "Open Search history to see which source failed and why. Fix or disable that source, then retry.",
+          input.workKind === "application"
+            ? "Open Applications to review the failed attempts, resolve the cause, then retry."
+            : "Open Search history to see which source failed and why. Fix or disable that source, then retry.",
       },
     });
     if (!result.ok) return;
@@ -666,6 +671,16 @@ type PreparedBatchSampleInput = {
   requiredSampleRatio: number;
 };
 
+/** A sample must be a form the person can actually inspect, not a question or access handoff. */
+export function isReviewablePreparedResult(result: ApplyJobResult): boolean {
+  return (
+    result.state === "awaiting_review" &&
+    result.reviewCard != null &&
+    result.blockerReason == null &&
+    (result.pendingConsentRequestCount ?? 0) === 0
+  );
+}
+
 /**
  * Selects a completed automatic queue's prepared results for quality review.
  * `awaiting_review` is the only prepare-only state counted; submitted results
@@ -693,7 +708,7 @@ export function derivePreparedBatchSampleInput(input: {
       (result) =>
         result.runId === run.id &&
         run.jobIds.includes(result.jobId) &&
-        result.state === "awaiting_review",
+        isReviewablePreparedResult(result),
     )
     .map((result) => ({ id: result.id }));
 
@@ -1236,6 +1251,7 @@ export async function persistAutomaticApplicationSafeguards(input: {
       campaign,
       pauseId: `${AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID}:${campaign.id}`,
       evidence,
+      workKind: "application",
       now: input.now,
     });
   }

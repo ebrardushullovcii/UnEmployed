@@ -200,7 +200,10 @@ describe("scoped settings updates against transaction-current state", () => {
     const snapshot = await service.updateAiBehavior({
       aiBehavior: {
         profileAssistant: { initiative: "proactive", replyStyle: "brief" },
-        jobSearch: { selectivity: "best_matches", remoteCountsAsAnyLocation: false },
+        jobSearch: {
+          selectivity: "best_matches",
+          remoteCountsAsAnyLocation: false,
+        },
         applying: {
           coverLetterPolicy: "never",
           writtenAnswerLength: "full",
@@ -225,7 +228,9 @@ describe("scoped settings updates against transaction-current state", () => {
     expect(settings.appearanceTheme).toBe("dark");
     expect(searchPreferences.tailoringMode).toBe("aggressive");
     // Best matches only also turns on the strict collection filter.
-    expect(searchPreferences.discovery.collectOnlyHardCriteriaMatches).toBe(true);
+    expect(searchPreferences.discovery.collectOnlyHardCriteriaMatches).toBe(
+      true,
+    );
     expect(snapshot.searchPreferences.tailoringMode).toBe("aggressive");
 
     // Keeping the original file is the other half of the same choice.
@@ -234,6 +239,43 @@ describe("scoped settings updates against transaction-current state", () => {
     });
     expect(original.settings.resumeApplicationMode).toBe("original_resume");
     expect(original.searchPreferences.tailoringMode).toBe("aggressive");
+  });
+
+  test("a stale Profile save cannot overwrite the AI behavior owned search fields", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    const service = createTestHarness(base);
+    const staleProfileDraft = await base.getSearchPreferences();
+
+    await service.updateAiBehavior({
+      aiBehavior: {
+        profileAssistant: { initiative: "proactive", replyStyle: "brief" },
+        jobSearch: {
+          selectivity: "wide_net",
+          remoteCountsAsAnyLocation: true,
+        },
+        applying: {
+          coverLetterPolicy: "when_required",
+          writtenAnswerLength: "short",
+          preApprovedDeclarations: [],
+        },
+      },
+      resumeApproach: "conservative",
+    });
+
+    await service.saveProfileAndSearchPreferences(await base.getProfile(), {
+      ...staleProfileDraft,
+      locations: ["Vienna, Austria"],
+      tailoringMode: "aggressive",
+      discovery: {
+        ...staleProfileDraft.discovery,
+        collectOnlyHardCriteriaMatches: true,
+      },
+    });
+
+    const persisted = await base.getSearchPreferences();
+    expect(persisted.locations).toEqual(["Vienna, Austria"]);
+    expect(persisted.tailoringMode).toBe("conservative");
+    expect(persisted.discovery.collectOnlyHardCriteriaMatches).toBe(false);
   });
 
   test("application defaults keep theme and CRM untouched", async () => {

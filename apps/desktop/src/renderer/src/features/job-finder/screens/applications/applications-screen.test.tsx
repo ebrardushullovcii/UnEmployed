@@ -137,6 +137,84 @@ describe("ApplicationsScreen", () => {
     };
   }
 
+  it("retries failed applications with the exact saved Send mode", () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const first = createTrackedApplication({
+      id: "application_retry_a",
+      jobId: "job_retry_a",
+      lastAttemptState: "failed",
+      lastActionLabel: "Could not apply",
+    });
+    const second = createTrackedApplication({
+      id: "application_retry_b",
+      jobId: "job_retry_b",
+      lastAttemptState: "failed",
+      lastActionLabel: "Could not apply",
+    });
+    const failedResult = (
+      record: ApplicationRecord,
+      index: number,
+    ): ApplyJobResultSummary => ({
+      id: `result_retry_${index}`,
+      runId: "run_retry_failed",
+      jobId: record.jobId,
+      applicationRecordId: record.id,
+      queuePosition: index,
+      state: "failed",
+      summary: "Could not apply",
+      detail: "The application could not be prepared.",
+      startedAt: "2026-09-22T16:00:00.000Z",
+      updatedAt: `2026-09-22T16:0${index + 1}:00.000Z`,
+      completedAt: `2026-09-22T16:0${index + 1}:00.000Z`,
+      blockerReason: "application_page_unreachable",
+      blockerSummary: "The application could not be prepared.",
+      listingSignalEvidence: null,
+      visualObservationSets: [],
+      visualCheckpoints: [],
+      latestQuestionCount: 0,
+      latestAnswerCount: 0,
+      pendingConsentRequestCount: 0,
+      artifactCount: 0,
+      latestCheckpointId: null,
+      privacyReceipt: null,
+      reviewCard: null,
+    });
+    const onStartAutoApplyQueue = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <ApplicationsScreen
+          {...buildCrmScreenProps({
+            applicationRecords: [first, second],
+            onSelectRecord: vi.fn(),
+            selectedRecord: first,
+          })}
+          applicationAutomationMode="autonomous_submit"
+          applyJobResults={[failedResult(first, 0), failedResult(second, 1)]}
+          dailyPreparationCapacity={null}
+          onGetApplyRunDetails={vi.fn(
+            () => new Promise<ApplyRunDetails>(() => {}),
+          )}
+          onStartAutoApplyQueue={onStartAutoApplyQueue}
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Try again for all 2" }),
+    );
+    expect(onStartAutoApplyQueue).toHaveBeenCalledWith(
+      ["job_retry_a", "job_retry_b"],
+      "autonomous_submit",
+    );
+  });
+
   it("shows action-led first-run CTAs when there are no applications yet", () => {
     class ResizeObserverMock {
       observe() {}

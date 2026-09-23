@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { access } from "node:fs/promises";
-import { app, BrowserWindow, dialog, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, shell } from "electron";
 import type {
   IpcMain,
   IpcMainInvokeEvent,
@@ -60,6 +60,7 @@ import {
   JobFinderExportResumePdfInputSchema,
   JobFinderResumePdfExportResultSchema,
   JobFinderJobActionInputSchema,
+  JobFinderPreparedApplicationPageInputSchema,
   RevealSavedFileInputSchema,
   RevealSavedFileResultSchema,
   JobFinderJobResumeApplicationModeInputSchema,
@@ -121,6 +122,8 @@ import {
   UpdateApplicationDefaultsInputSchema,
   UpdateWorkspaceBehaviorInputSchema,
   UserActionCommandSchema,
+  WriteClipboardTextInputSchema,
+  WriteClipboardTextResultSchema,
 } from "@unemployed/contracts";
 import type {
   JobFinderApplyQueueActionInput,
@@ -189,7 +192,8 @@ async function syncApplicationAuthorityForSavedMode(
   jobIds: readonly string[],
   modeOverride?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
 ): Promise<void> {
-  const repository = getJobFinderRepositoryForWorkspaceService(workspaceService);
+  const repository =
+    getJobFinderRepositoryForWorkspaceService(workspaceService);
   if (!repository) return;
 
   const settings = await repository.getSettings();
@@ -213,6 +217,11 @@ async function syncApplicationAuthorityForSavedMode(
     repository.listSavedJobs(),
   ]);
   const selectedJobs = jobs.filter((job) => jobIds.includes(job.id));
+  if (selectedJobs.length !== new Set(jobIds).size) {
+    throw new Error(
+      "Job Finder could not create permission for every application in this batch, so nothing was started.",
+    );
+  }
   const resumeDigests: string[] = [];
   const scopedJobIds: string[] = [];
   const origins: string[] = [];
@@ -227,7 +236,9 @@ async function syncApplicationAuthorityForSavedMode(
       : await repository.listResumeExportArtifacts({ jobId: job.id });
     const latestApproved = exports
       .filter((artifact) => artifact.isApproved && Boolean(artifact.sha256))
-      .sort((left, right) => right.exportedAt.localeCompare(left.exportedAt))[0];
+      .sort((left, right) =>
+        right.exportedAt.localeCompare(left.exportedAt),
+      )[0];
     const resumeSha256 = (
       usesOriginalResume
         ? profileState.profile.baseResume.sha256
@@ -235,14 +246,23 @@ async function syncApplicationAuthorityForSavedMode(
     )
       ?.trim()
       .toLowerCase();
-    if (!resumeSha256) continue;
+    if (!resumeSha256) {
+      throw new Error(
+        `The approved application resume for '${job.title}' is not ready, so this batch was not started. Try Apply again after the resume is ready.`,
+      );
+    }
 
+    const jobOrigins = [job.applicationUrl, job.canonicalUrl]
+      .map((value) => canonicalOrigin(value))
+      .filter((value): value is string => value !== null);
+    if (jobOrigins.length === 0) {
+      throw new Error(
+        `The application site for '${job.title}' is not ready, so this batch was not started.`,
+      );
+    }
     scopedJobIds.push(job.id);
     resumeDigests.push(resumeSha256);
-    for (const value of [job.applicationUrl, job.canonicalUrl]) {
-      const origin = canonicalOrigin(value);
-      if (origin) origins.push(origin);
-    }
+    origins.push(...jobOrigins);
   }
 
   const uniqueJobIds = [...new Set(scopedJobIds)];
@@ -253,7 +273,15 @@ async function syncApplicationAuthorityForSavedMode(
     uniqueDigests.length === 0 ||
     uniqueOrigins.length === 0
   ) {
-    return;
+    throw new Error(
+      "Job Finder could not create permission for every application in this batch, so nothing was started.",
+    );
+  }
+
+  if (uniqueJobIds.length !== new Set(jobIds).size) {
+    throw new Error(
+      "Job Finder could not create permission for every application in this batch, so nothing was started.",
+    );
   }
 
   // The switch in Settings is the approval of the person's current answers
@@ -282,8 +310,12 @@ async function syncApplicationAuthorityForSavedMode(
   }
 
   const dailyCap = settings.maxApplicationsPerLocalDay ?? 20;
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000).toISOString();
-  const combinedJobIds = [...new Set([...(active?.scope.jobIds ?? []), ...uniqueJobIds])];
+  const expiresAt = new Date(
+    Date.now() + 30 * 24 * 60 * 60 * 1_000,
+  ).toISOString();
+  const combinedJobIds = [
+    ...new Set([...(active?.scope.jobIds ?? []), ...uniqueJobIds]),
+  ];
   const combinedDigests = [
     ...new Set([...(active?.allowedResumeSha256 ?? []), ...uniqueDigests]),
   ];
@@ -349,6 +381,89 @@ async function syncApplicationAuthorityForSavedMode(
         "Job Finder could not record your applying permission for this job, so it did not start. Try again in a moment.",
       );
     }
+  }
+}
+
+/**
+ * Apply and Try again approve Light and Tailored resumes. Each entry point
+ * performs the same export-and-approve sequence before
+ * submission authority is scoped from approved export hashes.
+ */
+async function approveApplicationResumes(
+  workspaceService: Awaited<ReturnType<typeof getJobFinderWorkspaceService>>,
+  jobIds: readonly string[],
+): Promise<void> {
+  const repository =
+    getJobFinderRepositoryForWorkspaceService(workspaceService);
+  if (!repository) {
+    throw new Error(
+      "Job Finder could not open the application workspace, so nothing was started.",
+    );
+  }
+
+  const [jobs, settings, searchPreferences] = await Promise.all([
+    repository.listSavedJobs(),
+    repository.getSettings(),
+    repository.getSearchPreferences(),
+  ]);
+
+  for (const jobId of [...new Set(jobIds)]) {
+    const job = jobs.find((candidate) => candidate.id === jobId) ?? null;
+    if (!job) {
+      throw new Error(
+        "Job Finder could not find a selected application, so nothing was started.",
+      );
+    }
+    const usesOriginalResume =
+      (job.resumeApplicationMode ??
+        settings.resumeApplicationMode ??
+        "tailored_per_job") === "original_resume";
+    if (usesOriginalResume) continue;
+
+    const workspace = await workspaceService.getResumeWorkspace(jobId);
+    const approvedExport = workspace.exports.find(
+      (artifact) =>
+        artifact.id === workspace.draft.approvedExportId &&
+        artifact.draftId === workspace.draft.id &&
+        artifact.isApproved,
+    );
+    const alreadyApproved =
+      workspace.draft.status === "approved" && approvedExport !== undefined;
+    if (alreadyApproved && approvedExport) {
+      const exportExists = await access(approvedExport.filePath).then(
+        () => true,
+        () => false,
+      );
+      if (exportExists) continue;
+      // Re-render the same approved draft if its managed PDF was removed.
+      // Its existing claim decisions still apply, including Aggressive ones.
+    }
+
+    const tailoringMode =
+      job.resumeTailoringMode ?? searchPreferences.tailoringMode;
+    if (tailoringMode === "aggressive" && !alreadyApproved) {
+      throw new Error(
+        `Read and approve the Aggressive resume for '${job.title}' before applying.`,
+      );
+    }
+
+    await workspaceService.exportResumePdf(jobId, null);
+    const exportedWorkspace = await workspaceService.getResumeWorkspace(jobId);
+    const exportToApprove = exportedWorkspace.exports
+      .filter(
+        (artifact) =>
+          artifact.jobId === jobId &&
+          artifact.draftId === exportedWorkspace.draft.id,
+      )
+      .sort((left, right) =>
+        right.exportedAt.localeCompare(left.exportedAt),
+      )[0];
+    if (!exportToApprove) {
+      throw new Error(
+        `Job Finder could not create the application PDF for '${job.title}', so nothing was started.`,
+      );
+    }
+    await workspaceService.approveResume(jobId, exportToApprove.id);
   }
 }
 
@@ -769,9 +884,6 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SetJobFinderActivityControlInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      const { getEmbeddedBrowser } =
-        await import("../services/browser/embedded-browser");
-      getEmbeddedBrowser().syncActivityPaused(input.paused);
       return workspaceMutationResponse(await service.setActivityControl(input));
     },
   );
@@ -2320,6 +2432,15 @@ export function registerJobFinderRouteHandlers(
   });
 
   ipcMain.handle(
+    "job-finder:write-clipboard-text",
+    (_event, payload: unknown) => {
+      const { text } = WriteClipboardTextInputSchema.parse(payload);
+      void clipboard.writeText(text);
+      return WriteClipboardTextResultSchema.parse({ written: true });
+    },
+  );
+
+  ipcMain.handle(
     "job-finder:approve-resume",
     async (_event, payload: unknown) => {
       const { jobId, exportId } =
@@ -2462,6 +2583,7 @@ export function registerJobFinderRouteHandlers(
         visualCheckpointsEnabled,
       } = JobFinderApplyCopilotActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      await approveApplicationResumes(jobFinderWorkspaceService, [jobId]);
       await syncApplicationAuthorityForSavedMode(jobFinderWorkspaceService, [
         jobId,
       ]);
@@ -2497,10 +2619,11 @@ export function registerJobFinderRouteHandlers(
 
   ipcMain.handle(
     "job-finder:start-auto-apply-queue-run",
-    async (_event, payload: unknown) => {
+    async (event, payload: unknown) => {
       const { jobIds, applicationAutomationMode } =
         JobFinderApplyQueueActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      await approveApplicationResumes(jobFinderWorkspaceService, jobIds);
       await syncApplicationAuthorityForSavedMode(
         jobFinderWorkspaceService,
         jobIds,
@@ -2522,12 +2645,17 @@ export function registerJobFinderRouteHandlers(
             run.jobIds.length === requested.size &&
             run.jobIds.every((jobId) => requested.has(jobId)),
         )
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+        .sort((left, right) =>
+          right.createdAt.localeCompare(left.createdAt),
+        )[0];
       if (stagedRun) {
         void jobFinderWorkspaceService
           .approveApplyRun(stagedRun.id)
           .catch((error: unknown) => {
             console.error("Apply to all could not start.", error);
+          })
+          .finally(() => {
+            publishJobFinderWorkspaceUpdate(event.sender);
           });
         // Give the approval a moment to mark the run as running so the
         // Applications rows the person lands on say Filling in, not Waiting.
@@ -2585,11 +2713,31 @@ export function registerJobFinderRouteHandlers(
         jobId,
         applicationRecordId,
       );
-      if (
-        !details.consentRequests.some((request) => request.id === requestId)
-      ) {
+      const request = details.consentRequests.find(
+        (candidate) => candidate.id === requestId,
+      );
+      if (!request) {
         throw new Error(
           `Consent request '${requestId}' does not belong to the selected application record.`,
+        );
+      }
+      if (
+        action === "approve" &&
+        request.kind === "resume_use" &&
+        request.status === "pending"
+      ) {
+        await approveApplicationResumes(jobFinderWorkspaceService, [jobId]);
+        const repository = getJobFinderRepositoryForWorkspaceService(
+          jobFinderWorkspaceService,
+        );
+        const record = (await repository?.listApplicationRecords())?.find(
+          (candidate) =>
+            candidate.id === applicationRecordId && candidate.jobId === jobId,
+        );
+        await syncApplicationAuthorityForSavedMode(
+          jobFinderWorkspaceService,
+          [jobId],
+          record?.automationMode ?? "prepare_only",
         );
       }
       const snapshot =
@@ -2597,6 +2745,21 @@ export function registerJobFinderRouteHandlers(
           requestId,
           action,
         );
+
+      if (
+        action === "approve" &&
+        request.kind === "resume_use" &&
+        request.status === "pending" &&
+        details.run.mode === "copilot"
+      ) {
+        return workspaceMutationResponse(
+          await jobFinderWorkspaceService.startApplyCopilotRun(
+            jobId,
+            undefined,
+            applicationRecordId,
+          ),
+        );
+      }
 
       return workspaceMutationResponse(snapshot);
     },
@@ -2615,6 +2778,18 @@ export function registerJobFinderRouteHandlers(
       );
       const snapshot =
         await jobFinderWorkspaceService.revokeApplyRunApproval(runId);
+
+      return workspaceMutationResponse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:focus-prepared-application-page",
+    async (_event, payload: unknown) => {
+      const input = JobFinderPreparedApplicationPageInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot =
+        await jobFinderWorkspaceService.focusPreparedApplicationPage(input);
 
       return workspaceMutationResponse(snapshot);
     },

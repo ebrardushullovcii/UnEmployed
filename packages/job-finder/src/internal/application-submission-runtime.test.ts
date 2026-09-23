@@ -402,7 +402,43 @@ describe("composed application submission runtime", () => {
     ).resolves.toMatchObject({ status: "consumed" });
     await expect(
       harness.repository.getSubmissionOutcomeRecord("outcome_preflight_1"),
-    ).resolves.toMatchObject({ outcome: "outcome_uncertain" });
+    ).resolves.toMatchObject({
+      outcome: "outcome_uncertain",
+      evidence: [],
+      browserAction: {
+        reason: "action_issued",
+        actionAttempted: true,
+        actionIssued: true,
+        actionCompleted: true,
+      },
+    });
+  });
+
+  test("persists final-action exceptions separately from confirmation evidence and blocks retry", async () => {
+    const browser = buildBrowserRuntime();
+    browser.runtime.executeExactlyOneFinalAction = () =>
+      Promise.reject(new Error("Target page has been closed"));
+    const harness = await createHarness({
+      mode: "autonomous_submit",
+      runtime: browser.runtime,
+      calls: browser.calls,
+    });
+    const first = await runApplicationSubmissionRuntime(harness.runtimeInput);
+    expect(first.status).toBe("outcome_uncertain");
+    await expect(
+      harness.repository.getSubmissionOutcomeRecord("outcome_preflight_1"),
+    ).resolves.toMatchObject({
+      evidence: [],
+      verifiedAt: null,
+      browserAction: {
+        reason: "runtime_exception",
+        detail: "The browser tab Job Finder was working in was closed.",
+      },
+      retry: { eligible: false, blockReason: "outcome_uncertain" },
+    });
+    expect(
+      (await runApplicationSubmissionRuntime(harness.runtimeInput)).status,
+    ).toBe("blocked");
   });
 
   test("runs autonomous mode without a grant and never constructs a submitted outcome", async () => {

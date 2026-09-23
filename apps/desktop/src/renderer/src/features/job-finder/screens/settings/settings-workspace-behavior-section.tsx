@@ -110,7 +110,7 @@ export function SettingsWorkspaceBehaviorSection({
           checked={draftKeepSessionAlive}
           description="Keep the agent’s tabs open after searches and application steps so the next run starts where the last one left off."
           disabled={isSavePending}
-          hint="Off closes the tabs as soon as a run finishes and you are not looking at them. Sign-ins are kept either way."
+          hint="Off closes finished tabs when you are not looking at them. Unfinished applications and saved sign-ins are kept."
           label="Keep browser tabs after runs"
           onCheckedChange={(checked) =>
             updateStagedDrafts(() => setDraftKeepSessionAlive(checked))

@@ -12,7 +12,8 @@ export const JOB_FINDER_ROUTE_PATHS = {
   campaigns: "/job-finder/campaigns",
   reviewQueue: "/job-finder/review-queue",
   applications: "/job-finder/applications",
-  documents: "/job-finder/documents",
+  /** The person's extra application files: a Profile tab, not a destination. */
+  profileFiles: "/job-finder/profile?section=files",
   settings: "/job-finder/settings",
 } as const;
 

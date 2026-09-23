@@ -201,7 +201,9 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     });
 
     expect(queryByRole("button", { name: "Try again" })).toBeNull();
-    expect(queryByRole("button", { name: /run preparation again/i })).toBeNull();
+    expect(
+      queryByRole("button", { name: /run preparation again/i }),
+    ).toBeNull();
     expect(queryByTestId("applications-recovery-more")).toBeNull();
   });
 
@@ -219,7 +221,9 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     expect(more.tagName).toBe("DETAILS");
     expect((more as HTMLDetailsElement).open).toBe(false);
     expect(getByRole("button", { name: "Run preparation again" })).toBeTruthy();
-    expect(getByRole("button", { name: "Prepare remaining jobs" })).toBeTruthy();
+    expect(
+      getByRole("button", { name: "Prepare remaining jobs" }),
+    ).toBeTruthy();
   });
 
   it("starts a fresh run under the saved mode from Try again", () => {
@@ -237,6 +241,32 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
       jobId: "job_1",
       applicationRecordId: "application_1",
     });
+  });
+
+  it("retries the existing failed application instead of reopening its closed question step", () => {
+    const onStartApplyCopilot = vi.fn();
+    const onOpenNeedsYou = vi.fn();
+    const { getByRole, queryByRole, queryByText } = renderSection({
+      canRestageAutoRun: false,
+      onStartApplyCopilot,
+      onOpenNeedsYou,
+      pausedQuestionCount: 4,
+      visibleApplyResult: buildResult({
+        state: "failed",
+        blockerReason: "required_human_input",
+        latestQuestionCount: 4,
+        detail: "The person closed this step. Choose Try again to continue.",
+      }),
+    });
+
+    expect(queryByRole("button", { name: "Answer the questions" })).toBeNull();
+    expect(queryByText("The form asks 4 questions.")).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Try again" }));
+    expect(onStartApplyCopilot).toHaveBeenCalledExactlyOnceWith({
+      jobId: "job_1",
+      applicationRecordId: "application_1",
+    });
+    expect(onOpenNeedsYou).not.toHaveBeenCalled();
   });
 
   it("shows a progress sentence with a spinner and no button while preparing", () => {
@@ -289,9 +319,9 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
       fireEvent.click(
         getByRole("button", { name: "Open the Job Finder browser" }),
       );
-      expect(
-        getByTestId("manual-field-finish-status").textContent,
-      ).toMatch(/this application page was not reopened/i);
+      expect(getByTestId("manual-field-finish-status").textContent).toMatch(
+        /this application page was not reopened/i,
+      );
     });
 
     it("reports a rejected hand-off with its reason instead of claiming success", async () => {
@@ -341,9 +371,9 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         getByRole("button", { name: "Open the Job Finder browser" }),
       );
       await waitFor(() => {
-        expect(
-          getByTestId("confirm-finished-in-browser").className,
-        ).toContain("font-semibold");
+        expect(getByTestId("confirm-finished-in-browser").className).toContain(
+          "font-semibold",
+        );
       });
     });
   });
@@ -382,10 +412,24 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
       }),
     });
 
-    expect(
-      getByTestId("confirm-finished-in-browser-status").textContent,
-    ).toBe(
+    expect(getByTestId("confirm-finished-in-browser-status").textContent).toBe(
       "Your answer did not fit this question; choose one of the options in Needs you.",
+    );
+  });
+
+  it("keeps the chosen apply mode clear while checking an answered step", () => {
+    const { getByTestId } = renderSection({
+      canConfirmFinishedInBrowser: true,
+      confirmFinishedInBrowserStatus: "checking",
+      onConfirmFinishedInBrowser: vi.fn(),
+      visibleApplyResult: buildResult({
+        state: "blocked",
+        blockerReason: "required_human_input",
+      }),
+    });
+
+    expect(getByTestId("confirm-finished-in-browser-status").textContent).toBe(
+      "Checking this step in the Job Finder browser… When it is complete, Job Finder continues in your chosen apply mode.",
     );
   });
 });

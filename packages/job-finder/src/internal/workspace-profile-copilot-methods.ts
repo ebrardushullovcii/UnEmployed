@@ -1,7 +1,15 @@
 import {
   AiBehaviorPreferenceSchema,
   applyCompensationPreferenceChange,
+  CandidateCertificationSchema,
+  CandidateEducationSchema,
+  CandidateExperienceSchema,
+  CandidateLanguageSchema,
+  CandidateLinkSchema,
   CandidateProfileSchema,
+  CandidateProjectSchema,
+  CandidateProofBankEntrySchema,
+  CandidateReusableAnswerSchema,
   JobSearchPreferencesSchema,
   ProfileCopilotPatchGroupSchema,
   ProfileSetupStateSchema,
@@ -529,19 +537,21 @@ function collectManualEditsAfterRevision(input: {
   return [...labels].sort();
 }
 
+type RecordPatch<TRecord extends { id: string }> = {
+  [TKey in keyof Omit<TRecord, "id">]?: TRecord[TKey] | undefined;
+} & { id: string };
+
 function replaceOrInsertRecord<TRecord extends { id: string }>(
   records: readonly TRecord[],
-  record: TRecord,
-  isSameRecord?: (existing: TRecord, incoming: TRecord) => boolean,
+  record: RecordPatch<TRecord>,
+  materializeRecord: (incoming: RecordPatch<TRecord>) => TRecord,
+  isSameRecord?: (existing: TRecord, incoming: RecordPatch<TRecord>) => boolean,
 ): TRecord[] {
   const existingIndex = records.findIndex((entry) => entry.id === record.id);
 
   if (existingIndex >= 0) {
     const existing = records[existingIndex] as TRecord;
     const next = [...records];
-    // A one-field correction ("set the location") arrives as a whole record
-    // with the untouched fields blank. Blanks keep what the card had, so the
-    // bullets under a role survive an edit to its header.
     next[existingIndex] = mergeRecordIntoExisting(existing, record);
     return next;
   }
@@ -560,19 +570,17 @@ function replaceOrInsertRecord<TRecord extends { id: string }>(
     return next;
   }
 
-  return [...records, record];
+  return [...records, materializeRecord(record)];
 }
 
 /**
- * The incoming record wins every field it fills. A blank string, null, or an
- * empty list keeps what the card already had, because the assistant sends
- * the whole record even for a one-field change and does not know the rest.
- * A non-empty list replaces the old one, so "remove the second bullet" still
- * works; booleans are always explicit and are taken as sent.
+ * Omitted fields keep the value already on the card. Explicit nulls, empty
+ * lists, and booleans win, so the assistant can clear a location or remove
+ * the final bullet without disturbing unrelated fields.
  */
 function mergeRecordIntoExisting<TRecord extends { id: string }>(
   existing: TRecord,
-  incoming: TRecord,
+  incoming: RecordPatch<TRecord>,
 ): TRecord {
   const merged: Record<string, unknown> = { ...existing };
   for (const [key, value] of Object.entries(
@@ -581,16 +589,7 @@ function mergeRecordIntoExisting<TRecord extends { id: string }>(
     if (key === "id") {
       continue;
     }
-    if (typeof value === "boolean") {
-      merged[key] = value;
-      continue;
-    }
-    const incomingEmpty =
-      value === null ||
-      value === undefined ||
-      (typeof value === "string" && value.trim().length === 0) ||
-      (Array.isArray(value) && value.length === 0);
-    if (!incomingEmpty) {
+    if (value !== undefined) {
       merged[key] = value;
     }
   }
@@ -602,6 +601,22 @@ function removeRecord<TRecord extends { id: string }>(
   recordId: string,
 ): TRecord[] {
   return records.filter((entry) => entry.id !== recordId);
+}
+
+function reorderRecords<TRecord extends { id: string }>(
+  records: readonly TRecord[],
+  orderedRecordIds: readonly string[],
+): TRecord[] {
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  if (
+    orderedRecordIds.length !== records.length ||
+    orderedRecordIds.some((recordId) => !recordsById.has(recordId))
+  ) {
+    throw new Error(
+      "The education order must name every saved education card once.",
+    );
+  }
+  return orderedRecordIds.map((recordId) => recordsById.get(recordId)!);
 }
 
 export function createWorkspaceProfileCopilotMethods(input: {
@@ -743,6 +758,14 @@ export function createWorkspaceProfileCopilotMethods(input: {
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
             ...operation.value,
+            ...(Object.hasOwn(operation.value, "summary")
+              ? {
+                  professionalSummary: {
+                    ...nextProfile.professionalSummary,
+                    fullSummary: operation.value.summary,
+                  },
+                }
+              : {}),
           });
           break;
         case "replace_work_eligibility_fields":
@@ -763,6 +786,9 @@ export function createWorkspaceProfileCopilotMethods(input: {
         case "replace_professional_summary_fields":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
+            ...(Object.hasOwn(operation.value, "fullSummary")
+              ? { summary: operation.value.fullSummary }
+              : {}),
             professionalSummary: {
               ...nextProfile.professionalSummary,
               ...operation.value,
@@ -889,6 +915,7 @@ export function createWorkspaceProfileCopilotMethods(input: {
                 ...operation.record,
                 id: operation.record.id ?? createUniqueId("experience"),
               },
+              (record) => CandidateExperienceSchema.parse(record),
               areEquivalentExperienceRecords,
             ),
           });
@@ -911,6 +938,7 @@ export function createWorkspaceProfileCopilotMethods(input: {
                 ...operation.record,
                 id: operation.record.id ?? createUniqueId("education"),
               },
+              (record) => CandidateEducationSchema.parse(record),
               areEquivalentEducationRecords,
             ),
           });
@@ -921,13 +949,26 @@ export function createWorkspaceProfileCopilotMethods(input: {
             education: removeRecord(nextProfile.education, operation.recordId),
           });
           break;
+        case "reorder_education_records":
+          nextProfile = CandidateProfileSchema.parse({
+            ...nextProfile,
+            education: reorderRecords(
+              nextProfile.education,
+              operation.orderedRecordIds,
+            ),
+          });
+          break;
         case "upsert_certification_record":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            certifications: replaceOrInsertRecord(nextProfile.certifications, {
-              ...operation.record,
-              id: operation.record.id ?? createUniqueId("certification"),
-            }),
+            certifications: replaceOrInsertRecord(
+              nextProfile.certifications,
+              {
+                ...operation.record,
+                id: operation.record.id ?? createUniqueId("certification"),
+              },
+              (record) => CandidateCertificationSchema.parse(record),
+            ),
           });
           break;
         case "remove_certification_record":
@@ -942,10 +983,14 @@ export function createWorkspaceProfileCopilotMethods(input: {
         case "upsert_project_record":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            projects: replaceOrInsertRecord(nextProfile.projects, {
-              ...operation.record,
-              id: operation.record.id ?? createUniqueId("project"),
-            }),
+            projects: replaceOrInsertRecord(
+              nextProfile.projects,
+              {
+                ...operation.record,
+                id: operation.record.id ?? createUniqueId("project"),
+              },
+              (record) => CandidateProjectSchema.parse(record),
+            ),
           });
           break;
         case "remove_project_record":
@@ -957,10 +1002,14 @@ export function createWorkspaceProfileCopilotMethods(input: {
         case "upsert_link_record":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            links: replaceOrInsertRecord(nextProfile.links, {
-              ...operation.record,
-              id: operation.record.id ?? createUniqueId("link"),
-            }),
+            links: replaceOrInsertRecord(
+              nextProfile.links,
+              {
+                ...operation.record,
+                id: operation.record.id ?? createUniqueId("link"),
+              },
+              (record) => CandidateLinkSchema.parse(record),
+            ),
           });
           break;
         case "remove_link_record":
@@ -978,6 +1027,7 @@ export function createWorkspaceProfileCopilotMethods(input: {
                 ...operation.record,
                 id: operation.record.id ?? createUniqueId("language"),
               },
+              (record) => CandidateLanguageSchema.parse(record),
             ),
           });
           break;
@@ -993,10 +1043,14 @@ export function createWorkspaceProfileCopilotMethods(input: {
         case "upsert_proof_point":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            proofBank: replaceOrInsertRecord(nextProfile.proofBank, {
-              ...operation.record,
-              id: operation.record.id ?? createUniqueId("proof"),
-            }),
+            proofBank: replaceOrInsertRecord(
+              nextProfile.proofBank,
+              {
+                ...operation.record,
+                id: operation.record.id ?? createUniqueId("proof"),
+              },
+              (record) => CandidateProofBankEntrySchema.parse(record),
+            ),
           });
           break;
         case "remove_proof_point":
@@ -1016,6 +1070,7 @@ export function createWorkspaceProfileCopilotMethods(input: {
                   ...operation.record,
                   id: operation.record.id ?? createUniqueId("answer"),
                 },
+                (record) => CandidateReusableAnswerSchema.parse(record),
               ),
             },
           });
@@ -1067,10 +1122,10 @@ export function createWorkspaceProfileCopilotMethods(input: {
       async (): Promise<CommitProfileCopilotStateInput> => {
         const [messages, currentSetupContext, existingRevisions] =
           await Promise.all([
-          ctx.repository.listProfileCopilotMessages(),
-          getCurrentSetupStateContext(),
-          ctx.repository.listProfileRevisions(),
-        ]);
+            ctx.repository.listProfileCopilotMessages(),
+            getCurrentSetupStateContext(),
+            ctx.repository.listProfileRevisions(),
+          ]);
         const captured = await ctx.repository.getProfileWithRevision();
         const now = new Date().toISOString();
         const persistedMatch = findUniqueProfileCopilotPatchGroup(

@@ -270,7 +270,6 @@ export const PENDING_ADOPTION = {
   underscoreDisplay: [
     "features/job-finder/components/profile/profile-timeline-repair-list.tsx",
     "features/job-finder/lib/source-intelligence-utils.ts",
-    "features/job-finder/screens/actions/actions-screen.tsx",
     "features/job-finder/screens/analytics/outcome-analytics-screen.tsx",
     "features/job-finder/screens/applications/applications-crm-detail.tsx",
     "features/job-finder/screens/applications/applications-crm-views.tsx",
@@ -278,7 +277,6 @@ export const PENDING_ADOPTION = {
     "features/job-finder/screens/review-queue/resume-assistant-proposal-card.tsx",
     "features/job-finder/screens/safeguards/safeguards-presentation.ts",
     "features/job-finder/screens/settings/settings-application-authority-section.tsx",
-    "features/job-finder/screens/settings/settings-candidate-assets.tsx",
   ],
   legacyErrorMessageMapper: [
     "features/job-finder/screens/review-queue/resume-workspace-screen-helpers.ts",

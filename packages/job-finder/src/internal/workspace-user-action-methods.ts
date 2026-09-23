@@ -8,6 +8,10 @@ import {
   JobFinderActivityControlSchema,
   type ApplicationQuestionRecord,
 } from "@unemployed/contracts";
+import {
+  buildApplyFormObservation,
+  selectObservedSignInAction,
+} from "@unemployed/browser-agent";
 
 import {
   isUserActionTerminal,
@@ -24,7 +28,10 @@ import {
 } from "./workspace-application-user-action";
 import type { JobFinderRepository } from "@unemployed/db";
 
-import type { WorkspaceServiceContext } from "./workspace-service-context";
+import type {
+  TaskLocalApplicationCredentials,
+  WorkspaceServiceContext,
+} from "./workspace-service-context";
 import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
 import {
   getUserActionVerificationFlightKey,
@@ -128,7 +135,7 @@ function isApplicationResumptionAction(request: UserActionRequest): boolean {
   if (request.scope.type !== "application") return false;
 
   return (
-    (request.state === "resolved" &&
+    ((request.state === "verifying" || request.state === "resolved") &&
       isApplicationAuthenticationUserActionKind(request.kind) &&
       request.verification.type === "source_access") ||
     (isApplicationPrepareOnlyUserAction(request) &&
@@ -231,8 +238,7 @@ async function persistManualAnswer(input: {
 
   // A multi-question step arrives as one command with every answer tied to
   // its question; a single-question step still arrives as one bare answer.
-  const pairs: { question: (typeof questions)[number]; answer: string }[] =
-    [];
+  const pairs: { question: (typeof questions)[number]; answer: string }[] = [];
   if (input.command.answers && input.command.answers.length > 0) {
     for (const entry of input.command.answers) {
       const question = questions.find(
@@ -437,6 +443,7 @@ export function createWorkspaceUserActionMethods(
 
   function resumeApplicationSingleFlight(
     request: UserActionRequest,
+    taskLocalCredentials?: TaskLocalApplicationCredentials,
   ): Promise<void> {
     if (!isApplicationResumptionAction(request)) {
       return Promise.resolve();
@@ -447,11 +454,17 @@ export function createWorkspaceUserActionMethods(
     if (existing) return existing;
 
     const flight = (async () => {
+      if (request.scope.type === "application" && request.scope.resultId) {
+        await ctx.browserRuntime.closeApplicationFormAction?.(
+          request.scope.source,
+          request.scope.resultId,
+        );
+      }
       // Fail-closed activity gate immediately before any application flow
       // work: a paused or unreadable workspace must not launch flows. The
       // skipped action keeps its persisted state and stays resumable.
       if (await isWorkspaceActivityPaused(ctx.repository)) return;
-      await ctx.resumeApplicationUserAction(request);
+      await ctx.resumeApplicationUserAction(request, taskLocalCredentials);
     })().finally(() => {
       if (applicationResumptionFlights.get(key) === flight) {
         applicationResumptionFlights.delete(key);
@@ -516,6 +529,12 @@ export function createWorkspaceUserActionMethods(
     if (existing) return existing;
 
     const flight = (async () => {
+      if (request.scope.type === "application" && request.scope.resultId) {
+        await ctx.browserRuntime.closeApplicationFormAction?.(
+          request.scope.source,
+          request.scope.resultId,
+        );
+      }
       // Same fail-closed gate as application resumption: source-access
       // verification drives the browser, so it must not start while global
       // activity is paused or unreadable.
@@ -551,12 +570,19 @@ export function createWorkspaceUserActionMethods(
       verifyingRequests,
       USER_ACTION_RESUMPTION_CONCURRENCY,
       (request) => {
-        if (isSourceAccessUserAction(request)) {
-          return verifySingleFlight(request);
+        // An active application continuation owns the retained page and its
+        // request revision. Join it before considering a source-access probe.
+        // Unclaimed sign-in confirmations still need that probe, including
+        // confirmations deferred by Pause or an app restart.
+        if (isApplicationResumptionAction(request)) {
+          const activeFlight = applicationResumptionFlights.get(
+            getApplicationResumptionFlightKey(request),
+          );
+          if (activeFlight) return activeFlight;
         }
-        return isApplicationResumptionAction(request)
-          ? resumeApplicationSingleFlight(request)
-          : Promise.resolve();
+        return isSourceAccessUserAction(request)
+          ? verifySingleFlight(request)
+          : resumeApplicationSingleFlight(request);
       },
     );
 
@@ -595,6 +621,29 @@ export function createWorkspaceUserActionMethods(
     );
 
     if (reduction.status === "stale") {
+      if (
+        command.action === "submit_task_local_credentials" &&
+        request.state === "verifying" &&
+        request.revision === command.expectedRevision + 1
+      ) {
+        const events = await ctx.repository.listUserActionEvents({
+          requestId: request.id,
+        });
+        if (
+          events.some(
+            (event) =>
+              event.id === command.commandId &&
+              event.operation === "submit_task_local_credentials" &&
+              event.resultingRevision === request.revision,
+          )
+        ) {
+          await resumeApplicationSingleFlight(request, {
+            reference: command.commandId,
+            identifier: command.identifier,
+            password: command.password,
+          });
+        }
+      }
       if (
         command.action === "submit_manual_answer" &&
         request.state === "verifying" &&
@@ -644,15 +693,118 @@ export function createWorkspaceUserActionMethods(
         );
       }
 
-      await ctx.openRunBrowserSession(request.scope.source, {
-        targetUrl: request.actionUrl,
-        // A page blocked before preparation still carries automation guards.
-        // Explicit manual handoff needs a fresh page; preserve the old tab.
-        ...(isApplicationPrepareOnlyUserAction(request) &&
-        /blocked a background page request/i.test(request.summary)
-          ? { reuseExistingPage: false }
-          : {}),
-      });
+      if (request.scope.type === "application") {
+        const requiresFreshManualPage =
+          isApplicationPrepareOnlyUserAction(request) &&
+          /blocked a background page request/i.test(request.summary);
+        if (requiresFreshManualPage) {
+          await ctx.openRunBrowserSession(request.scope.source, {
+            targetUrl: request.actionUrl,
+            reuseExistingPage: false,
+          });
+        } else {
+          const focused = request.scope.resultId
+            ? await ctx.browserRuntime.focusApplicationPageBinding?.(
+                request.scope.source,
+                request.scope.resultId,
+              )
+            : false;
+          if (!focused) {
+            const occurredAt = new Date().toISOString();
+            const cancelled = reduceUserActionCommand(
+              request,
+              {
+                requestId: request.id,
+                commandId: `${command.commandId}_missing_prepared_page`,
+                expectedRevision: request.revision,
+                action: "cancel",
+                reason:
+                  "The exact prepared application page is no longer open.",
+                credentialsPolicy: "browser_only",
+                submitAuthorized: false,
+                accountCreationAuthorized: false,
+              },
+              occurredAt,
+            );
+            if (cancelled.status === "applied") {
+              const cancellationCommit =
+                await ctx.repository.commitUserActionTransition({
+                  request: cancelled.request,
+                  event: cancelled.event,
+                });
+              if (cancellationCommit.status !== "stale") {
+                await releaseApplicationRecordAfterDismissedUserAction({
+                  repository: ctx.repository,
+                  request: cancellationCommit.request,
+                  occurredAt,
+                  eventId: `event_missing_prepared_page_${request.id}`,
+                  dismissal: "cancelled",
+                  unavailablePreparedPage: true,
+                });
+              }
+            }
+            return ctx.getWorkspaceSnapshot();
+          }
+          if (request.scope.resultId) {
+            await ctx.browserRuntime.closeApplicationFormAction?.(
+              request.scope.source,
+              request.scope.resultId,
+            );
+          }
+          if (
+            request.kind === "login" &&
+            request.scope.resultId &&
+            ctx.browserRuntime.readApplicationPageBinding &&
+            ctx.browserRuntime.armApplicationFormAction
+          ) {
+            const raw = await ctx.browserRuntime.readApplicationPageBinding(
+              request.scope.source,
+              request.scope.resultId,
+            );
+            const observation = buildApplyFormObservation(
+              raw,
+              new Date().toISOString(),
+            );
+            const signIn = selectObservedSignInAction(observation);
+            if (signIn && observation.url) {
+              // Observation may await a page read while a newer result
+              // supersedes this request. Never arm from that stale read.
+              const current = await ctx.repository.getUserActionRequest(
+                request.id,
+              );
+              if (
+                current?.revision === request.revision &&
+                current.state === request.state
+              ) {
+                await ctx.browserRuntime.armApplicationFormAction(
+                  request.scope.source,
+                  {
+                    pageBindingKey: request.scope.resultId,
+                    pageUrl: observation.url,
+                    ...signIn,
+                  },
+                );
+                const afterArm = await ctx.repository.getUserActionRequest(
+                  request.id,
+                );
+                if (
+                  afterArm?.revision !== request.revision ||
+                  afterArm.state !== request.state
+                ) {
+                  await ctx.browserRuntime.closeApplicationFormAction?.(
+                    request.scope.source,
+                    request.scope.resultId,
+                  );
+                }
+              }
+            }
+          }
+        }
+      } else {
+        await ctx.openRunBrowserSession(request.scope.source, {
+          targetUrl: request.actionUrl,
+        });
+      }
     }
 
     const commandCommit = await ctx.repository.commitUserActionTransition({
@@ -661,6 +813,16 @@ export function createWorkspaceUserActionMethods(
     });
 
     if (commandCommit.status === "stale") {
+      if (
+        command.action === "open_page" &&
+        request.scope.type === "application" &&
+        request.scope.resultId
+      ) {
+        await ctx.browserRuntime.closeApplicationFormAction?.(
+          request.scope.source,
+          request.scope.resultId,
+        );
+      }
       // The reducer saw the current revision but a concurrent writer advanced
       // the request before this commit, so the caller's transition did not
       // apply and the answer must not be persisted. Only "applied" and
@@ -685,6 +847,17 @@ export function createWorkspaceUserActionMethods(
       return ctx.getWorkspaceSnapshot();
     }
 
+    if (
+      command.action !== "open_page" &&
+      commandCommit.request.scope.type === "application" &&
+      commandCommit.request.scope.resultId
+    ) {
+      await ctx.browserRuntime.closeApplicationFormAction?.(
+        commandCommit.request.scope.source,
+        commandCommit.request.scope.resultId,
+      );
+    }
+
     if (command.action === "submit_manual_answer") {
       await persistManualAnswer({
         command,
@@ -706,6 +879,23 @@ export function createWorkspaceUserActionMethods(
       } else if (isApplicationResumptionAction(commandCommit.request)) {
         await resumeApplicationSingleFlight(commandCommit.request);
       }
+    }
+
+    if (command.action === "submit_task_local_credentials") {
+      const taskLocalCredentials = {
+        reference: command.commandId,
+        identifier: command.identifier,
+        password: command.password,
+      };
+      // The resumer owns the only copy after this point and clears it as soon
+      // as the exact sign-in callback returns, before form preparation keeps
+      // working. The parsed command must not retain another copy meanwhile.
+      command.identifier = "";
+      command.password = "";
+      await resumeApplicationSingleFlight(
+        commandCommit.request,
+        taskLocalCredentials,
+      );
     }
 
     // R4: cancelling a step said it was closed while the application it

@@ -14,9 +14,64 @@ import { describe, expect, test, vi } from "vitest";
 import {
   buildApplyReviewCard,
   createApplyFormPreparer,
+  resolveApplicationDocumentMimeType,
+  resolveApplicationPreparationTarget,
   resolveApplySiteLabel,
   runAgentApplicationPreparation,
+  toApplyDocuments,
 } from "./agent-application-preparation";
+
+describe("resolveApplicationDocumentMimeType", () => {
+  test.each([
+    ["official-resume.txt", "text/plain"],
+    ["official-resume.PDF", "application/pdf"],
+    [
+      "official-resume.docx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ],
+    ["official-resume", "application/octet-stream"],
+  ])("reports the bytes' file type for %s", (fileName, expected) => {
+    expect(resolveApplicationDocumentMimeType(fileName)).toBe(expected);
+  });
+});
+
+describe("resolveApplicationPreparationTarget", () => {
+  test("prefers the exact live wizard page over listing and stale checkpoint URLs", () => {
+    const facts = executionInput();
+    facts.job = SavedJobSchema.parse({
+      ...facts.job,
+      canonicalUrl: "https://apply.example.test/jobs/one",
+      applicationUrl: "https://apply.example.test/jobs/one",
+    });
+    facts.startingUrl =
+      "https://apply.example.test/apply/one?stage=application";
+
+    expect(
+      resolveApplicationPreparationTarget({
+        executionInput: facts,
+        currentUrl: "https://apply.example.test/apply/one?stage=review#step-4",
+      }),
+    ).toEqual({
+      targetUrl: "https://apply.example.test/apply/one?stage=review#step-4",
+      isContinuation: true,
+    });
+  });
+
+  test("does not trust a bound page that drifted outside the authorized application origins", () => {
+    const facts = executionInput();
+    facts.startingUrl = "https://apply.example.test/form?stage=application";
+
+    expect(
+      resolveApplicationPreparationTarget({
+        executionInput: facts,
+        currentUrl: "https://unrelated.example.test/account",
+      }),
+    ).toEqual({
+      targetUrl: "https://apply.example.test/form?stage=application",
+      isContinuation: true,
+    });
+  });
+});
 
 /**
  * The seam between the apply loop and the record Job Finder keeps.
@@ -96,7 +151,7 @@ function rawPage(bodyText: string): RawApplyPage {
         groupLabel: "",
         placeholder: "",
         autocomplete: "",
-        required: true,
+        required: false,
         invalid: false,
         validationMessage: "",
         disabled: false,
@@ -131,7 +186,8 @@ function session(bodyText = "Apply for the role"): ApplyPageSession {
     wait: () => Promise.resolve(),
     goBack: () => Promise.resolve({ ok: true, url: PAGE_URL }),
     readText: () => Promise.resolve(bodyText),
-    fillText: (_ref, value) => Promise.resolve({ ok: true, observedValue: value }),
+    fillText: (_ref, value) =>
+      Promise.resolve({ ok: true, observedValue: value }),
     chooseOption: (_ref, option) =>
       Promise.resolve({ ok: true, observedValue: option }),
     setToggle: () => Promise.resolve({ ok: true, observedValue: "checked" }),
@@ -144,6 +200,8 @@ function session(bodyText = "Apply for the role"): ApplyPageSession {
     registerPreparedValue: () => Promise.resolve(),
     openIntermediateWriteWindow: () => Promise.resolve(),
     closeIntermediateWriteWindow: () => Promise.resolve(),
+    clickAuthorizedFormAction: () =>
+      Promise.resolve({ ok: true, observedValue: "clicked" }),
     readIntermediateWriteCount: () => 0,
     checkServiceWorker: () => Promise.resolve(null),
   };
@@ -222,7 +280,6 @@ function testJob() {
     provenance: [],
   });
 }
-
 
 function executionInput(): Omit<
   ExecuteApplicationFlowInput,
@@ -317,7 +374,79 @@ function modelThatFinishes(): LLMClient {
   };
 }
 
+function modelThatGetsStuck(): LLMClient {
+  return {
+    chatWithTools: () =>
+      Promise.resolve({
+        toolCalls: [
+          {
+            id: "call_stuck",
+            type: "function" as const,
+            function: {
+              name: "finish",
+              arguments: JSON.stringify({
+                reason: "The assistant did not answer in time",
+                stuck: true,
+              }),
+            },
+          },
+        ],
+      }),
+  };
+}
+
 describe("agent application preparation seam", () => {
+  test("gives a continuation the runtime's live bound page instead of stale saved targets", async () => {
+    const facts = executionInput();
+    facts.job = SavedJobSchema.parse({
+      ...facts.job,
+      canonicalUrl: "https://apply.example.test/jobs/one",
+      applicationUrl: "https://apply.example.test/jobs/one",
+    });
+    facts.startingUrl =
+      "https://apply.example.test/apply/one?stage=application";
+    const liveWizardUrl =
+      "https://apply.example.test/apply/one?stage=review#step-4";
+    const seenMessages: string[] = [];
+
+    const result = await runAgentApplicationPreparation({
+      session: session(),
+      currentUrl: liveWizardUrl,
+      executionInput: facts,
+      llmClient: {
+        chatWithTools: (messages) => {
+          seenMessages.push(JSON.stringify(messages));
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: "call_finish",
+                type: "function" as const,
+                function: {
+                  name: "finish",
+                  arguments: JSON.stringify({
+                    reason: "The retained form is complete",
+                  }),
+                },
+              },
+            ],
+          });
+        },
+      },
+      startedAt: "2026-09-14T10:00:00.000Z",
+      siteLabel: "the careers site",
+      now: () => new Date("2026-09-14T10:05:00.000Z"),
+    });
+
+    expect(seenMessages.join("\n")).toContain(liveWizardUrl);
+    expect(seenMessages.join("\n")).toContain(
+      "Do not follow the site header or navigate back to its home page or job listing",
+    );
+    expect(seenMessages.join("\n")).toContain(
+      "without returning to the listing or reloading it",
+    );
+    expect(result.replay.checkpointUrls[0]).toBe(liveWizardUrl);
+  });
+
   test("a finished prepare-only run becomes a ready record that says nothing was sent", async () => {
     const openSession = session();
     const installPrepareOnlyGuard = vi.spyOn(
@@ -361,11 +490,41 @@ describe("agent application preparation seam", () => {
     });
 
     expect(result.blocker?.code).toBe("site_login_required");
-    expect(result.summary).toBe(
-      "This site wants you signed in before it will show the form",
-    );
+    expect(result.summary).toBe("The site wants you signed in first.");
     expect(result.blocker?.summary).toBe(result.summary);
     expect(result.detail).toContain("wants you signed in");
+  });
+
+  test("an unresolved human check becomes a CAPTCHA handoff even when the model calls the form finished", async () => {
+    const result = await runAgentApplicationPreparation({
+      session: session(
+        "Apply for the role. I am not a robot. Local fake CAPTCHA.",
+      ),
+      executionInput: executionInput(),
+      llmClient: modelThatFinishes(),
+      startedAt: "2026-09-14T10:00:00.000Z",
+      siteLabel: "the careers site",
+      now: () => new Date("2026-09-14T10:05:00.000Z"),
+    });
+
+    expect(result.state).toBe("paused");
+    expect(result.blocker?.code).toBe("requires_manual_review");
+    expect(result.blocker?.userActionKind).toBe("captcha");
+  });
+
+  test("an assistant stall is a failed attempt to retry, not a request for the person", async () => {
+    const result = await runAgentApplicationPreparation({
+      session: session(),
+      executionInput: executionInput(),
+      llmClient: modelThatGetsStuck(),
+      startedAt: "2026-09-14T10:00:00.000Z",
+      siteLabel: "the careers site",
+      now: () => new Date("2026-09-14T10:05:00.000Z"),
+    });
+
+    expect(result.state).toBe("failed");
+    expect(result.blocker?.userActionKind).toBeNull();
+    expect(result.nextActionLabel).toContain("Try again");
   });
 });
 
@@ -402,6 +561,7 @@ describe("the preparer the browser layer is handed", () => {
 
     const result = await prepare({
       session: openSession,
+      currentUrl: PAGE_URL,
       startedAt: "2026-09-14T10:00:00.000Z",
     });
 
@@ -424,10 +584,12 @@ describe("the preparer the browser layer is handed", () => {
 
     const result = await prepare({
       session: session(),
+      currentUrl: PAGE_URL,
       startedAt: "2026-09-14T10:00:00.000Z",
     });
 
-    expect(result.state).toBe("paused");
+    expect(result.state).toBe("failed");
+    expect(result.blocker).toBeNull();
     expect(result.detail).toContain("unavailable right now");
     expect(result.detail).toContain("Nothing was changed on the site");
     expect(result.nextActionLabel).toBe("Try this application again shortly");
@@ -458,7 +620,18 @@ describe("the review card shown before you press send", () => {
               sourceKind: "generated",
               sourceId: "application.letter",
               provenanceLabel: "the letter written for this application",
-              groundedIn: [longNote, longNote, longNote, longNote, longNote, longNote, longNote, longNote, longNote, longNote],
+              groundedIn: [
+                longNote,
+                longNote,
+                longNote,
+                longNote,
+                longNote,
+                longNote,
+                longNote,
+                longNote,
+                longNote,
+                longNote,
+              ],
             },
             at: "2026-09-14T10:00:00.000Z",
           },
@@ -528,7 +701,7 @@ describe("the review card shown before you press send", () => {
         pauses: [
           {
             code: "question_needs_you",
-            summary: "Job Finder stopped on \"Expected salary\".",
+            summary: 'Job Finder stopped on "Expected salary".',
             question: null,
             blocker: null,
           },
@@ -621,7 +794,12 @@ describe("each mode, end to end through the seam", () => {
             },
           ],
           actions: [
-            { index: 0, label: "Submit application", visible: true, disabled: false },
+            {
+              index: 0,
+              label: "Submit application",
+              visible: true,
+              disabled: false,
+            },
           ],
           links: [],
           headings: [],
@@ -640,10 +818,13 @@ describe("each mode, end to end through the seam", () => {
       setToggle: () => Promise.resolve({ ok: true, observedValue: "checked" }),
       uploadFile: (_ref, file) =>
         Promise.resolve({ ok: true, observedValue: file.name }),
-      clickAction: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
+      clickAction: () =>
+        Promise.resolve({ ok: true, observedValue: "clicked" }),
       navigate: () => Promise.resolve({ ok: true, url: PAGE_URL }),
-      clickElement: () => Promise.resolve({ ok: true, observedValue: "clicked" }),
-      pressKey: (_ref, key) => Promise.resolve({ ok: true, observedValue: key }),
+      clickElement: () =>
+        Promise.resolve({ ok: true, observedValue: "clicked" }),
+      pressKey: (_ref, key) =>
+        Promise.resolve({ ok: true, observedValue: key }),
       scroll: () => Promise.resolve({ ok: true, observedValue: "down" }),
       wait: () => Promise.resolve(),
       goBack: () => Promise.resolve({ ok: true, url: PAGE_URL }),
@@ -654,6 +835,8 @@ describe("each mode, end to end through the seam", () => {
       registerPreparedValue: () => Promise.resolve(),
       openIntermediateWriteWindow: () => Promise.resolve(),
       closeIntermediateWriteWindow: () => Promise.resolve(),
+      clickAuthorizedFormAction: () =>
+        Promise.resolve({ ok: true, observedValue: "clicked" }),
       readIntermediateWriteCount: () => 0,
       checkServiceWorker: () => Promise.resolve(null),
     };
@@ -667,11 +850,7 @@ describe("each mode, end to end through the seam", () => {
         calls += 1;
         // Answer the one field, say the form is complete, then finish.
         const name =
-          calls === 1
-            ? "type"
-            : calls === 2
-              ? "submit_application"
-              : "finish";
+          calls === 1 ? "type" : calls === 2 ? "submit_application" : "finish";
         const args =
           name === "type"
             ? { ref: "c0", text: "robin.ashford@example.test" }
@@ -710,7 +889,8 @@ describe("each mode, end to end through the seam", () => {
       session: watched,
       executionInput: {
         ...facts,
-        mode: mode === "autonomous_submit" ? "submit_when_ready" : "prepare_only",
+        mode:
+          mode === "autonomous_submit" ? "submit_when_ready" : "prepare_only",
         applyAutomationMode: mode,
         submitAuthorized: mode === "autonomous_submit",
         applyAllowedOrigins: [ORIGIN],
@@ -870,7 +1050,35 @@ describe("questions and failures reaching the record", () => {
     expect(result.blocker?.code).toBe("missing_candidate_answer");
     expect(result.blocker?.questionIds).toHaveLength(2);
     expect(result.summary).toContain("needs your answers to 2 questions");
-    expect(result.nextActionLabel).toBe("Answer the form's questions and continue");
+    expect(result.nextActionLabel).toBe(
+      "Answer the form's questions and continue",
+    );
+  });
+
+  test("a required file is a browser upload step, not a text answer", async () => {
+    const page = questionPage();
+    page.controls = [
+      {
+        ...page.controls[0]!,
+        tagName: "input",
+        inputType: "file",
+        label: "Portfolio",
+        options: [],
+      },
+    ];
+    const result = await runAgentApplicationPreparation({
+      session: {
+        ...session(),
+        readPage: () => Promise.resolve(page),
+      },
+      executionInput: executionInput(),
+      llmClient: modelThatTriesBothThenFinishes(),
+      startedAt: "2026-09-14T10:00:00.000Z",
+      siteLabel: "the careers site",
+      now: () => new Date("2026-09-14T10:05:00.000Z"),
+    });
+    expect(result.questions[0]?.answerControlType).toBe("file");
+    expect(result.blocker?.userActionKind).toBe("manual_upload");
   });
 
   test("a run that throws is recorded as stopped, in words the person can read", async () => {
@@ -897,7 +1105,6 @@ describe("questions and failures reaching the record", () => {
     expect(result.blocker).not.toBeNull();
   });
 });
-
 
 /**
  * The form the person actually met.
@@ -956,8 +1163,16 @@ describe("a real application form reaching the record", () => {
           options: countries,
           required: true,
         }),
-        rawControlOf(4, { label: "Phone", groupLabel: "Phone", required: true }),
-        rawControlOf(5, { inputType: "file", label: "Resume/CV", required: true }),
+        rawControlOf(4, {
+          label: "Phone",
+          groupLabel: "Phone",
+          required: true,
+        }),
+        rawControlOf(5, {
+          inputType: "file",
+          label: "Resume/CV",
+          required: true,
+        }),
         rawControlOf(6, { label: "LinkedIn Profile", inputType: "url" }),
         rawControlOf(7, {
           tagName: "select",
@@ -987,7 +1202,12 @@ describe("a real application form reaching the record", () => {
         }),
       ],
       actions: [
-        { index: 0, label: "Submit application", visible: true, disabled: false },
+        {
+          index: 0,
+          label: "Submit application",
+          visible: true,
+          disabled: false,
+        },
       ],
     };
   }
@@ -1032,7 +1252,8 @@ describe("a real application form reaching the record", () => {
       now: () => new Date("2026-09-14T10:05:00.000Z"),
     });
 
-    expect(result.state).toBe("ready");
+    expect(result.state).toBe("paused");
+    expect(result.questions.length).toBeGreaterThan(0);
     for (const question of result.questions) {
       expect(question.prompt.trim().length).toBeGreaterThan(0);
       expect(question.id.trim().length).toBeGreaterThan(0);
@@ -1043,5 +1264,46 @@ describe("a real application form reaching the record", () => {
     // Two controls sharing a label must not produce two records with one id.
     const ids = result.questions.map((question) => question.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("toApplyDocuments", () => {
+  test("keeps the kind of the person's own files so a saved cover letter counts as available", () => {
+    const documents = toApplyDocuments({
+      resumeArtifact: {
+        id: "resume_1",
+        fileName: "jamie-rivers.pdf",
+        filePath: "/tmp/jamie-rivers.pdf",
+        sha256: "a".repeat(64),
+      },
+      applicationAttachments: [
+        {
+          assetId: "asset_letter",
+          questionId: null,
+          prompt: "Cover letter from the person's files",
+          questionKind: "cover_letter",
+          fileName: "letter.pdf",
+          mime: "application/pdf",
+          sha256: "b".repeat(64),
+          loadVerifiedBytes: async () => new Uint8Array(),
+        },
+        {
+          assetId: "asset_portfolio",
+          questionId: null,
+          prompt: "Portfolio from the person's files",
+          questionKind: "portfolio",
+          fileName: "portfolio.pdf",
+          mime: "application/pdf",
+          sha256: "c".repeat(64),
+          loadVerifiedBytes: async () => new Uint8Array(),
+        },
+      ],
+    } as unknown as Parameters<typeof toApplyDocuments>[0]);
+
+    expect(documents.map((document) => [document.id, document.kind])).toEqual([
+      ["document_resume_resume_1", "resume"],
+      ["document_asset_asset_letter", "cover_letter"],
+      ["document_asset_asset_portfolio", "portfolio"],
+    ]);
   });
 });

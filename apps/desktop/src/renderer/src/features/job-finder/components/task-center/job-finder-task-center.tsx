@@ -39,6 +39,28 @@ interface JobFinderTaskCenterProps {
     | undefined;
 }
 
+const CLEARED_ACTIVITY_STORAGE_KEY =
+  "unemployed.job-finder.cleared-activity.v1";
+
+function readClearedActivityIds(): ReadonlySet<string> {
+  try {
+    const stored: unknown = JSON.parse(
+      window.localStorage.getItem(CLEARED_ACTIVITY_STORAGE_KEY) ?? "[]",
+    ) as unknown;
+    return new Set(
+      Array.isArray(stored)
+        ? stored.filter((value): value is string => typeof value === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function isFinishedActivity(item: JobFinderTaskCenterItem): boolean {
+  return item.status === "completed" || item.status === "cancelled";
+}
+
 function taskTone(status: JobFinderTaskCenterItem["status"]) {
   if (status === "active" || status === "stopping") {
     return "active" as const;
@@ -57,15 +79,15 @@ function statusLabel(status: JobFinderTaskCenterItem["status"]): string {
     ? "In progress"
     : status === "stopping"
       ? "Stopping"
-    : status === "paused"
-      ? "Paused"
-      : status === "completed"
-        ? "Complete"
+      : status === "paused"
+        ? "Paused"
+        : status === "completed"
+          ? "Complete"
           : status === "cancelled"
-          ? "Stopped"
-          : status === "failed"
-            ? "Failed"
-            : "Interrupted";
+            ? "Stopped"
+            : status === "failed"
+              ? "Failed"
+              : "Interrupted";
 }
 
 export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
@@ -81,6 +103,9 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
   const [taskFeedback, setTaskFeedback] = useState<
     Readonly<Record<string, string>>
   >({});
+  const [clearedActivityIds, setClearedActivityIds] = useState(
+    readClearedActivityIds,
+  );
   const model = useMemo(
     () =>
       buildJobFinderTaskCenterModel({
@@ -247,6 +272,24 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
   }
 
   const taskCountsLabel = describeTaskCenterCounts(model);
+  const visibleItems = model.items.filter(
+    (item) => !isFinishedActivity(item) || !clearedActivityIds.has(item.id),
+  );
+  const finishedItems = visibleItems.filter(isFinishedActivity);
+
+  function clearFinishedActivity() {
+    const next = new Set(clearedActivityIds);
+    for (const item of finishedItems) next.add(item.id);
+    setClearedActivityIds(next);
+    try {
+      window.localStorage.setItem(
+        CLEARED_ACTIVITY_STORAGE_KEY,
+        JSON.stringify([...next]),
+      );
+    } catch {
+      // The panel still clears this session when local storage is unavailable.
+    }
+  }
 
   return (
     <details
@@ -300,8 +343,8 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
           <div className="grid gap-1">
             <h2 className="font-display text-(--text-headline)">Activity</h2>
             <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-              What Job Finder is doing now, and how its latest runs ended.
-              Steps only you can do are in Needs you.
+              What Job Finder is doing now, and how its latest runs ended. Steps
+              only you can do are in Needs you.
             </p>
           </div>
           <Button
@@ -316,14 +359,25 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
           </Button>
         </div>
 
-        {model.items.length === 0 ? (
+        {finishedItems.length > 0 ? (
+          <Button
+            onClick={clearFinishedActivity}
+            size="compact"
+            type="button"
+            variant="ghost"
+          >
+            Clear finished
+          </Button>
+        ) : null}
+
+        {visibleItems.length === 0 ? (
           <p className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3 text-(length:--text-small) text-foreground-soft">
             Nothing is running. Searches, resume imports, and application runs
             show here while they work.
           </p>
         ) : (
           <div className="grid gap-3">
-            {model.items.map((item) => {
+            {visibleItems.map((item) => {
               const cancellationRequested = cancelRequestedTaskIds.has(item.id);
               const visibleStatus =
                 cancellationRequested && item.cancelKind === "discovery"

@@ -7,6 +7,8 @@ import type {
   SafeguardMutationInput,
 } from "@unemployed/contracts";
 import type { BadgeTone } from "../../lib/job-finder-types";
+import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
+import { AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID } from "@unemployed/job-finder/plan-safeguard-pauses";
 
 /**
  * Stable per-mutation key used for pending-action scopes so the Safeguards
@@ -132,6 +134,7 @@ export interface SafeguardRow {
   tags: readonly string[];
   controls: readonly SafeguardControl[];
   recoveryLink: SafeguardRecoveryLink | null;
+  sampleLinks?: readonly SafeguardRecoveryLink[];
   searchText: string;
 }
 
@@ -585,7 +588,11 @@ export function buildSafeguardsPresentationModel(
         `sample:${pause.minimumSample}`,
       ],
       controls,
-      recoveryLink: RECOVERY_LINKS.pauses,
+      recoveryLink: pause.id.startsWith(
+        `${AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID}:`,
+      )
+        ? { href: "/job-finder/applications", label: "Open Applications" }
+        : RECOVERY_LINKS.pauses,
       searchText: [
         pause.explanation,
         pause.recoveryGuidance,
@@ -643,7 +650,25 @@ export function buildSafeguardsPresentationModel(
     });
   }
 
-  for (const review of safeguards.preparedBatchSampleReviews) {
+  for (const review of [...safeguards.preparedBatchSampleReviews].sort(
+    (left, right) =>
+      Number(left.reviewCompleted) - Number(right.reviewCompleted),
+  )) {
+    const sampleLinks = review.sampledItemIds.flatMap((resultId) => {
+      const result = workspace.applyJobResults.find(
+        (candidate) => candidate.id === resultId,
+      );
+      if (!result?.applicationRecordId) return [];
+      return [
+        {
+          href: buildJobFinderContextRoute("/job-finder/applications", {
+            applicationRecordId: result.applicationRecordId,
+            jobId: result.jobId,
+          }),
+          label: jobLabel(workspace, result.jobId),
+        },
+      ];
+    });
     const dismissal = findDismissal(
       safeguards,
       "batch_sample_review_pending",
@@ -704,9 +729,10 @@ export function buildSafeguardsPresentationModel(
       blocked: active && !dismissal,
       dismissed: Boolean(dismissal),
       lineage: baseLineage([], []),
+      sampleLinks,
       tags: [`batch:${review.batchId}`],
       controls,
-      recoveryLink: RECOVERY_LINKS.reviews,
+      recoveryLink: sampleLinks.length === 0 ? RECOVERY_LINKS.reviews : null,
       searchText: [
         review.batchId,
         review.explanation,

@@ -7,14 +7,7 @@ import {
   type BrowserContext,
   type Page,
 } from "playwright";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  test,
-} from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import {
   closePrepareOnlyIntermediateMutationWindow,
   createApplicationRunServiceWorkerSentinel,
@@ -24,7 +17,10 @@ import {
   readServiceWorkerRegisterGuardInPage,
   registerPrepareOnlyPreparedValueInPage,
 } from "./playwright-application-flow";
-import { createPlaywrightApplyPageSession } from "./apply-page-mechanics";
+import {
+  armPlaywrightApplicationFormAction,
+  createPlaywrightApplyPageSession,
+} from "./apply-page-mechanics";
 
 interface FixtureHit {
   kind: "request" | "upgrade";
@@ -180,6 +176,70 @@ const requestHitsFor = (
 
 describe("Prepare-only guard real-Chromium fixtures", () => {
   test(
+    "a retained human sign-in accepts native click, Enter, and requestSubmit once each while unrelated forms stay blocked",
+    { timeout: 60_000 },
+    async () => {
+      const app = await startTrackedServer();
+      app.registerHtml(
+        "/human-login",
+        `<iframe name="result"></iframe>
+         <form id="login" action="/session" method="post" target="result">
+           <input id="email" name="email" type="email" required>
+           <input id="password" name="password" type="password" required>
+           <button id="signin">Sign in</button>
+         </form>
+         <form id="account" action="/create-account" method="post" target="result">
+           <button id="create">Create account</button>
+         </form>
+         <form id="application" action="/submit-application" method="post" target="result">
+           <button id="apply">Apply</button>
+         </form>`,
+      );
+      const { page } = await newGuardedPage();
+      const session = createPlaywrightApplyPageSession({ page });
+      for (const method of ["click", "enter", "requestSubmit"] as const) {
+        await page.goto(`${app.baseUrl}/human-login`);
+        const action = (await session.readPage()).actions.find(
+          (candidate) => candidate.label === "Sign in",
+        );
+        const ref = action?.ref ?? (action ? `a${action.index}` : null);
+        expect(ref).toBeTruthy();
+        await expect(
+          armPlaywrightApplicationFormAction(page, "a999"),
+        ).rejects.toThrow(/exact form action/i);
+        await armPlaywrightApplicationFormAction(page, ref!);
+        expect(
+          await page.evaluate(() => {
+            const state = (window as unknown as Record<string, unknown>)[
+              "__unemployedPrepareOnlyMutationGuardV1"
+            ] as { authorizedFormActionWindow: { expiresAtMs: number } };
+            return state.authorizedFormActionWindow.expiresAtMs;
+          }),
+        ).toBe(Number.MAX_SAFE_INTEGER);
+        await page.click("#create");
+        await page.click("#apply");
+        await page.fill("#email", "fixture@example.test");
+        await page.fill("#password", "synthetic-password");
+        const before = requestHitsFor(app.hits, "/session").length;
+        if (method === "click") await page.click("#signin");
+        if (method === "enter") await page.press("#password", "Enter");
+        if (method === "requestSubmit") {
+          await page.evaluate(() => {
+            const form = document.querySelector<HTMLFormElement>("#login")!;
+            form.requestSubmit(document.querySelector<HTMLElement>("#signin"));
+          });
+        }
+        await page.waitForTimeout(200);
+        expect(requestHitsFor(app.hits, "/session")).toHaveLength(before + 1);
+        await page.click("#signin");
+        await page.waitForTimeout(100);
+        expect(requestHitsFor(app.hits, "/session")).toHaveLength(before + 1);
+      }
+      expect(requestHitsFor(app.hits, "/create-account")).toHaveLength(0);
+      expect(requestHitsFor(app.hits, "/submit-application")).toHaveLength(0);
+    },
+  );
+  test(
     "silently denies an early native submit that carries no app-filled value",
     { timeout: 60_000 },
     async () => {
@@ -288,6 +348,53 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
   );
 
   test(
+    "allows one exact authorized form action while blocking unrelated writes and later replay",
+    { timeout: 60_000 },
+    async () => {
+      const app = await startTrackedServer();
+      app.registerHtml(
+        "/account-access",
+        `<iframe name="result"></iframe>
+         <form action="/account/signin" method="post" target="result">
+           <label>Email <input name="email" value="fixture@example.test"></label>
+           <label>Password <input name="password" type="password" value="secret"></label>
+           <button id="signin">Sign in</button>
+         </form>
+         <script>
+         document.getElementById('signin').addEventListener('click', function () {
+           fetch('/application/submit', { method: 'POST', body: 'unexpected' });
+         });
+         </script>`,
+      );
+      const { page } = await newGuardedPage();
+      await page.goto(`${app.baseUrl}/account-access`);
+      const session = createPlaywrightApplyPageSession({ page });
+      await session.installPrepareOnlyGuard({
+        intermediateMutationsAuthorized: true,
+        allowedOrigins: [],
+      });
+      const signIn = (await session.readPage()).actions.find(
+        (action) => action.label === "Sign in",
+      );
+      const signInRef = signIn ? (signIn.ref ?? `a${signIn.index}`) : undefined;
+      expect(signInRef).toBeTruthy();
+
+      expect(await session.clickAuthorizedFormAction(signInRef!)).toEqual({
+        ok: true,
+        observedValue: "clicked",
+      });
+      await page.waitForTimeout(400);
+
+      expect(requestHitsFor(app.hits, "/account/signin")).toHaveLength(1);
+      expect(requestHitsFor(app.hits, "/application/submit")).toHaveLength(0);
+
+      await page.click("#signin");
+      await page.waitForTimeout(300);
+      expect(requestHitsFor(app.hits, "/account/signin")).toHaveLength(1);
+    },
+  );
+
+  test(
     "a field save fired from a later document, to the form's own origin, gets through the default window",
     { timeout: 60_000 },
     async () => {
@@ -321,9 +428,7 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
       await page.selectOption("#school", "u");
       await page.waitForTimeout(600);
 
-      expect(requestHitsFor(ats.hits, "/v1/candidate/8112037")).toHaveLength(
-        1,
-      );
+      expect(requestHitsFor(ats.hits, "/v1/candidate/8112037")).toHaveLength(1);
       expect(await getLatestBlockedPrepareOnlyAttempt(page)).toBeNull();
     },
   );
@@ -622,10 +727,6 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
     },
   );
 
-
-
-
-
   test(
     "a site that saves a field the moment it changes is stopped, and nothing reaches it",
     { timeout: 90_000 },
@@ -704,7 +805,6 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
       ).toContain("prepared-");
     },
   );
-
 });
 
 interface GuardedPreparationOutcome {
@@ -929,11 +1029,6 @@ describe("Service worker activation containment real-Chromium fixtures", () => {
     },
   );
 
-
-
-
-
-
   test(
     "an application download is canceled, recorded in the guard ledger, and stops the flow before further actions",
     { timeout: 90_000 },
@@ -1063,7 +1158,6 @@ describe("Service worker activation containment real-Chromium fixtures", () => {
     },
   );
 
-
   test(
     "an already-active same-origin service worker stops the run before any field is touched",
     { timeout: 120_000 },
@@ -1119,5 +1213,4 @@ describe("Service worker activation containment real-Chromium fixtures", () => {
       expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
     },
   );
-
 });

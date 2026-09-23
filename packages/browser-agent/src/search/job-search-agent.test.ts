@@ -218,11 +218,15 @@ describe("job search agent", () => {
       }),
     );
 
-    expect(balanced.system).toContain("adjacent roles the person could plausibly do well");
+    expect(balanced.system).toContain(
+      "adjacent roles the person could plausibly do well",
+    );
     expect(balanced.system).toContain("counts as matching their locations");
     expect(strict.system).toContain("save only strong fits");
     expect(strict.system).not.toContain("find a broad pool of plausible jobs");
-    expect(strict.system).toContain("do not count a remote posting as a location match");
+    expect(strict.system).toContain(
+      "do not count a remote posting as a location match",
+    );
   });
 
   test("uses the person's exact goal, freshness choice, and full profile", () => {
@@ -241,11 +245,17 @@ describe("job search agent", () => {
       }),
     );
 
-    expect(prompts.system).toContain('The person asked for: "around engineering"');
-    expect(prompts.system).toContain("Freshness: prefer postings marked as recent");
+    expect(prompts.system).toContain(
+      'The person asked for: "around engineering"',
+    );
+    expect(prompts.system).toContain(
+      "Freshness: prefer postings marked as recent",
+    );
     expect(prompts.system).toContain("Builds dependable internal tools");
     expect(prompts.system).toContain("Platform Engineer · at Northwind");
-    expect(prompts.system).toContain("BSc · Computer Science · Example University");
+    expect(prompts.system).toContain(
+      "BSc · Computer Science · Example University",
+    );
     expect(prompts.system).toContain("8 years of platform engineering");
   });
 
@@ -292,19 +302,102 @@ describe("job search agent", () => {
     );
   });
 
+  test("repairs a truncated detail title from the page's own heading before saving", async () => {
+    const pages = {
+      current: rawPage({
+        url: "https://jobs.example.test/jobs/4",
+        bodyText:
+          "Paper Orbit Studio Remote, Americas Posted 1d ago Frontend Engineer, Paper Interfaces About the role Build reliable software for the product team.",
+        headings: [
+          { level: 1, text: "Frontend Engineer, Paper Interfaces" },
+          { level: 2, text: "About the role" },
+        ],
+      }),
+    };
+    const detailExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve([
+          {
+            ...posting("Frontend Engineer,", "Paper Orbit Studio", "4"),
+            sourceJobId: "jobs_example_test_jobs_4",
+            canonicalUrl: "https://jobs.example.test/jobs/4",
+            location: "Remote, Americas",
+            description:
+              "About the role Build reliable software for the product team.",
+          },
+        ]),
+      ),
+    };
+
+    const result = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config({
+        startingUrls: ["https://jobs.example.test/jobs/4"],
+      }),
+      llmClient: scripted([
+        { name: "extract_jobs", args: { pageType: "job_detail" } },
+        { name: "finish", args: { reason: "The detail page was read." } },
+      ]),
+      jobExtractor: detailExtractor,
+    });
+
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0]?.title).toBe("Frontend Engineer, Paper Interfaces");
+    expect(result.jobs[0]?.sourceJobId).toBe("4");
+  });
+
+  test("does not repair a title from a lower related-job heading", async () => {
+    const pages = {
+      current: rawPage({
+        url: "https://jobs.example.test/jobs/risk",
+        bodyText:
+          "Data Engineer, Risk. About the role. Related jobs: Data Engineer, Payments.",
+        headings: [
+          { level: 1, text: "Data Engineer, Risk" },
+          { level: 2, text: "Related jobs" },
+          { level: 3, text: "Data Engineer, Payments" },
+        ],
+      }),
+    };
+    const detailExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve([
+          {
+            ...posting("Data Engineer, Risk", "Acme", "risk"),
+            canonicalUrl: "https://jobs.example.test/jobs/risk",
+          },
+        ]),
+      ),
+    };
+
+    const result = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config({ startingUrls: ["https://jobs.example.test/jobs/risk"] }),
+      llmClient: scripted([
+        { name: "extract_jobs", args: { pageType: "job_detail" } },
+        { name: "finish", args: { reason: "The detail page was read." } },
+      ]),
+      jobExtractor: detailExtractor,
+    });
+
+    expect(result.jobs[0]?.title).toBe("Data Engineer, Risk");
+  });
+
   test("reads a task-relevant same-site GET endpoint through the live browser session", async () => {
     const pages = { current: rawPage() };
-    const get = vi.fn((url: string, options: { headers: Record<string, string> }) => {
-      void url;
-      void options;
-      return Promise.resolve({
-        text: () => Promise.resolve('{"jobs":[{"id":"j1"}]}'),
-        status: () => 200,
-        statusText: () => "OK",
-        headers: () => ({ "content-type": "application/json" }),
-        ok: () => true,
-      });
-    });
+    const get = vi.fn(
+      (url: string, options: { headers: Record<string, string> }) => {
+        void url;
+        void options;
+        return Promise.resolve({
+          text: () => Promise.resolve('{"jobs":[{"id":"j1"}]}'),
+          status: () => 200,
+          statusText: () => "OK",
+          headers: () => ({ "content-type": "application/json" }),
+          ok: () => true,
+        });
+      },
+    );
     const page = {
       url: () => pages.current.url ?? "",
       context: () => ({ request: { get } }),
@@ -360,21 +453,40 @@ describe("job search agent", () => {
         if (tools.some((tool) => tool.function.name === "decide")) {
           reviews.push(messages.map((message) => message.content).join("\n"));
           return Promise.resolve({
-            toolCalls: [{
-              id: "review_direct",
-              type: "function" as const,
-              function: {
-                name: "decide",
-                arguments: JSON.stringify({ allowed: true, verdict: "The endpoint is the employer's job data service." }),
+            toolCalls: [
+              {
+                id: "review_direct",
+                type: "function" as const,
+                function: {
+                  name: "decide",
+                  arguments: JSON.stringify({
+                    allowed: true,
+                    verdict: "The endpoint is the employer's job data service.",
+                  }),
+                },
               },
-            }],
+            ],
           });
         }
         agentTurn += 1;
         return scripted(
           agentTurn === 1
-            ? [{ name: "read_page_api", args: { url: "https://api.employer.test/jobs", reason: "The page names this endpoint as its visible-card data source." } }]
-            : [{ name: "finish", args: { reason: "The reviewed API returned the job data." } }],
+            ? [
+                {
+                  name: "read_page_api",
+                  args: {
+                    url: "https://api.employer.test/jobs",
+                    reason:
+                      "The page names this endpoint as its visible-card data source.",
+                  },
+                },
+              ]
+            : [
+                {
+                  name: "finish",
+                  args: { reason: "The reviewed API returned the job data." },
+                },
+              ],
         ).chatWithTools(messages, tools);
       },
     };
@@ -412,21 +524,41 @@ describe("job search agent", () => {
       chatWithTools(messages, tools) {
         if (tools.some((tool) => tool.function.name === "decide")) {
           return Promise.resolve({
-            toolCalls: [{
-              id: "review_redirect",
-              type: "function" as const,
-              function: {
-                name: "decide",
-                arguments: JSON.stringify({ allowed: false, verdict: "This tracker is unrelated to reading the posting." }),
+            toolCalls: [
+              {
+                id: "review_redirect",
+                type: "function" as const,
+                function: {
+                  name: "decide",
+                  arguments: JSON.stringify({
+                    allowed: false,
+                    verdict:
+                      "This tracker is unrelated to reading the posting.",
+                  }),
+                },
               },
-            }],
+            ],
           });
         }
         agentTurn += 1;
         return scripted(
           agentTurn === 1
-            ? [{ name: "read_page_api", args: { url: "/api/jobs", reason: "The results page says visible cards come from this endpoint." } }]
-            : [{ name: "finish", args: { reason: "The unrelated redirect was refused." } }],
+            ? [
+                {
+                  name: "read_page_api",
+                  args: {
+                    url: "/api/jobs",
+                    reason:
+                      "The results page says visible cards come from this endpoint.",
+                  },
+                },
+              ]
+            : [
+                {
+                  name: "finish",
+                  args: { reason: "The unrelated redirect was refused." },
+                },
+              ],
         ).chatWithTools(messages, tools);
       },
     };
@@ -472,6 +604,61 @@ describe("job search agent", () => {
     );
     expect(result.error).toBe(
       "The results load, but every posting opens a sign-in page before the details.",
+    );
+  });
+
+  test("a visible password form corrects a generic manual-step handoff to sign-in", async () => {
+    const pages = {
+      current: rawPage({
+        title: "Sign in to see jobs",
+        bodyText: "Sign in to view job listings.",
+        controls: [
+          {
+            index: 0,
+            tagName: "input",
+            inputType: "password",
+            role: "textbox",
+            id: "password",
+            name: "password",
+            label: "Password",
+            groupLabel: "",
+            placeholder: "Password",
+            autocomplete: "current-password",
+            required: true,
+            invalid: false,
+            validationMessage: "",
+            disabled: false,
+            readOnly: false,
+            visible: true,
+            value: "",
+            checked: false,
+            multiple: false,
+            options: [],
+            selectedOptionLabel: "",
+          },
+        ],
+      }),
+    };
+    const result = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config(),
+      llmClient: scripted([
+        {
+          name: "finish",
+          args: {
+            reason:
+              "The source asks the person to sign in before showing jobs.",
+            needsPerson: true,
+            blockedBy: "manual_step",
+          },
+        },
+      ]),
+      jobExtractor: extractor,
+    });
+
+    expect(result.accessBlockerReason).toBe("auth_required");
+    expect(result.error).toBe(
+      "The source asks the person to sign in before showing jobs.",
     );
   });
 

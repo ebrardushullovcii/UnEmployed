@@ -341,7 +341,7 @@ describe("workspace service high-volume safeguards", () => {
     );
   });
 
-  test("batch sample reviews: pending reviews block discovery and preparation until reviewed", async () => {
+  test("batch sample reviews block application preparation but leave discovery available", async () => {
     const harness = createWorkspaceServiceHarness({
       seed: seedWithCompanies(),
     });
@@ -367,9 +367,9 @@ describe("workspace service high-volume safeguards", () => {
         "job_ready",
       ]),
     ).toHaveLength(1);
-    expect(
-      await workspaceService.evaluateDiscoverySafeguardBlockers(),
-    ).toHaveLength(1);
+    expect(await workspaceService.evaluateDiscoverySafeguardBlockers()).toEqual(
+      [],
+    );
 
     await workspaceService.mutateSafeguards({
       type: "update_batch_sample_review",

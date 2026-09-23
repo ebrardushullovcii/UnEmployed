@@ -9,6 +9,7 @@ import {
   isDailyPreparationCapacityExhausted,
 } from "../../lib/job-finder-daily-capacity";
 import type { ApplicationsViewFilter } from "./applications-filters";
+import type { ApplyJobStateKind } from "../../lib/apply-mode-contracts-stub";
 
 /**
  * Resolves the one route-owned action status Applications presents. Retry,
@@ -39,7 +40,10 @@ export function resolveVisibleRouteActionMessage(input: {
   // just changed and try again" over a run nobody had edited a field for.
   // The run's own counters are the truth here, so they write the sentence.
   const attentionCount = input.latestRunAttentionCount ?? 0;
-  if (actionMessage === FAILURE_SENTENCES.invalid_details && attentionCount > 0) {
+  if (
+    actionMessage === FAILURE_SENTENCES.invalid_details &&
+    attentionCount > 0
+  ) {
     return formatApplicationsNeedYouSentence(attentionCount);
   }
 
@@ -179,7 +183,26 @@ export function applicationRecordNeedsUser(record: ApplicationRecord): boolean {
 export function matchesApplicationsFilter(
   record: ApplicationRecord,
   filter: ApplicationsViewFilter,
+  applyStateKind?: ApplyJobStateKind,
 ) {
+  if (applyStateKind) {
+    switch (filter) {
+      case "needs_action":
+        return applyStateKind === "needs_you";
+      case "in_progress":
+        return applyStateKind === "filling_in";
+      case "submitted":
+        return applyStateKind === "applied";
+      case "manual_only":
+        return (
+          applyStateKind === "could_not_apply" &&
+          record.lastAttemptState === "unsupported"
+        );
+      default:
+        return true;
+    }
+  }
+
   const needsAction = applicationRecordNeedsUser(record);
   const submitted = record.status === "submitted";
   const manualOnly = record.lastAttemptState === "unsupported";

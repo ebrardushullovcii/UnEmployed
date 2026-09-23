@@ -1,5 +1,6 @@
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 
+import { isDiscoveryAlsoFoundResult } from "../screens/discovery/discovery-result-groups";
 import { countActiveSafeguardBlockers } from "./safeguards-blocker-count";
 import { countWorkspaceNeedsYouItems } from "./needs-you-count";
 
@@ -43,11 +44,15 @@ export function countDiscoveryVisibleJobs(
   workspace: JobFinderWorkspaceSnapshot,
   campaignJobIds: ReadonlySet<string> = selectCampaignJobIds(workspace),
 ): number {
-  // Every job the plan kept that the user has not hidden: the same number
-  // Find jobs prints as "N jobs kept in this search plan". Counting only the
-  // recommended band put "0 Results" on Home beside a list of seven rows.
+  // Exactly the rows Find jobs lists by default: every kept job the person
+  // has not hidden, minus the weaker matches that sit behind "Show weaker
+  // matches". The badge used to count those too, so Home and the sidebar
+  // said 10 beside a page that said 9.
   return (workspace.discoveryJobs ?? []).filter(
-    (job) => campaignJobIds.has(job.id) && !job.discoveryFeedback,
+    (job) =>
+      campaignJobIds.has(job.id) &&
+      !job.discoveryFeedback &&
+      !isDiscoveryAlsoFoundResult(job),
   ).length;
 }
 

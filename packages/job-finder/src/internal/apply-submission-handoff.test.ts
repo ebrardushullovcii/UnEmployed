@@ -230,7 +230,7 @@ describe("what the person is told after an attempt", () => {
       result: { status: "outcome_uncertain" } as never,
       siteLabel: "Northwind careers",
     });
-    expect(told.summary).toBe("Sent — check it arrived");
+    expect(told.summary).toBe("Check whether this application was sent");
     expect(told.detail).toContain("will not send it again");
     expect(told.nextActionLabel).toBe("Check the site and confirm");
     expect(told.detail).not.toMatch(/try again|retry/iu);

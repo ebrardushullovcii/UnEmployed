@@ -5,6 +5,7 @@ import type {
   ApplicationCrmMutationInput,
   ApplicationCrmSettings,
   ApplicationAttempt,
+  ApplicationAutomationMode,
   ApplicationRecord,
   ApplyRunDetails,
   ClearApplicationAnswerCommandInput,
@@ -105,7 +106,11 @@ export function ApplicationsScreen(props: {
     input: JobFinderApplyConsentActionInput,
   ) => void;
   onRevokeApplyRunApproval: (input: JobFinderApplyRunActionInput) => void;
-  onStartAutoApplyQueue: (jobIds: string[]) => void;
+  applicationAutomationMode?: ApplicationAutomationMode;
+  onStartAutoApplyQueue: (
+    jobIds: string[],
+    applicationAutomationMode?: ApplicationAutomationMode,
+  ) => void;
   onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
   onOpenCompany?: (companyId: string) => void;
   selectedApplyRunId: string | null;
@@ -242,9 +247,7 @@ export function ApplicationsScreen(props: {
   // running preparation.
   const liveRunLinesByJobId = useMemo(() => {
     const runningRunIds = new Set(
-      applyRuns
-        .filter((run) => run.state === "running")
-        .map((run) => run.id),
+      applyRuns.filter((run) => run.state === "running").map((run) => run.id),
     );
     const lines = new Map<string, string>();
     for (const result of applyJobResults) {
@@ -253,12 +256,8 @@ export function ApplicationsScreen(props: {
         lines.set(result.jobId, "Waiting its turn in this run.");
         continue;
       }
-      if (result.state !== "filling" && result.state !== "submitting")
-        continue;
-      lines.set(
-        result.jobId,
-        result.summary?.trim() || "Filling in the form.",
-      );
+      if (result.state !== "filling" && result.state !== "submitting") continue;
+      lines.set(result.jobId, result.summary?.trim() || "Filling in the form.");
     }
     return lines;
   }, [applyJobResults, applyRuns]);
@@ -266,7 +265,10 @@ export function ApplicationsScreen(props: {
   // The newest run result per record, so each row reads one of the five
   // apply states from what the run recorded.
   const latestApplyResultByRecordId = useMemo(() => {
-    const latest = new Map<string, JobFinderWorkspaceSnapshot["applyJobResults"][number]>();
+    const latest = new Map<
+      string,
+      JobFinderWorkspaceSnapshot["applyJobResults"][number]
+    >();
     for (const result of applyJobResults) {
       if (!result.applicationRecordId) continue;
       const current = latest.get(result.applicationRecordId);
@@ -291,8 +293,18 @@ export function ApplicationsScreen(props: {
       const result = latestApplyResultByRecordId.get(record.id);
       if (!result) continue;
       const presentation = resolveApplyStatePresentation({
-        mode: applyMode,
+        mode:
+          record.automationMode === "autonomous_submit"
+            ? "apply_for_me"
+            : "fill_only",
         result,
+        recordFailure:
+          record.lastAttemptState === "failed"
+            ? {
+                lastActionLabel: record.lastActionLabel,
+                lastUpdatedAt: record.lastUpdatedAt,
+              }
+            : null,
       });
       if (
         presentation.kind === "could_not_apply" &&
@@ -303,18 +315,42 @@ export function ApplicationsScreen(props: {
       }
     }
     return jobIds.slice(0, APPLICATION_PREPARATION_BATCH_LIMIT);
-  }, [applicationRecords, applyMode, applyRuns, latestApplyResultByRecordId]);
+  }, [applicationRecords, applyRuns, latestApplyResultByRecordId]);
   const filterCounts = useMemo(
     () =>
       Object.fromEntries(
         APPLICATION_FILTERS.map((filter) => [
           filter,
           applicationRecords.filter((record) =>
-            matchesApplicationsFilter(record, filter),
+            matchesApplicationsFilter(
+              record,
+              filter,
+              latestApplyResultByRecordId.has(record.id)
+                ? resolveApplyStatePresentation({
+                    mode:
+                      record.automationMode === "autonomous_submit"
+                        ? "apply_for_me"
+                        : "fill_only",
+                    result: latestApplyResultByRecordId.get(record.id) ?? null,
+                    pendingQuestionCount: Math.max(
+                      0,
+                      record.questionSummary.total -
+                        record.questionSummary.answered,
+                    ),
+                    recordFailure:
+                      record.lastAttemptState === "failed"
+                        ? {
+                            lastActionLabel: record.lastActionLabel,
+                            lastUpdatedAt: record.lastUpdatedAt,
+                          }
+                        : null,
+                  }).kind
+                : undefined,
+            ),
           ).length,
         ]),
       ) as Record<ApplicationsViewFilter, number>,
-    [applicationRecords],
+    [applicationRecords, latestApplyResultByRecordId],
   );
   const latestFinishedAutomaticRun = useMemo(
     () =>
@@ -349,12 +385,18 @@ export function ApplicationsScreen(props: {
       latestFinishedAutomaticRun
         ? countApplyRunItemsNeedingYou({
             applicationRecords,
+            applyJobResults,
             requests: userActionRequests ?? [],
             runId: latestFinishedAutomaticRun.id,
             runJobIds: new Set(latestFinishedAutomaticRun.jobIds),
           })
         : 0,
-    [applicationRecords, latestFinishedAutomaticRun, userActionRequests],
+    [
+      applicationRecords,
+      applyJobResults,
+      latestFinishedAutomaticRun,
+      userActionRequests,
+    ],
   );
   const latestRunSkippedCount = latestFinishedAutomaticResults.filter(
     (result) => result.state === "skipped",
@@ -362,9 +404,33 @@ export function ApplicationsScreen(props: {
   const filteredApplicationRecords = useMemo(
     () =>
       applicationRecords.filter((record) =>
-        matchesApplicationsFilter(record, activeFilter),
+        matchesApplicationsFilter(
+          record,
+          activeFilter,
+          latestApplyResultByRecordId.has(record.id)
+            ? resolveApplyStatePresentation({
+                mode:
+                  record.automationMode === "autonomous_submit"
+                    ? "apply_for_me"
+                    : "fill_only",
+                result: latestApplyResultByRecordId.get(record.id) ?? null,
+                pendingQuestionCount: Math.max(
+                  0,
+                  record.questionSummary.total -
+                    record.questionSummary.answered,
+                ),
+                recordFailure:
+                  record.lastAttemptState === "failed"
+                    ? {
+                        lastActionLabel: record.lastActionLabel,
+                        lastUpdatedAt: record.lastUpdatedAt,
+                      }
+                    : null,
+              }).kind
+            : undefined,
+        ),
       ),
-    [activeFilter, applicationRecords],
+    [activeFilter, applicationRecords, latestApplyResultByRecordId],
   );
   const isSelectedRecordHiddenByFilter =
     selectedRecord !== null &&
@@ -742,8 +808,8 @@ export function ApplicationsScreen(props: {
               data-testid="applications-bulk-retry"
             >
               <p className="min-w-0 text-(length:--text-small) leading-6 text-foreground">
-                {retryableJobIds.length} applications could not be applied
-                and can be tried again.
+                {retryableJobIds.length} applications could not be applied and
+                can be tried again.
               </p>
               <Button
                 disabled={
@@ -751,7 +817,12 @@ export function ApplicationsScreen(props: {
                   (dailyPreparationCapacity !== null &&
                     dailyPreparationCapacity.remaining < 1)
                 }
-                onClick={() => onStartAutoApplyQueue([...retryableJobIds])}
+                onClick={() =>
+                  onStartAutoApplyQueue(
+                    [...retryableJobIds],
+                    props.applicationAutomationMode ?? "prepare_only",
+                  )
+                }
                 size="sm"
                 type="button"
                 variant="secondary"
@@ -956,7 +1027,12 @@ export function ApplicationsScreen(props: {
               ? { onPrepareApplicationAgain }
               : {})}
             onRevokeApplyRunApproval={onRevokeApplyRunApproval}
-            onStartAutoApplyQueue={onStartAutoApplyQueue}
+            onStartAutoApplyQueue={(jobIds) =>
+              onStartAutoApplyQueue(
+                jobIds,
+                props.applicationAutomationMode ?? "prepare_only",
+              )
+            }
             applyMode={applyMode}
             onSelectApplyRun={handleSelectApplyRun}
             onStartApplyCopilot={onStartApplyCopilot}

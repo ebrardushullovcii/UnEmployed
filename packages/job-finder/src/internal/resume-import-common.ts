@@ -137,7 +137,7 @@ function areEquivalentEducationStubs(left: unknown, right: unknown): boolean {
     (leftField === rightField ||
       leftField.includes(rightField) ||
       rightField.includes(leftField));
-  return degreeMatches && fieldMatches;
+  return degreeMatches && (!leftField || !rightField || fieldMatches);
 }
 
 export function toStringArray(value: unknown): string[] {

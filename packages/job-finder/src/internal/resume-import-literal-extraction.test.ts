@@ -52,3 +52,90 @@ describe("literal resume phone extraction", () => {
     ).toBe("5555 0198 ext. 42");
   });
 });
+
+describe("literal resume header work-mode extraction", () => {
+  test("keeps an explicit remote preference when the model omits it", () => {
+    const candidates = extractLiteralCandidates(
+      "run_test",
+      bundle(
+        "Morgan Lee\nRemote, Berlin, Germany | morgan@example.test\nProduct Engineer\nExperience\nRemote collaboration across three countries",
+      ),
+      createdAt,
+    );
+
+    expect(
+      candidates.find(
+        (candidate) =>
+          candidate.target.section === "search_preferences" &&
+          candidate.target.key === "workModes",
+      ),
+    ).toMatchObject({
+      value: ["remote"],
+      resolution: "auto_applied",
+      notes: ["explicit_header_work_mode"],
+    });
+  });
+
+  test("does not treat remote work in an experience description as a preference", () => {
+    const candidates = extractLiteralCandidates(
+      "run_test",
+      bundle(
+        "Morgan Lee\nBerlin, Germany | morgan@example.test\nProduct Engineer\nExperience\nLed a remote team across three countries",
+      ),
+      createdAt,
+    );
+
+    expect(
+      candidates.find(
+        (candidate) => candidate.target.key === "workModes",
+      ),
+    ).toBeUndefined();
+  });
+
+  test.each([
+    "Morgan Lee\nNot open to remote work\nProduct Engineer",
+    "Morgan Lee\nFlexible Engineer\nBerlin, Germany",
+  ])("does not guess a work preference from %s", (fullText) => {
+    const candidates = extractLiteralCandidates(
+      "run_test",
+      bundle(fullText),
+      createdAt,
+    );
+
+    expect(
+      candidates.find(
+        (candidate) => candidate.target.key === "workModes",
+      ),
+    ).toBeUndefined();
+  });
+
+  test("stops at a section heading inside a multiline block", () => {
+    const candidates = extractLiteralCandidates(
+      "run_test",
+      bundle(
+        "Morgan Lee\nBerlin, Germany\nProduct Engineer\nExperience\nRemote collaboration across three countries",
+      ),
+      createdAt,
+    );
+
+    expect(
+      candidates.find(
+        (candidate) => candidate.target.key === "workModes",
+      ),
+    ).toBeUndefined();
+  });
+
+  test("reads an explicit remote preference after the header location", () => {
+    const candidates = extractLiteralCandidates(
+      "run_test",
+      bundle("Morgan Lee\nBerlin, Germany | Remote\nProduct Engineer"),
+      createdAt,
+    );
+
+    expect(
+      candidates.find(
+        (candidate) => candidate.target.key === "workModes",
+      )?.value,
+    ).toEqual(["remote"]);
+  });
+});

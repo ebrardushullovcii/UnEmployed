@@ -574,11 +574,25 @@ function applyDuration(run: ApplyRunSummary): number | null {
 function buildApplyTask(
   input: BuildJobFinderTaskCenterModelInput,
 ): JobFinderTaskCenterItem | null {
+  const latestResultByRecordId = new Map<
+    string,
+    JobFinderWorkspaceSnapshot["applyJobResults"][number]
+  >();
+  for (const result of input.workspace.applyJobResults ?? []) {
+    if (!result.applicationRecordId) continue;
+    const previous = latestResultByRecordId.get(result.applicationRecordId);
+    if (!previous || previous.updatedAt < result.updatedAt) {
+      latestResultByRecordId.set(result.applicationRecordId, result);
+    }
+  }
   const uncertainResult = newestBy(
     (input.workspace.applyJobResults ?? []).filter(
       (result) =>
         result.privacyReceipt?.submissionOutcome?.outcome ===
-        "outcome_uncertain",
+          "outcome_uncertain" &&
+        (!result.applicationRecordId ||
+          latestResultByRecordId.get(result.applicationRecordId)?.id ===
+            result.id),
     ),
     (result) => result.updatedAt,
   );
@@ -605,11 +619,32 @@ function buildApplyTask(
     return null;
   }
 
-  const status = applyStatus(run);
+  const resultsForRun = (input.workspace.applyJobResults ?? []).filter(
+    (result) => result.runId === run.id,
+  );
+  const parked =
+    input.workspace.activityControl?.paused &&
+    input.workspace.activityControl.pauseBehavior === "finish_current" &&
+    run.state === "running" &&
+    resultsForRun.some((result) => result.state === "planned") &&
+    resultsForRun.every(
+      (result) =>
+        [
+          "planned",
+          "awaiting_review",
+          "submitted",
+          "blocked",
+          "failed",
+          "skipped",
+        ].includes(result.state) &&
+        (result.state !== "planned" ||
+          (result.applicationPreparationStartedAt === null &&
+            result.applicationPreparationStartedLocalDate === null)),
+    );
+  const status = parked ? "paused" : applyStatus(run);
   // `pendingJobs` is the number the service has not attempted. Jobs waiting on
   // the person are finished for this batch and belong in Needs you, so they
   // count here instead of leaving a completed preparation run at 0 of N.
-  const finishedJobs = Math.max(0, run.totalJobs - run.pendingJobs);
   const canCancel = status === "active" || status === "paused";
   // Two pauses that look the same on this card behave completely differently.
   // A consent pause holds a real decision the person can settle in Needs you,
@@ -618,13 +653,48 @@ function buildApplyTask(
   // "Prepare remaining jobs" in Applications. Offering "Continue application"
   // for both is why the button could be clicked three times over several
   // minutes and change nothing.
-  const awaitingDecision = run.state === "paused_for_consent";
-  const stoppedBySafeguard = run.state === "paused_for_user_review";
+  const hasOpenApplicationHandoff = (
+    input.workspace.userActionRequests ?? []
+  ).some(
+    (request) =>
+      request.scope.type === "application" &&
+      request.scope.runId === run.id &&
+      !["resolved", "cancelled", "skipped", "expired"].includes(request.state),
+  );
+  const awaitingDecision =
+    run.state === "paused_for_consent" ||
+    (run.state === "paused_for_user_review" && hasOpenApplicationHandoff);
   const needsReview = status === "paused";
   const canRestage = status === "cancelled" || status === "failed";
-  const resultsForRun = (input.workspace.applyJobResults ?? []).filter(
-    (result) => result.runId === run.id,
-  );
+  const readyForFinalReview =
+    run.state === "paused_for_user_review" &&
+    !hasOpenApplicationHandoff &&
+    run.jobIds.length > 0 &&
+    !input.workspace.intelligence?.safeguards.preparedBatchSampleReviews.some(
+      (review) => review.batchId === run.id && !review.reviewCompleted,
+    ) &&
+    run.jobIds.every((jobId) => {
+      const result = newestBy(
+        resultsForRun.filter((candidate) => candidate.jobId === jobId),
+        (candidate) => candidate.updatedAt,
+      );
+      return (
+        result?.state === "submitted" ||
+        (result?.state === "awaiting_review" &&
+          result.blockerReason === null &&
+          result.latestQuestionCount === 0 &&
+          result.pendingConsentRequestCount === 0 &&
+          result.reviewCard != null &&
+          result.reviewCard.waitingOnYou.length === 0)
+      );
+    });
+  const stoppedBySafeguard =
+    run.state === "paused_for_user_review" &&
+    !hasOpenApplicationHandoff &&
+    !readyForFinalReview;
+  const finishedJobs = readyForFinalReview
+    ? run.totalJobs
+    : Math.max(0, run.totalJobs - run.pendingJobs);
   // Same predicate Applications uses to build its "Prepare remaining jobs"
   // target list, so the two surfaces cannot disagree about what is left.
   const applyRecoveryJobIds = run.jobIds.filter((jobId) =>
@@ -640,14 +710,6 @@ function buildApplyTask(
     const record = recordsById.get(result.applicationRecordId);
     return record ? [record] : [];
   });
-  const hasOpenApplicationHandoff = (input.workspace.userActionRequests ?? []).some(
-    (request) =>
-      request.scope.type === "application" &&
-      request.scope.runId === run.id &&
-      !["resolved", "cancelled", "skipped", "expired"].includes(
-        request.state,
-      ),
-  );
   // Cancelling the last handoff moves its application record to manual-only.
   // The older paused run/result remain as immutable history, so they must not
   // keep a derived Tasks chip alive after the record no longer needs a person.
@@ -655,7 +717,9 @@ function buildApplyTask(
     stoppedBySafeguard &&
     applyRecoveryJobIds.length === 0 &&
     resultRecords.length > 0 &&
-    resultRecords.every((record) => record.lastAttemptState === "unsupported") &&
+    resultRecords.every(
+      (record) => record.lastAttemptState === "unsupported",
+    ) &&
     !hasOpenApplicationHandoff
   ) {
     return null;
@@ -669,6 +733,7 @@ function buildApplyTask(
   // ready for it.
   const canPrepareRemaining =
     applyRecoveryJobIds.length > 0 &&
+    !parked &&
     !awaitingDecision &&
     status !== "active" &&
     status !== "stopping";
@@ -689,25 +754,38 @@ function buildApplyTask(
     kind: "apply",
     title: "Applications",
     status,
-    stageLabel:
-      run.state === "draft"
+    stageLabel: parked
+      ? "Paused before the next application"
+      : run.state === "draft"
         ? "Ready to start"
         : run.state === "awaiting_submit_approval"
           ? "Waiting for your approval"
           : run.state === "running"
-            ? "Opening application"
+            ? "Working through application"
             : run.state === "paused_for_user_review"
-              ? "Paused by a safety limit"
+              ? hasOpenApplicationHandoff
+                ? "Waiting on you"
+                : readyForFinalReview
+                  ? "Ready for final review"
+                  : "Paused by a safety limit"
               : run.state === "paused_for_consent"
                 ? "Waiting for your consent"
                 : run.state === "completed"
-                  ? "Ready for final review"
+                  ? run.failedJobs > 0 || run.blockedJobs > 0
+                    ? "Some applications need attention"
+                    : run.totalJobs > 0 && run.submittedJobs === run.totalJobs
+                      ? "Applied"
+                      : "Ready for final review"
                   : run.state === "cancelled"
                     ? "Application stopped"
                     : "Application needs attention",
     sourceLabel: applySourceLabel(
       input.workspace,
-      run.currentJobId ?? run.jobIds[0] ?? null,
+      (parked
+        ? resultsForRun.find((result) => result.state === "planned")?.jobId
+        : run.currentJobId) ??
+        run.jobIds[0] ??
+        null,
     ),
     countLabel: [
       `${countApplicationLedgerEntries(input.workspace.applicationRecords)} applications`,

@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { BrowserContext, Frame, Page, Request, Route } from "playwright";
+import type {
+  BrowserContext,
+  Frame,
+  Locator,
+  Page,
+  Request,
+  Route,
+} from "playwright";
 import {
   ApplyExecutionResultSchema,
   type ApplyExecutionModelUse,
@@ -98,6 +105,14 @@ const prepareOnlyNetworkGuardStates = new WeakMap<
     intermediateMutationsAuthorized: boolean;
     intermediateMutationAllowedOrigins: string[];
     intermediateMutationWindow: IntermediateMutationWindowSnapshot | null;
+    authorizedFormActionWindow: {
+      method: string;
+      url: string;
+      expiresAtMs: number;
+      remainingRequests: number;
+      completion: Promise<void>;
+      resolveCompletion: () => void;
+    } | null;
     /** Epoch ms until which the one authorized send may go out. */
     finalActionAllowedUntilMs: number;
     initScriptInstalled: boolean;
@@ -106,6 +121,113 @@ const prepareOnlyNetworkGuardStates = new WeakMap<
     webSocketListenerInstalled: boolean;
   }
 >();
+
+interface AuthorizedFormActionWindow {
+  method: string;
+  url: string;
+  token: string;
+  expiresAtMs: number;
+}
+
+export async function openPrepareOnlyAuthorizedFormActionWindow(
+  page: Page,
+  locator: Locator,
+  durationMs: number | null = 20_000,
+): Promise<void> {
+  const networkGuardState = prepareOnlyNetworkGuardStates.get(page);
+  if (!networkGuardState) {
+    throw new Error("Prepare-only network guard is not installed.");
+  }
+  const expiresAtMs =
+    durationMs === null ? Number.MAX_SAFE_INTEGER : Date.now() + durationMs;
+  const token = `authorized-form-action-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+  const action = await locator.evaluate(
+    (element, input) => {
+      const actionElement = element as HTMLButtonElement | HTMLInputElement;
+      const form = actionElement.form;
+      if (!form || actionElement.disabled) return null;
+      const actionUrl = new URL(
+        (actionElement.hasAttribute("formaction")
+          ? actionElement.formAction
+          : form.action) || window.location.href,
+        window.location.href,
+      ).toString();
+      const method = (
+        (actionElement.hasAttribute("formmethod")
+          ? actionElement.formMethod
+          : form.method) || "GET"
+      ).toUpperCase();
+      if (method !== "POST") return null;
+      actionElement.dataset.unemployedAuthorizedFormAction = input.token;
+      const state = (window as unknown as Record<string, unknown>)[
+        "__unemployedPrepareOnlyMutationGuardV1"
+      ] as
+        | {
+            authorizedFormActionWindow?: AuthorizedFormActionWindow | null;
+          }
+        | undefined;
+      if (state) {
+        state.authorizedFormActionWindow = {
+          method,
+          url: actionUrl,
+          token: input.token,
+          expiresAtMs: input.expiresAtMs,
+        };
+      }
+      return { method, url: actionUrl };
+    },
+    { token, expiresAtMs },
+  );
+  if (!action) {
+    throw new Error("The authorized control is not attached to a form.");
+  }
+  let resolveCompletion: () => void = () => undefined;
+  const completion = new Promise<void>((resolve) => {
+    resolveCompletion = resolve;
+  });
+  networkGuardState.authorizedFormActionWindow = {
+    method: action.method,
+    url: action.url,
+    expiresAtMs,
+    remainingRequests: 1,
+    completion,
+    resolveCompletion,
+  };
+}
+
+export async function waitForPrepareOnlyAuthorizedFormAction(
+  page: Page,
+  timeoutMs = 3_000,
+): Promise<void> {
+  const completion =
+    prepareOnlyNetworkGuardStates.get(page)?.authorizedFormActionWindow
+      ?.completion;
+  if (!completion) return;
+  await Promise.race([
+    completion,
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+}
+
+export async function closePrepareOnlyAuthorizedFormActionWindow(
+  page: Page,
+): Promise<void> {
+  const networkGuardState = prepareOnlyNetworkGuardStates.get(page);
+  if (!networkGuardState) return;
+  networkGuardState.authorizedFormActionWindow = null;
+  await page
+    .evaluate(() => {
+      const state = (window as unknown as Record<string, unknown>)[
+        "__unemployedPrepareOnlyMutationGuardV1"
+      ] as
+        | { authorizedFormActionWindow?: AuthorizedFormActionWindow | null }
+        | undefined;
+      if (state) state.authorizedFormActionWindow = null;
+    })
+    .catch(() => undefined);
+}
 
 /**
  * Lets the one authorized send through the prepare-only guard.
@@ -163,6 +285,7 @@ export function installPrepareOnlyMutationGuardInPage(
     preparedValues: string[];
     intermediateMutationsAuthorized: boolean;
     intermediateMutationWindow: IntermediateMutationWindowSnapshot | null;
+    authorizedFormActionWindow: AuthorizedFormActionWindow | null;
     submitListenerInstalled: boolean;
     /**
      * True only while Job Finder presses the one authorized send control.
@@ -194,6 +317,7 @@ export function installPrepareOnlyMutationGuardInPage(
     preparedValues: [],
     intermediateMutationsAuthorized,
     intermediateMutationWindow: null,
+    authorizedFormActionWindow: null,
     submitListenerInstalled: false,
     finalActionAllowed: false,
     formSubmitWrapper: null,
@@ -211,6 +335,7 @@ export function installPrepareOnlyMutationGuardInPage(
   state.intermediateMutationsAuthorized = intermediateMutationsAuthorized;
   state.preparedValues ??= [];
   state.finalActionAllowed ??= false;
+  state.authorizedFormActionWindow ??= null;
   pageWindow["__unemployedPrepareOnlyMutationGuardV1"] = state;
 
   const normalizeMethod = (value: string | null | undefined): string =>
@@ -264,10 +389,7 @@ export function installPrepareOnlyMutationGuardInPage(
           ? element.value
           : (element.textContent ?? "");
       const trimmed = value.trim();
-      if (
-        trimmed.length >= 3 &&
-        state.preparedValues.includes(trimmed)
-      ) {
+      if (trimmed.length >= 3 && state.preparedValues.includes(trimmed)) {
         values.push(trimmed);
       }
     }
@@ -392,9 +514,7 @@ export function installPrepareOnlyMutationGuardInPage(
     const pathname = parsed.pathname.toLowerCase();
     const telemetrySubdomain =
       /^(?:analytics|beacon|metrics|rum|sa|telemetry)\./u.test(hostname);
-    const trackingPixel = /(?:^|\/)(?:pixel|simple)(?:\.gif)?$/u.test(
-      pathname,
-    );
+    const trackingPixel = /(?:^|\/)(?:pixel|simple)(?:\.gif)?$/u.test(pathname);
     const pageViewSignal =
       parsed.searchParams.has("page_id") ||
       parsed.searchParams.get("type")?.toLowerCase() === "pageview";
@@ -424,9 +544,7 @@ export function installPrepareOnlyMutationGuardInPage(
       pathname === "/cdn-cgi/rum" ||
       pathname === "/cdn-cgi/beacon" ||
       (telemetrySubdomain && (trackingPixel || pageViewSignal)) ||
-      /(?:^|\/)(?:analytics|beacon|ping|rum)(?:\/|$)/u.test(
-        pathname,
-      )
+      /(?:^|\/)(?:analytics|beacon|ping|rum)(?:\/|$)/u.test(pathname)
     );
   };
   const isPageOwnedRead = (
@@ -510,6 +628,30 @@ export function installPrepareOnlyMutationGuardInPage(
     return true;
   };
 
+  const authorizedSubmitter = (
+    form: HTMLFormElement,
+    submitter: HTMLElement | null,
+  ): boolean => {
+    const authorized = state.authorizedFormActionWindow;
+    return Boolean(
+      authorized &&
+      submitter &&
+      (submitter as HTMLButtonElement | HTMLInputElement).form === form &&
+      submitter.dataset.unemployedAuthorizedFormAction === authorized.token &&
+      Date.now() <= authorized.expiresAtMs &&
+      normalizeMethod(
+        submitter.hasAttribute("formmethod")
+          ? (submitter as HTMLButtonElement | HTMLInputElement).formMethod
+          : form.method,
+      ) === authorized.method &&
+      normalizeUrl(
+        (submitter.hasAttribute("formaction")
+          ? (submitter as HTMLButtonElement | HTMLInputElement).formAction
+          : form.action) || window.location.href,
+      ) === authorized.url,
+    );
+  };
+
   if (!state.submitListenerInstalled) {
     document.addEventListener(
       "submit",
@@ -519,6 +661,14 @@ export function installPrepareOnlyMutationGuardInPage(
         }
         const form =
           event.target instanceof HTMLFormElement ? event.target : null;
+        const submitter =
+          event instanceof SubmitEvent && event.submitter instanceof HTMLElement
+            ? event.submitter
+            : null;
+        if (form && authorizedSubmitter(form, submitter)) {
+          state.authorizedFormActionWindow = null;
+          return;
+        }
         if (formCarriesPreparedValue(form) === true) {
           recordBlockedAttempt(
             "dom_submit",
@@ -554,8 +704,23 @@ export function installPrepareOnlyMutationGuardInPage(
   if (
     HTMLFormElement.prototype.requestSubmit !== state.formRequestSubmitWrapper
   ) {
+    // Called below with the exact form as `this`.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const originalRequestSubmit = HTMLFormElement.prototype.requestSubmit;
     const guardedRequestSubmit: typeof HTMLFormElement.prototype.requestSubmit =
-      function guardedRequestSubmit(this: HTMLFormElement): void {
+      function guardedRequestSubmit(
+        this: HTMLFormElement,
+        submitter?: HTMLElement,
+      ): void {
+        const selected =
+          submitter ??
+          this.querySelector<HTMLElement>(
+            "[data-unemployed-authorized-form-action]",
+          );
+        if (authorizedSubmitter(this, selected)) {
+          originalRequestSubmit.call(this, selected);
+          return;
+        }
         if (formCarriesPreparedValue(this) === true) {
           recordBlockedAttempt(
             "form_request_submit",
@@ -1121,12 +1286,6 @@ export function collectApplicationOriginServiceWorkerStateInPage(): Promise<Page
     .catch(() => emptyPayload());
 }
 
-
-
-
-
-
-
 async function ensureFramePrepareOnlyMutationGuard(
   frame: Frame,
   intermediateMutationsAuthorized: boolean,
@@ -1161,6 +1320,7 @@ export async function ensurePrepareOnlyMutationGuard(
         ...new Set(intermediateMutationAllowedOrigins),
       ],
       intermediateMutationWindow: null,
+      authorizedFormActionWindow: null,
       finalActionAllowedUntilMs: 0,
       initScriptInstalled: false,
       serviceWorkerInitScriptInstalled: false,
@@ -1168,12 +1328,33 @@ export async function ensurePrepareOnlyMutationGuard(
       webSocketListenerInstalled: false,
     };
     prepareOnlyNetworkGuardStates.set(page, networkGuardState);
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) {
+        networkGuardState!.authorizedFormActionWindow = null;
+      }
+    });
     await page.route("**/*", async (route) => {
       const request = route.request();
       const method = request.method().trim().toUpperCase();
       const resourceType = request.resourceType();
       if (Date.now() < networkGuardState!.finalActionAllowedUntilMs) {
         await route.continue();
+        return;
+      }
+      const authorizedFormAction =
+        networkGuardState!.authorizedFormActionWindow;
+      if (
+        authorizedFormAction &&
+        Date.now() <= authorizedFormAction.expiresAtMs &&
+        authorizedFormAction.remainingRequests > 0 &&
+        request.isNavigationRequest() &&
+        resourceType === "document" &&
+        method === authorizedFormAction.method &&
+        request.url() === authorizedFormAction.url
+      ) {
+        authorizedFormAction.remainingRequests -= 1;
+        await route.continue();
+        authorizedFormAction.resolveCompletion();
         return;
       }
 
@@ -1414,7 +1595,6 @@ export async function registerPrepareOnlyPreparedValue(
   }
 }
 
-
 export async function getLatestBlockedPrepareOnlyAttempt(
   page: Page,
 ): Promise<PrepareOnlyBlockedAttempt | null> {
@@ -1463,6 +1643,7 @@ export function recordPrepareOnlyRunInterruption(
       intermediateMutationsAuthorized: false,
       intermediateMutationAllowedOrigins: [],
       intermediateMutationWindow: null,
+      authorizedFormActionWindow: null,
       finalActionAllowedUntilMs: 0,
       initScriptInstalled: false,
       serviceWorkerInitScriptInstalled: false,
@@ -1976,7 +2157,6 @@ export function createApplicationRunServiceWorkerSentinel(input: {
   return sentinel;
 }
 
-
 export function normalizeFileSystemPath(value: string): string {
   const normalized = resolve(value.trim()).replace(/\\/gu, "/");
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
@@ -2008,25 +2188,6 @@ export async function loadVerifiedResumeBytes(
   return bytes;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /** A short, stable, readable id segment made from a label. */
 function toStableIdSegment(value: string): string {
   return (
@@ -2041,7 +2202,6 @@ function toStableIdSegment(value: string): string {
       .slice(0, 48) || "field"
   );
 }
-
 
 function createPreparationConsentDecisions(input: {
   jobId: string;
@@ -2177,4 +2337,3 @@ export function buildPreparationResult(input: {
       : undefined,
   });
 }
-

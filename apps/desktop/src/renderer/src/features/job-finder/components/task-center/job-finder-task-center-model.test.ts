@@ -107,6 +107,50 @@ function createTailoredDraftPreparation(
 }
 
 describe("buildJobFinderTaskCenterModel", () => {
+  test("a queue parked between jobs stays visible without a running badge", () => {
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        activityControl: {
+          paused: true,
+          pausedAt: "2026-07-31T10:01:00.000Z",
+          reason: "Paused by you.",
+          pauseBehavior: "finish_current",
+        },
+        applyRuns: [
+          createApplyRun({
+            mode: "queue_auto",
+            jobIds: ["job_1", "job_2"],
+            totalJobs: 2,
+            pendingJobs: 1,
+          }),
+        ],
+        applyJobResults: [
+          {
+            id: "result_1",
+            runId: "apply_current",
+            jobId: "job_1",
+            state: "awaiting_review",
+          },
+          {
+            id: "result_2",
+            runId: "apply_current",
+            jobId: "job_2",
+            state: "planned",
+            applicationPreparationStartedAt: null,
+            applicationPreparationStartedLocalDate: null,
+          },
+        ] as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    const task = findTask(model, "apply");
+    expect(task.status).toBe("paused");
+    expect(task.stageLabel).toBe("Paused before the next application");
+    expect(task.canCancel).toBe(true);
+    expect(model.activeCount).toBe(0);
+  });
+
   test("does not claim an application-only safeguard also pauses discovery", () => {
     const model = buildJobFinderTaskCenterModel({
       workspace: createWorkspace({
@@ -880,10 +924,123 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(model.pausedCount).toBe(0);
   });
 
+  test("shows completed preparation after sign-in instead of a safety pause", () => {
+    const run = createApplyRun({
+      state: "paused_for_user_review",
+      totalJobs: 1,
+      pendingJobs: 1,
+    });
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({
+          applyRuns: [run],
+          applyJobResults: [
+            {
+              id: "result_ready_after_login",
+              runId: run.id,
+              jobId: run.jobIds[0] ?? "job_1",
+              applicationRecordId: "application_1",
+              queuePosition: 0,
+              state: "awaiting_review",
+              summary: "Ready for review",
+              detail: "The form is filled in; nothing was sent.",
+              startedAt: "2026-07-31T10:00:00.000Z",
+              completedAt: null,
+              applicationPreparationStartedAt: "2026-07-31T10:00:00.000Z",
+              applicationPreparationStartedLocalDate: "2026-07-31",
+              blockerReason: null,
+              blockerSummary: null,
+              listingSignalEvidence: null,
+              visualObservationSets: [],
+              visualCheckpoints: [],
+              latestQuestionCount: 0,
+              latestAnswerCount: 0,
+              pendingConsentRequestCount: 0,
+              artifactCount: 0,
+              latestCheckpointId: null,
+              privacyReceipt: null,
+              reviewCard: {
+                siteLabel: "Replica board",
+                pageUrl: "http://127.0.0.1:47950/employer-a/apply/1",
+                answers: [],
+                attachments: [],
+                letter: null,
+                waitingOnYou: [],
+                preparedAt: "2026-07-31T10:00:06.000Z",
+              },
+              updatedAt: "2026-07-31T10:00:06.000Z",
+            },
+          ] as JobFinderWorkspaceSnapshot["applyJobResults"],
+        }),
+        isDiscoveryPending: false,
+        isResumeImportPending: false,
+      }),
+      "apply",
+    );
+    expect(task.stageLabel).toBe("Ready for final review");
+    expect(task.countLabel).toContain("1 of 1 application tasks finished");
+    expect(task.countLabel).not.toContain("will not carry on");
+    expect(task.resumeActionLabel).toBe("Open Applications");
+    expect(task.reviewRoute).toBeUndefined();
+  });
+
+  test("routes a paused sign-in handoff to its answer instead of calling it a safety limit", () => {
+    const run = createApplyRun({
+      state: "paused_for_user_review",
+      pendingJobs: 0,
+    });
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({
+          applyRuns: [run],
+          userActionRequests: [
+            {
+              id: "sign_in_request",
+              state: "page_opened",
+              scope: { type: "application", runId: run.id },
+            },
+          ] as JobFinderWorkspaceSnapshot["userActionRequests"],
+        }),
+        isDiscoveryPending: false,
+        isResumeImportPending: false,
+      }),
+      "apply",
+    );
+    expect(task.stageLabel).toBe("Waiting on you");
+    expect(task.countLabel).not.toContain("will not carry on");
+    expect(task.resumeRoute).toBe("/job-finder/actions");
+    expect(task.resumeActionLabel).toBe("Resolve what needs you");
+    expect(task.applyRecoveryJobIds).toBeUndefined();
+  });
+
+  test.each([
+    [{ failedJobs: 1 }, "Some applications need attention"],
+    [{ blockedJobs: 1 }, "Some applications need attention"],
+    [{ submittedJobs: 1 }, "Applied"],
+  ] as const)(
+    "reports the outcome of completed application tasks %j",
+    (counts, stageLabel) => {
+      const task = findTask(
+        buildJobFinderTaskCenterModel({
+          workspace: createWorkspace({
+            applyRuns: [
+              createApplyRun({ state: "completed", pendingJobs: 0, ...counts }),
+            ],
+          }),
+          isDiscoveryPending: false,
+          isResumeImportPending: false,
+        }),
+        "apply",
+      );
+      expect(task.stageLabel).toBe(stageLabel);
+      expect(task.stageLabel).not.toBe("Ready for final review");
+    },
+  );
+
   test.each([
     ["draft", "active", "Ready to start"],
     ["awaiting_submit_approval", "active", "Waiting for your approval"],
-    ["running", "active", "Opening application"],
+    ["running", "active", "Working through application"],
     ["paused_for_user_review", "paused", "Paused by a safety limit"],
     ["paused_for_consent", "paused", "Waiting for your consent"],
     ["completed", "completed", "Ready for final review"],
@@ -1082,6 +1239,55 @@ describe("buildJobFinderTaskCenterModel", () => {
       resumeActionLabel: "Verify outcome",
     });
     expect(task.countLabel).toMatch(/automatic retry is blocked/i);
+  });
+
+  test("ignores superseded uncertainty but preserves another record for the same job", () => {
+    const result = (
+      id: string,
+      applicationRecordId: string,
+      updatedAt: string,
+      outcome: "outcome_uncertain" | "submitted",
+    ) =>
+      ({
+        id,
+        applicationRecordId,
+        jobId: "shared_job",
+        updatedAt,
+        privacyReceipt: { submissionOutcome: { outcome } },
+      }) as JobFinderWorkspaceSnapshot["applyJobResults"][number];
+    const superseded = result(
+      "old_uncertain",
+      "application_one",
+      "2026-08-28T10:01:00.000Z",
+      "outcome_uncertain",
+    );
+    const submitted = result(
+      "new_submitted",
+      "application_one",
+      "2026-08-28T10:02:00.000Z",
+      "submitted",
+    );
+    const current = result(
+      "current_uncertain",
+      "application_two",
+      "2026-08-28T10:03:00.000Z",
+      "outcome_uncertain",
+    );
+    const build = (results: JobFinderWorkspaceSnapshot["applyJobResults"]) =>
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({ applyJobResults: results }),
+        isDiscoveryPending: false,
+        isResumeImportPending: false,
+      });
+
+    expect(
+      build([superseded, submitted]).items.some(
+        (item) => item.kind === "apply",
+      ),
+    ).toBe(false);
+    expect(findTask(build([superseded, submitted, current]), "apply").id).toBe(
+      "submission-verification_current_uncertain",
+    );
   });
 });
 

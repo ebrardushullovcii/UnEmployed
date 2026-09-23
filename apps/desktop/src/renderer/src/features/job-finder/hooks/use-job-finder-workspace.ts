@@ -18,6 +18,7 @@ import type {
   JobFinderApplyRunActionInput,
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
+  JobFinderPreparedApplicationPageInput,
   JobFinderOpenBrowserSessionInput,
   JobFinderSetResumeClaimConfirmationInput,
   JobFinderSetWorkHistoryReviewAcknowledgmentInput,
@@ -629,6 +630,12 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.revokeApplyRunApproval(input),
         ),
+      focusPreparedApplicationPage: (
+        input: JobFinderPreparedApplicationPageInput,
+      ) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.focusPreparedApplicationPage(input),
+        ),
       submitPreparedApplication: (input: { jobId: string }) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.submitPreparedApplication(input),
@@ -702,9 +709,7 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
           type: "set_job_resume_application_mode",
           jobId,
           resumeApplicationMode,
-          ...(resumeTailoringMode === undefined
-            ? {}
-            : { resumeTailoringMode }),
+          ...(resumeTailoringMode === undefined ? {} : { resumeTailoringMode }),
         }),
       refreshWorkspace: syncWorkspace,
       resetWorkspace: () =>

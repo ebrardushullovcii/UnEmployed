@@ -1,5 +1,10 @@
 import { normalizeSignal } from "./control-classification";
-import type { ApplyBlocker, ApplyFormAction, ApplyFormControl } from "./types";
+import type {
+  ApplyBlocker,
+  ApplyFormAction,
+  ApplyFormControl,
+  ApplyPageLink,
+} from "./types";
 
 /**
  * Things on a page that stop an application and need the person.
@@ -58,6 +63,27 @@ const CHALLENGE_SIGNALS = [
   "prove you are not a robot",
 ];
 
+/** A model may describe a challenge read in a child frame but omit the
+ * structured needsPerson flag. Preserve that explicit handoff; the mere
+ * presence of an invisible CAPTCHA script is not a challenge. */
+export function reportedSecurityChallenge(reason: string): ApplyBlocker | null {
+  const text = normalizeSignal(reason);
+  const challenge = "(?:h ?captcha|re ?captcha|captcha)";
+  const asksForPerson = new RegExp(
+    `(?:review|solve|complete|finish|retry) (?:the |a )?${challenge}\\b|\\b${challenge}\\b.{0,140}(?:please try again|needs (?:you|a person)|requires (?:human|manual)|waiting for (?:you|a person))`,
+    "u",
+  ).test(text);
+  if (!asksForPerson) return null;
+  return {
+    code: "security_challenge",
+    requiresPerson: true,
+    summary: "The site asks you to complete a CAPTCHA.",
+    detail:
+      "Complete the security check in the browser, then continue this application.",
+    nextActionLabel: "Open the browser and complete the security check",
+  };
+}
+
 const SECOND_FACTOR_SIGNALS = [
   "verification code",
   "two factor",
@@ -80,15 +106,90 @@ function hasPasswordControl(controls: readonly ApplyFormControl[]): boolean {
   return controls.some(
     (control) =>
       control.visible &&
-      /\bpassword\b/u.test(normalizeSignal(`${control.label} ${control.placeholder}`)),
+      /\bpassword\b/u.test(
+        normalizeSignal(`${control.label} ${control.placeholder}`),
+      ),
+  );
+}
+
+function hasAnsweredPasswordControl(
+  controls: readonly ApplyFormControl[],
+): boolean {
+  return controls.some(
+    (control) =>
+      control.visible &&
+      control.answered &&
+      /\bpassword\b/u.test(
+        normalizeSignal(`${control.label} ${control.placeholder}`),
+      ),
   );
 }
 
 function hasSignInAction(actions: readonly ApplyFormAction[]): boolean {
   return actions.some((action) => {
     const signal = normalizeSignal(action.label);
-    return action.visible && (signal === "sign in" || signal === "log in" || signal === "login");
+    return (
+      action.visible &&
+      (signal === "sign in" || signal === "log in" || signal === "login")
+    );
   });
+}
+
+function hasAccountCreationAction(
+  actions: readonly ApplyFormAction[],
+): boolean {
+  return actions.some((action) => {
+    const signal = normalizeSignal(action.label);
+    return (
+      action.visible &&
+      /^(?:create (?:an? )?account|register|sign up)(?:\b|$)/u.test(signal)
+    );
+  });
+}
+
+function isExactLink(link: ApplyPageLink, pattern: RegExp): boolean {
+  return link.visible && pattern.test(normalizeSignal(link.label));
+}
+
+function isAccountChoiceWall(input: {
+  controls: readonly ApplyFormControl[];
+  links: readonly ApplyPageLink[];
+}): boolean {
+  const visibleControls = input.controls.filter((control) => control.visible);
+  const hasSignIn = input.links.some((link) =>
+    isExactLink(link, /^(?:sign in|log in|login)$/u),
+  );
+  const hasCreateAccount = input.links.some((link) =>
+    isExactLink(link, /^(?:create (?:an? )?account|register|sign up)$/u),
+  );
+  const hasApplicationEntry = input.links.some((link) =>
+    isExactLink(link, /^(?:apply|apply now|continue application)$/u),
+  );
+  return (
+    visibleControls.length === 0 &&
+    hasSignIn &&
+    hasCreateAccount &&
+    !hasApplicationEntry
+  );
+}
+
+function hasResolvedChallengeControl(
+  controls: readonly ApplyFormControl[],
+): boolean {
+  const challengeControls = controls.filter((control) => {
+    const signal = normalizeSignal(
+      `${control.label} ${control.groupLabel} ${control.placeholder}`,
+    );
+    return control.visible && contains(signal, CHALLENGE_SIGNALS);
+  });
+  return (
+    challengeControls.length > 0 &&
+    challengeControls.every(
+      (control) =>
+        control.checked ||
+        (control.answered && control.value.trim().length > 0),
+    )
+  );
 }
 
 function contains(haystack: string, needles: readonly string[]): boolean {
@@ -159,9 +260,10 @@ export function looksLikeSignInPage(input: {
  * by offering nothing but a sign-in link where the apply control should be.
  * The person's sign-in stays theirs either way (ADR 0012).
  */
-export function siteLoginRequiredBlocker(): ApplyBlocker {
+export function siteLoginRequiredBlocker(requiresPerson = true): ApplyBlocker {
   return {
     code: "site_login_required",
+    requiresPerson,
     summary: "The site wants you signed in first.",
     detail:
       "Your sign-in stays yours. Sign in on this site and Job Finder can pick the application back up.",
@@ -173,12 +275,17 @@ export function detectApplyBlocker(input: {
   bodyText: string;
   controls: readonly ApplyFormControl[];
   actions: readonly ApplyFormAction[];
+  links?: readonly ApplyPageLink[];
 }): ApplyBlocker | null {
   const text = normalizeSignal(input.bodyText);
 
-  if (contains(text, AUTOMATIC_CHECK_SIGNALS) && !contains(text, ["captcha", "i am not a robot", "verify you are human"])) {
+  if (
+    contains(text, AUTOMATIC_CHECK_SIGNALS) &&
+    !contains(text, ["captcha", "i am not a robot", "verify you are human"])
+  ) {
     return {
       code: "security_challenge",
+      requiresPerson: false,
       summary: "The site is checking the browser by itself.",
       detail:
         "This kind of page usually finishes on its own. Wait 20 to 30 seconds and look again, and keep doing that for up to two minutes, before reporting it. Only a page that asks you to tick a box or solve a puzzle needs the person.",
@@ -186,9 +293,13 @@ export function detectApplyBlocker(input: {
     };
   }
 
-  if (contains(text, CHALLENGE_SIGNALS)) {
+  if (
+    contains(text, CHALLENGE_SIGNALS) &&
+    !hasResolvedChallengeControl(input.controls)
+  ) {
     return {
       code: "security_challenge",
+      requiresPerson: true,
       summary: "The site is running a security check.",
       detail:
         "The page asked to confirm a person is here. Job Finder never answers those, so it stopped and left the page as it found it.",
@@ -199,6 +310,7 @@ export function detectApplyBlocker(input: {
   if (contains(text, SECOND_FACTOR_SIGNALS)) {
     return {
       code: "multi_factor_required",
+      requiresPerson: true,
       summary: "The site asked for a code sent to you.",
       detail:
         "Only you have that code, so Job Finder stopped here without entering anything.",
@@ -206,9 +318,16 @@ export function detectApplyBlocker(input: {
     };
   }
 
-  if (contains(text, ACCOUNT_SIGNALS)) {
+  if (
+    (contains(text, ACCOUNT_SIGNALS) &&
+      (hasPasswordControl(input.controls) ||
+        hasAccountCreationAction(input.actions))) ||
+    (hasPasswordControl(input.controls) &&
+      hasAccountCreationAction(input.actions))
+  ) {
     return {
       code: "account_creation_required",
+      requiresPerson: true,
       summary: "The site wants an account before you can apply.",
       detail:
         "Job Finder never creates accounts for you. Make the account once and it can carry on from there.",
@@ -218,14 +337,21 @@ export function detectApplyBlocker(input: {
 
   if (
     contains(text, SIGN_IN_SIGNALS) ||
-    (hasPasswordControl(input.controls) && hasSignInAction(input.actions))
+    (hasPasswordControl(input.controls) && hasSignInAction(input.actions)) ||
+    isAccountChoiceWall({
+      controls: input.controls,
+      links: input.links ?? [],
+    })
   ) {
-    return siteLoginRequiredBlocker();
+    return siteLoginRequiredBlocker(
+      !hasAnsweredPasswordControl(input.controls),
+    );
   }
 
   if (contains(text, CLOSED_SIGNALS)) {
     return {
       code: "application_closed",
+      requiresPerson: false,
       summary: "This job is no longer taking applications.",
       detail: "The page says the posting is closed, so nothing was filled in.",
       nextActionLabel: "Mark this job closed",

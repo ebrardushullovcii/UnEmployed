@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Pencil } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import type {
   ApplicationRecord,
   ApplicationAutomationMode,
@@ -28,7 +28,6 @@ import {
   describeApplyOutcome,
 } from "./review-queue-mission-panel-helpers";
 import { describeUntailorableListing } from "./resume-workspace-utils";
-import { getApplicationStagePresentation } from "../applications/applications-status";
 import { resolveResumeIdentity } from "@unemployed/job-finder/resume-identity";
 import { ResumeIdentityChoiceNotice } from "../../components/profile/resume-identity-choice-notice";
 
@@ -164,8 +163,6 @@ export function ReviewQueueMissionPanel({
   selectedItem,
   selectedJob,
 }: ReviewQueueMissionPanelProps) {
-  const [selectedApplicationChoice, setSelectedApplicationChoice] =
-    useState<string>("");
   const {
     isGenerating,
     isPrimaryApplyPending,
@@ -193,17 +190,15 @@ export function ReviewQueueMissionPanel({
     selectedItem,
     selectedJob,
   });
-  const selectedJobApplicationRecords = selectedItem
-    ? applicationRecords.filter((record) => record.jobId === selectedItem.jobId)
-    : [];
-  const requiresApplicationChoice = selectedJobApplicationRecords.length > 1;
-  const existingNeedsYouApplication = selectedJobApplicationRecords.find(
-    (record) => getApplicationStagePresentation(record).label === "Needs you",
-  );
-
-  useEffect(() => {
-    setSelectedApplicationChoice("");
-  }, [selectedItem?.jobId]);
+  const existingApplication = selectedItem
+    ? (applicationRecords
+        .filter((record) => record.jobId === selectedItem.jobId)
+        .sort(
+          (left, right) =>
+            new Date(right.lastUpdatedAt).getTime() -
+            new Date(left.lastUpdatedAt).getTime(),
+        )[0] ?? null)
+    : null;
 
   const runPrimaryRecovery = () => {
     if (!selectedItem || !primaryApplicationAction.recovery) {
@@ -278,8 +273,9 @@ export function ReviewQueueMissionPanel({
 
       event.preventDefault();
       const next =
-        options[(activeIndex + (forward ? 1 : -1) + options.length) %
-          options.length];
+        options[
+          (activeIndex + (forward ? 1 : -1) + options.length) % options.length
+        ];
       next?.focus();
       next?.click();
     },
@@ -430,9 +426,10 @@ export function ReviewQueueMissionPanel({
         <span className="text-xs font-semibold uppercase tracking-(--tracking-heading) text-foreground-soft">
           Next step
         </span>
-        {existingNeedsYouApplication ? (
+        {existingApplication ? (
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            An application for this job is already in progress and needs you.
+            This job is already in Applications. Open it to see its latest
+            status.
           </p>
         ) : readinessDescription ? (
           <p
@@ -468,7 +465,7 @@ export function ReviewQueueMissionPanel({
             profile={profile}
           />
         ) : null}
-        {primaryApplicationAction.blocker ? (
+        {!existingApplication && primaryApplicationAction.blocker ? (
           primaryApplicationAction.blockerTone === "info" ? (
             <p
               className="min-w-0 break-words rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--info-text)"
@@ -485,50 +482,14 @@ export function ReviewQueueMissionPanel({
             </p>
           )
         ) : null}
-        {primaryApplicationAction.kind === "start_apply" &&
-        requiresApplicationChoice &&
-        !existingNeedsYouApplication ? (
-          <fieldset className="grid gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/50 p-3">
-            <legend className="px-1 text-sm font-semibold text-foreground">
-              This job already has applications. Continue one, or start new?
-            </legend>
-            {selectedJobApplicationRecords.map((record) => (
-              <label
-                className="flex min-h-9 cursor-pointer items-center gap-3 rounded-(--radius-small) px-2 text-sm text-foreground focus-within:ring-[3px] focus-within:ring-ring/30"
-                key={record.id}
-              >
-                <input
-                  checked={selectedApplicationChoice === record.id}
-                  name="shortlisted-application-record"
-                  onChange={() => setSelectedApplicationChoice(record.id)}
-                  type="radio"
-                  value={record.id}
-                />
-                <span>
-                  Continue · {getApplicationStagePresentation(record).label}
-                </span>
-              </label>
-            ))}
-            <label className="flex min-h-9 cursor-pointer items-center gap-3 rounded-(--radius-small) px-2 text-sm text-foreground focus-within:ring-[3px] focus-within:ring-ring/30">
-              <input
-                checked={selectedApplicationChoice === "new"}
-                name="shortlisted-application-record"
-                onChange={() => setSelectedApplicationChoice("new")}
-                type="radio"
-                value="new"
-              />
-              <span>Start a new application</span>
-            </label>
-          </fieldset>
-        ) : null}
         <div
           className="flex min-w-0 flex-wrap items-center gap-2"
           data-testid="application-action-row"
         >
-          {existingNeedsYouApplication ? (
+          {existingApplication ? (
             <Button
               className="h-11 w-fit max-w-full justify-start px-5 text-sm font-semibold normal-case tracking-normal"
-              onClick={() => onOpenApplication(existingNeedsYouApplication.id)}
+              onClick={() => onOpenApplication(existingApplication.id)}
               type="button"
               variant="primary"
             >
@@ -547,8 +508,7 @@ export function ReviewQueueMissionPanel({
                 !primaryApplicationAction.enabled ||
                 resumeIdentityBlocked ||
                 (primaryApplicationAction.kind === "start_apply" &&
-                  dailyCapacityExhausted) ||
-                (requiresApplicationChoice && !selectedApplicationChoice)
+                  dailyCapacityExhausted)
               }
               onClick={() => {
                 if (primaryApplicationAction.kind === "open_safeguards") {
@@ -576,19 +536,7 @@ export function ReviewQueueMissionPanel({
                 }
 
                 if (primaryApplicationAction.kind === "start_apply") {
-                  onStartApplyCopilot(
-                    requiresApplicationChoice
-                      ? selectedApplicationChoice === "new"
-                        ? {
-                            jobId: selectedItem.jobId,
-                            startNewApplication: true,
-                          }
-                        : {
-                            jobId: selectedItem.jobId,
-                            applicationRecordId: selectedApplicationChoice,
-                          }
-                      : { jobId: selectedItem.jobId },
-                  );
+                  onStartApplyCopilot({ jobId: selectedItem.jobId });
                 }
               }}
               type="button"
@@ -596,7 +544,8 @@ export function ReviewQueueMissionPanel({
               {primaryApplicationAction.label}
             </Button>
           )}
-          {primaryApplicationAction.recovery !== null ? (
+          {!existingApplication &&
+          primaryApplicationAction.recovery !== null ? (
             <Button
               className="h-10 min-w-0 justify-start px-4 text-sm font-medium normal-case tracking-normal"
               onClick={runPrimaryRecovery}
@@ -624,11 +573,11 @@ export function ReviewQueueMissionPanel({
               type="button"
               variant="secondary"
             >
-              Open the resume to reload
+              Open the resume
             </Button>
           ) : null}
         </div>
-        {showsApplyOutcome && !existingNeedsYouApplication ? (
+        {showsApplyOutcome && !existingApplication ? (
           <p
             className="min-w-0 break-words text-(length:--text-small) leading-5 text-foreground-muted"
             data-testid="apply-outcome"
@@ -641,8 +590,9 @@ export function ReviewQueueMissionPanel({
         ) : null}
         {/* Quiet capacity fact below the actions, and only where it can
             change a decision. */}
-        {primaryApplicationAction.kind === "start_apply" ||
-        dailyCapacityExhausted ? (
+        {!existingApplication &&
+        (primaryApplicationAction.kind === "start_apply" ||
+          dailyCapacityExhausted) ? (
           <p
             className="min-w-0 break-words text-(length:--text-tiny) leading-5 text-foreground-muted"
             data-testid="daily-application-preparation-capacity"

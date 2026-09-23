@@ -1,6 +1,6 @@
 # Local replica job sites
 
-From the repo root, run `node apps/desktop/test-fixtures/job-sites/serve.mjs` with Node 22 or newer. Open `http://127.0.0.1:47950/` for the index. Set `PORT=47951` before the command to use another port. Each listing URL can be added as a Job Finder source; each has eight fictional software jobs.
+From the repo root, run `node apps/desktop/test-fixtures/job-sites/serve.mjs` with Node 22 or newer. Open `http://127.0.0.1:47950/` for the index. Set `PORT=47951` before the command to use another port. Each listing URL can be added as a Job Finder source; each has ten fictional software jobs.
 
 `http://127.0.0.1:47950/board/` exercises age badges, job details, a handoff to `/employer-a/apply/<id>`, a hidden resume input, cover letter and required certification.
 

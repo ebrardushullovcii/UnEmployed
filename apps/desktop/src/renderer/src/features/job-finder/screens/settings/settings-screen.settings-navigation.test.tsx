@@ -568,6 +568,29 @@ describe("SettingsScreen section anchor navigation", () => {
     }
   });
 
+  it("lands directly on Applying when a recovery link names that section", () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value: scrollIntoView,
+    });
+    render(
+      <MemoryRouter
+        initialEntries={[
+          "/job-finder/settings#settings-application-authority",
+        ]}
+      >
+        <SettingsScreen {...baseProps} />
+      </MemoryRouter>,
+    );
+
+    const applying = document.getElementById("settings-application-authority");
+    expect(applying).not.toBeNull();
+    expect(document.activeElement).toBe(applying);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+  });
+
   it.each([
     { description: "alt-click", init: { altKey: true } },
     { description: "ctrl-click", init: { ctrlKey: true } },

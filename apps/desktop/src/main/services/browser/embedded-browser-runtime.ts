@@ -216,6 +216,12 @@ export function withEmbeddedBrowserActivity(
             ),
         } satisfies Partial<BrowserSessionRuntime>)
       : {}),
+    ...(runtime.hasApplicationPageBinding
+      ? ({
+          hasApplicationPageBinding: (source, pageBindingKey) =>
+            runtime.hasApplicationPageBinding!(source, pageBindingKey),
+        } satisfies Partial<BrowserSessionRuntime>)
+      : {}),
     ...(runtime.executeExactlyOneFinalAction
       ? ({
           executeExactlyOneFinalAction: (source, input) =>

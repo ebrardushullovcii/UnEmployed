@@ -733,6 +733,11 @@ describe("continuing a search after the person clears a wall", () => {
       updatedOrigin?.history.some((entry) => entry.kind === "discovery_run"),
     ).toBe(true);
     expect(updatedOrigin?.latestDigest?.discoveryRunId).not.toBeNull();
+
+    const repeatedSnapshot =
+      await harness.workspaceService.getWorkspaceSnapshot();
+    expect(repeatedSnapshot.activeCampaignId).toBe(active.id);
+    expect(capturedRoles).toEqual([["Principal UX Engineer"]]);
   });
 
   test("keeps the handoff visible with plain copy when its search plan was removed", async () => {

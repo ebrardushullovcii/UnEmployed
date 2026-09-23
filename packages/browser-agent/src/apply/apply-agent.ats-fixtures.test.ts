@@ -306,7 +306,10 @@ function createFixtureHands(site: FixtureSite): {
  * apply route when there is no form yet, asks what answers each field, and
  * says when the form is complete. It knows nothing about any of these sites.
  */
-function createHarnessModel(state: FixtureState, resumeDocumentId: string): LLMClient {
+function createHarnessModel(
+  state: FixtureState,
+  resumeDocumentId: string,
+): LLMClient {
   let callId = 0;
   const done = new Set<string>();
   const suggested = new Map<string, string | null>();
@@ -391,7 +394,9 @@ function createHarnessModel(state: FixtureState, resumeDocumentId: string): LLMC
       done.add(key);
       if (pending.kind === "checkbox" || pending.kind === "radio") {
         return {
-          toolCalls: [call("set_checkbox", { ref: pending.ref, checked: true })],
+          toolCalls: [
+            call("set_checkbox", { ref: pending.ref, checked: true }),
+          ],
         };
       }
       if (pending.options.length > 0) {
@@ -437,6 +442,17 @@ function createHarnessModel(state: FixtureState, resumeDocumentId: string): LLMC
 
   return {
     chatWithTools: (_messages, _tools, options) => {
+      if (_tools[0]?.function.name === "report_answer_check") {
+        return Promise.resolve({
+          toolCalls: [
+            call("report_answer_check", {
+              supported: true,
+              reason:
+                "The fixture answer expresses motivation without adding personal history.",
+            }),
+          ],
+        });
+      }
       // Record what the model was told, the way a real client would consume it.
       void options;
       return Promise.resolve(decide());
@@ -560,7 +576,11 @@ const postingStyleBoard: FixtureSite = {
         { label: "Full name", required: true },
         { label: "Email", inputType: "email", required: true },
         { label: "Resume", inputType: "file", required: true },
-        { label: "Why do you want to work here?", tagName: "textarea", required: true },
+        {
+          label: "Why do you want to work here?",
+          tagName: "textarea",
+          required: true,
+        },
       ],
       actions: ["Submit application"],
     },
@@ -758,13 +778,18 @@ describe("the apply harness across real site shapes", () => {
       // The last page has no required field left empty.
       const last = state.observations.at(-1);
       expect(
-        last?.controls.filter((control) => control.required && !control.answered),
+        last?.controls.filter(
+          (control) => control.required && !control.answered,
+        ),
       ).toHaveLength(0);
     });
   }
 
   test("a listing with a search box and a chat input is not mistaken for a form", async () => {
-    const { config, state } = createConfig(boardListingToExternalForm, "RemoteOK");
+    const { config, state } = createConfig(
+      boardListingToExternalForm,
+      "RemoteOK",
+    );
     const result = await runApplyAgent(
       config,
       createHarnessModel(state, "document_resume"),
@@ -783,7 +808,10 @@ describe("the apply harness across real site shapes", () => {
   });
 
   test("a cookie wall is dismissed by the run rather than stopping it", async () => {
-    const { config, state } = createConfig(cookieBannerSite, "the careers site");
+    const { config, state } = createConfig(
+      cookieBannerSite,
+      "the careers site",
+    );
     const result = await runApplyAgent(
       config,
       createHarnessModel(state, "document_resume"),

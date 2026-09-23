@@ -554,6 +554,30 @@ describe("ResumeClaimConfirmationPanel", () => {
     });
   });
 
+  it("does not ask for approval again after all kept lines are approved", () => {
+    const savedDraftId = buildWorkspace().draft.id;
+    const draft = buildWorkspace([
+      buildConfirmation({ draftId: savedDraftId }),
+    ]).draft;
+    render(
+      <ResumeClaimConfirmationPanel
+        claimAssessments={[confirmNeededBullet]}
+        draft={{ ...draft, status: "approved" }}
+        hasUnsavedChanges={false}
+        isWorkspacePending={false}
+        jobId="job_ready"
+        onSetResumeClaimConfirmation={vi.fn().mockResolvedValue({})}
+      />,
+    );
+    expect(screen.getByText("All decided")).toBeTruthy();
+    expect(
+      screen.getByText("Every line is decided. This resume is approved."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/Approve the resume when you are ready/),
+    ).toBeNull();
+  });
+
   it("keeps stale rejections visible with truthful retry copy and allows retrying", async () => {
     const onSetResumeClaimConfirmation = vi
       .fn<
@@ -669,13 +693,19 @@ describe("ResumeClaimConfirmationPanel", () => {
     );
 
     expect(screen.getByText("Skills the job asked for")).toBeTruthy();
-    expect(screen.getByText("Wording that stretches your evidence")).toBeTruthy();
+    expect(
+      screen.getByText("Wording that stretches your evidence"),
+    ).toBeTruthy();
     expect(screen.getByText("3 to decide")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Keep all 2 skills" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Keep all 2 skills" }),
+    ).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /^Keep · / })).toHaveLength(3);
 
     await actAndFlush(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Keep all 2 skills" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Keep all 2 skills" }),
+      );
     });
     expect(onSetResumeClaimConfirmation).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -22,6 +22,7 @@ export type JobIdentityInput = {
   title?: string | null;
   company?: string | null;
   location?: string | null;
+  description?: string | null;
   postedAt?: string | null;
   postedAtText?: string | null;
 };
@@ -31,6 +32,7 @@ export type JobIdentityAliasKind =
   | "source_posting_id"
   | "employer_application_url"
   | "canonical_listing_url"
+  | "exact_listing_content"
   | "corroborated_listing_facts";
 
 export type JobIdentityAlias = {
@@ -135,6 +137,100 @@ function normalizePostedDate(input: JobIdentityInput): string | null {
     : null;
 }
 
+const MIN_EXACT_CONTENT_IDENTITY_CHARACTERS = 200;
+const MIN_EXACT_CONTENT_IDENTITY_WORDS = 40;
+
+function normalizeListingContentIdentity(
+  description: string | null | undefined,
+): string | null {
+  if (!description) {
+    return null;
+  }
+  const normalized = normalizeText(description)
+    // A source may label the same final link "Apply" or "Apply now". That
+    // call to action is page chrome, not listing identity.
+    .replace(/\bapply(?: now)?$/u, "")
+    .trim();
+  if (
+    normalized.length < MIN_EXACT_CONTENT_IDENTITY_CHARACTERS ||
+    normalized.split(/\s+/u).length < MIN_EXACT_CONTENT_IDENTITY_WORDS
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function readCompatibleTitleShape(title: string | null | undefined): {
+  full: string;
+  stem: string;
+  hasExplicitQualifier: boolean;
+} | null {
+  if (!title) {
+    return null;
+  }
+  const full = normalizeText(title);
+  if (!full) {
+    return null;
+  }
+  const qualifierMatch = /,|\s[|–—]\s/u.exec(title);
+  if (!qualifierMatch || qualifierMatch.index <= 0) {
+    return { full, stem: full, hasExplicitQualifier: false };
+  }
+  const stem = normalizeText(title.slice(0, qualifierMatch.index));
+  const qualifier = normalizeText(
+    title.slice(qualifierMatch.index + qualifierMatch[0].length),
+  );
+  return {
+    full,
+    stem: stem || full,
+    // A trailing comma is extraction damage, not an explicit qualifier.
+    hasExplicitQualifier: qualifier.length > 0,
+  };
+}
+
+/**
+ * Strong content identity is deliberately narrow. It only accepts a complete
+ * body, exact employer and location, and a compatible title (including a
+ * source that drops a comma-delimited team/product qualifier).
+ */
+export function hasEquivalentListingContentIdentity(
+  left: JobIdentityInput,
+  right: JobIdentityInput,
+): boolean {
+  const leftContent = normalizeListingContentIdentity(left.description);
+  const rightContent = normalizeListingContentIdentity(right.description);
+  if (!leftContent || leftContent !== rightContent) {
+    return false;
+  }
+  const leftCompany = normalizeText(left.company ?? "");
+  const rightCompany = normalizeText(right.company ?? "");
+  const leftLocation = normalizeText(left.location ?? "");
+  const rightLocation = normalizeText(right.location ?? "");
+  if (
+    !leftCompany ||
+    leftCompany !== rightCompany ||
+    !leftLocation ||
+    leftLocation !== rightLocation
+  ) {
+    return false;
+  }
+  const leftTitle = readCompatibleTitleShape(left.title);
+  const rightTitle = readCompatibleTitleShape(right.title);
+  if (!leftTitle || !rightTitle) {
+    return false;
+  }
+  const titlesAreCompatible =
+    leftTitle.full === rightTitle.full ||
+    (!leftTitle.hasExplicitQualifier || !rightTitle.hasExplicitQualifier) &&
+      (leftTitle.hasExplicitQualifier
+        ? leftTitle.stem === rightTitle.full
+        : rightTitle.stem === leftTitle.full);
+  if (!titlesAreCompatible) {
+    return false;
+  }
+  return true;
+}
+
 export function buildJobIdentityAliases(
   input: JobIdentityInput,
 ): JobIdentityAlias[] {
@@ -204,6 +300,18 @@ export function buildJobIdentityAliases(
       kind: "canonical_listing_url",
       confidence: "strong",
       priority: 40,
+    });
+  }
+
+  const exactContent = normalizeListingContentIdentity(input.description);
+  const contentCompany = input.company ? normalizeText(input.company) : "";
+  const contentLocation = input.location ? normalizeText(input.location) : "";
+  if (exactContent && contentCompany && contentLocation) {
+    aliases.push({
+      key: `content:${contentCompany}\u0000${contentLocation}\u0000${exactContent}`,
+      kind: "exact_listing_content",
+      confidence: "strong",
+      priority: 50,
     });
   }
 
@@ -308,7 +416,18 @@ export function createJobIdentityIndex<T extends object>(
       if (alias.confidence !== "strong") {
         continue;
       }
-      const matches = valuesByAlias.get(alias.key);
+      const indexedMatches = valuesByAlias.get(alias.key);
+      const matches =
+        alias.kind === "exact_listing_content" && indexedMatches
+          ? new Set(
+              [...indexedMatches].filter((candidate) =>
+                hasEquivalentListingContentIdentity(
+                  identity,
+                  selectIdentity(candidate),
+                ),
+              ),
+            )
+          : indexedMatches;
       if (!matches || matches.size === 0) {
         continue;
       }

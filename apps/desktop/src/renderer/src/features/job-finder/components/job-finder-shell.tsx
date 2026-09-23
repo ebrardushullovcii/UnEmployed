@@ -107,7 +107,9 @@ interface JobFinderShellProps {
   onCancelDiscovery?: (runId: string) => Promise<boolean>;
   onDismissSavedStatus?: () => void;
   onNavigate?: (path: string) => void;
-  onPrepareRemainingJobs?: (jobIds: readonly string[]) => void | Promise<unknown>;
+  onPrepareRemainingJobs?: (
+    jobIds: readonly string[],
+  ) => void | Promise<unknown>;
   onRetrySave?: () => void;
   onStopTailoredDraftPreparation?: () => void;
   platform: "darwin" | "linux" | "win32";
@@ -131,7 +133,6 @@ const screenRouteMap: Record<
   campaigns: "/job-finder/campaigns",
   actions: "/job-finder/actions",
   analytics: "/job-finder/analytics",
-  documents: "/job-finder/documents",
   settings: "/job-finder/settings",
   companies: "/job-finder/companies",
 };
@@ -145,7 +146,6 @@ const screenLabelMap: Record<JobFinderScreen, string> = {
   campaigns: "Search plans",
   actions: "Needs you",
   analytics: "Outcomes",
-  documents: "Documents",
   settings: "Settings",
   "rapid-review": "Quick review",
   "resume-strategies": "Resume approaches",
@@ -475,10 +475,6 @@ function getActiveScreen(pathname: string): JobFinderScreen {
     return "settings";
   }
 
-  if (pathname.endsWith("/documents")) {
-    return "documents";
-  }
-
   if (pathname.endsWith("/resume-strategies")) {
     return "resume-strategies";
   }
@@ -677,13 +673,6 @@ export function JobFinderShell({
         icon: ShieldCheck,
       },
       {
-        id: "documents",
-        label: "Documents",
-        count: null,
-        countKind: "inventory",
-        icon: FileText,
-      },
-      {
         id: "settings",
         label: "Settings",
         count: null,
@@ -702,9 +691,8 @@ export function JobFinderShell({
     ),
   );
   // Grouped by what each destination *is*, not by which part of the product
-  // introduced it. Documents holds the user's own files and used to sit under
-  // "Safety and setup"; Companies is a data browser and used to sit beside two
-  // settings pages.
+  // introduced it. The person's own files live under Profile › Files now, so
+  // the workspace group is Settings alone.
   // Order follows the declared id list rather than the order the definitions
   // happen to be built in, so the menu's reading order is the one written here.
   const selectMenuScreens = (ids: readonly JobFinderScreen[]) =>
@@ -712,7 +700,7 @@ export function JobFinderShell({
   const menuGroups = [
     {
       label: "Workspace",
-      screens: selectMenuScreens(["documents", "settings"]),
+      screens: selectMenuScreens(["settings"]),
     },
   ];
   const moreMenuItemCount = menuGroups.reduce(
@@ -853,18 +841,25 @@ export function JobFinderShell({
 
   useLayoutEffect(() => {
     const main = mainRef.current;
+    // A destination section owns its focus and scroll position. Resetting the
+    // shell after it mounts would send an anchored Settings link back to top.
+    const hasDestinationAnchor = Boolean(location.hash);
     const usesNarrowShellReflow =
       window.matchMedia?.("(max-width: 639px)").matches ?? false;
     document.title = `${activeScreenLabel} | Job Finder | UnEmployed`;
     setRouteAnnouncement("");
-    main?.scrollTo({ top: 0 });
-    main?.focus({ preventScroll: true });
-    if (usesNarrowShellReflow) {
+    if (!hasDestinationAnchor) {
+      main?.scrollTo({ top: 0 });
+      main?.focus({ preventScroll: true });
+    }
+    if (usesNarrowShellReflow && !hasDestinationAnchor) {
       main?.scrollIntoView({ block: "start" });
     }
 
     const frame = window.requestAnimationFrame(() => {
-      main?.scrollTo({ top: 0 });
+      if (!hasDestinationAnchor) {
+        main?.scrollTo({ top: 0 });
+      }
       try {
         globalThis.performance?.mark?.(
           `job-finder:route:${location.pathname}:feedback-committed`,
@@ -878,7 +873,7 @@ export function JobFinderShell({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [activeScreenLabel, location.pathname]);
+  }, [activeScreenLabel, location.hash, location.pathname]);
 
   useEffect(() => {
     let cancelled = false;

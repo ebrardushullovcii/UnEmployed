@@ -715,4 +715,236 @@ describe("resume import reconciliation", () => {
       },
     });
   });
+
+  test("keeps a two-line employer-less title as one role", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: { ...baseSeed.profile, experiences: [] },
+    };
+    const values = [
+      {
+        companyName: "Senior Product",
+        title: "Engineer",
+        startDate: "2021-01",
+        endDate: null,
+        isCurrent: true,
+        summary: "Built accessible workflows.",
+      },
+      {
+        companyName: null,
+        title: "Senior Product Engineer",
+        startDate: "2021-01",
+        endDate: null,
+        isCurrent: true,
+        summary: "Built accessible workflows.",
+      },
+    ];
+    const candidates = values.map((value, index) =>
+      ResumeImportFieldCandidateSchema.parse({
+        runId: "resume_import_run_split_title",
+        ...createStageCandidate({
+          target: {
+            section: "experience",
+            key: "record",
+            recordId: `experience_${index}`,
+          },
+          label: index === 0 ? "Engineer at Senior Product" : "Senior Product Engineer",
+          value,
+          sourceBlockIds: [`block_${index}`],
+          confidence: index === 0 ? 0.94 : 0.9,
+          overall: index === 0 ? 0.92 : 0.88,
+          recommendation: "auto_apply",
+        }),
+        id: `candidate_split_title_${index}`,
+        sourceKind: "model_experience",
+        resolution: "needs_review",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        resolvedAt: null,
+      }),
+    );
+
+    const applied = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      candidates,
+    ).filter((candidate) => candidate.resolution === "auto_applied");
+
+    expect(applied).toHaveLength(1);
+    expect(applied[0]?.value).toMatchObject({
+      companyName: null,
+      title: "Senior Product Engineer",
+      startDate: "2021-01",
+      endDate: null,
+      isCurrent: true,
+    });
+  });
+
+  test("keeps a legitimate company-title pair without an unsplit duplicate", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: { ...baseSeed.profile, experiences: [] },
+    };
+    const candidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_legitimate_company",
+      ...createStageCandidate({
+        target: {
+          section: "experience",
+          key: "record",
+          recordId: "experience_company",
+        },
+        label: "Engineer at Senior Product",
+        value: {
+          companyName: "Senior Product",
+          title: "Engineer",
+          startDate: "2021-01",
+          endDate: null,
+          isCurrent: true,
+        },
+        sourceBlockIds: ["block_company"],
+        confidence: 0.94,
+        overall: 0.92,
+        recommendation: "auto_apply",
+      }),
+      id: "candidate_legitimate_company",
+      sourceKind: "model_experience",
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+
+    expect(
+      reconcileCandidates(seed.profile, seed.searchPreferences, [candidate])[0]
+        ?.value,
+    ).toMatchObject({ companyName: "Senior Product", title: "Engineer" });
+  });
+
+  test("folds degree-only education into the complete record and rejects an empty record", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: { ...baseSeed.profile, education: [] },
+    };
+    const values = [
+      {
+        schoolName: null,
+        degree: null,
+        fieldOfStudy: null,
+        location: null,
+        startDate: null,
+        endDate: null,
+        summary: null,
+      },
+      {
+        schoolName: null,
+        degree: "BSc Computer Science",
+        fieldOfStudy: null,
+        location: null,
+        startDate: null,
+        endDate: null,
+        summary: null,
+      },
+      {
+        schoolName: "University of Somewhere",
+        degree: "BSc Computer Science",
+        fieldOfStudy: null,
+        location: null,
+        startDate: null,
+        endDate: null,
+        summary: null,
+      },
+    ];
+    const candidates = values.map((value, index) =>
+      ResumeImportFieldCandidateSchema.parse({
+        runId: "resume_import_run_education_stubs",
+        ...createStageCandidate({
+          target: {
+            section: "education",
+            key: "record",
+            recordId: `education_${index}`,
+          },
+          label: `Education ${index}`,
+          value,
+          sourceBlockIds: [`block_${index}`],
+          confidence: 0.9,
+          overall: 0.88,
+          recommendation: "auto_apply",
+        }),
+        id: `candidate_education_stub_${index}`,
+        sourceKind: "model_background",
+        resolution: "needs_review",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        resolvedAt: null,
+      }),
+    );
+
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      candidates,
+    );
+    const applied = reconciled.filter(
+      (candidate) => candidate.resolution === "auto_applied",
+    );
+
+    expect(applied).toHaveLength(1);
+    expect(applied[0]?.value).toMatchObject({
+      schoolName: "University of Somewhere",
+      degree: "BSc Computer Science",
+    });
+    expect(reconciled).toContainEqual(
+      expect.objectContaining({
+        id: "candidate_education_stub_0",
+        resolution: "rejected",
+        resolutionReason: "empty_record_candidate",
+      }),
+    );
+  });
+
+  test("keeps two real degrees from the same school", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: { ...baseSeed.profile, education: [] },
+    };
+    const candidates = ["BSc Computer Science", "MSc Product Design"].map(
+      (degree, index) =>
+        ResumeImportFieldCandidateSchema.parse({
+          runId: "resume_import_run_two_degrees",
+          ...createStageCandidate({
+            target: {
+              section: "education",
+              key: "record",
+              recordId: `education_degree_${index}`,
+            },
+            label: degree,
+            value: {
+              schoolName: "University of Somewhere",
+              degree,
+              fieldOfStudy: null,
+              location: null,
+              startDate: null,
+              endDate: null,
+              summary: null,
+            },
+            sourceBlockIds: [`block_degree_${index}`],
+            confidence: 0.9,
+            overall: 0.88,
+            recommendation: "auto_apply",
+          }),
+          id: `candidate_degree_${index}`,
+          sourceKind: "model_background",
+          resolution: "needs_review",
+          createdAt: "2026-04-10T10:00:00.000Z",
+          resolvedAt: null,
+        }),
+    );
+
+    expect(
+      reconcileCandidates(seed.profile, seed.searchPreferences, candidates).filter(
+        (candidate) => candidate.resolution === "auto_applied",
+      ),
+    ).toHaveLength(2);
+  });
 });

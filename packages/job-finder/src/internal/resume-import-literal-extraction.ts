@@ -181,6 +181,98 @@ function isPersonalWebsiteUrl(url: string): boolean {
   return !isLinkedInUrl(url) && !isGithubUrl(url) && !isPortfolioUrl(url);
 }
 
+function extractHeaderWorkModes(documentBundle: ResumeDocumentBundle): {
+  modes: Array<"remote" | "hybrid" | "onsite" | "flexible">;
+  evidenceLines: string[];
+  sourceBlockIds: string[];
+} {
+  const sectionHeadingPattern =
+    /^(?:summary|profile|experience|work experience|employment|education|skills|projects?|certifications?|languages?)\s*:?$/i;
+  const headerBlocks = [...documentBundle.blocks]
+    .sort((left, right) => left.readingOrder - right.readingOrder)
+    .slice(0, 12);
+  const modes: Array<"remote" | "hybrid" | "onsite" | "flexible"> = [];
+  const evidenceLines: string[] = [];
+  const sourceBlockIds: string[] = [];
+  let reachedBody = false;
+  for (const block of headerBlocks) {
+    for (const rawLine of block.text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (sectionHeadingPattern.test(line)) {
+        reachedBody = true;
+        break;
+      }
+      const negated =
+        /\b(?:not|no|never|without|avoid(?:ing)?|exclude(?:d|s|ing)?|unavailable)\b.{0,30}\b(?:remote|hybrid|on[- ]?site|flexible)\b/i.test(
+          line,
+        ) ||
+        /\b(?:remote|hybrid|on[- ]?site|flexible)\b.{0,30}\b(?:not|never|unavailable|excluded)\b/i.test(
+          line,
+        );
+      if (negated) continue;
+
+      const matched: Array<"remote" | "hybrid" | "onsite" | "flexible"> = [];
+      if (
+        /^remote(?:[- ]first)?(?:\b|[,|])/i.test(line) ||
+        /[|,]\s*remote(?:[- ]first)?\b/i.test(line) ||
+        /\b(?:seeking|open to|prefer(?:red|ring)?|looking for)\s+(?:a\s+)?remote\b/i.test(
+          line,
+        ) ||
+        /\bremote[- ](?:role|work|position|workplace|arrangement)s?\b/i.test(
+          line,
+        )
+      ) {
+        matched.push("remote");
+      }
+      if (
+        /^hybrid(?:\b|[,|])/i.test(line) ||
+        /\b(?:seeking|open to|prefer(?:red|ring)?|looking for)\s+(?:a\s+)?hybrid\b/i.test(
+          line,
+        ) ||
+        /\bhybrid[- ](?:role|work|position|workplace|arrangement)s?\b/i.test(
+          line,
+        )
+      ) {
+        matched.push("hybrid");
+      }
+      if (
+        /^on[- ]?site(?:\b|[,|])/i.test(line) ||
+        /\b(?:seeking|open to|prefer(?:red|ring)?|looking for)\s+(?:an?\s+)?on[- ]?site\b/i.test(
+          line,
+        ) ||
+        /\bon[- ]?site[- ](?:role|work|position|workplace|arrangement)s?\b/i.test(
+          line,
+        )
+      ) {
+        matched.push("onsite");
+      }
+      if (
+        /^flexible$/i.test(line) ||
+        /\bflexible[- ](?:work|location|work mode|arrangement|role|position)s?\b/i.test(
+          line,
+        ) ||
+        /\b(?:seeking|open to|prefer(?:red|ring)?|looking for)\s+(?:a\s+)?flexible\s+(?:work|location|arrangement|role|position)/i.test(
+          line,
+        )
+      ) {
+        matched.push("flexible");
+      }
+      if (matched.length > 0) {
+        modes.push(...matched);
+        evidenceLines.push(line);
+        sourceBlockIds.push(block.id);
+      }
+    }
+    if (reachedBody) break;
+  }
+  return {
+    modes: [...new Set(modes)],
+    evidenceLines: [...new Set(evidenceLines)],
+    sourceBlockIds: [...new Set(sourceBlockIds)],
+  };
+}
+
 export function extractLiteralCandidates(
   runId: string,
   documentBundle: ResumeDocumentBundle,
@@ -304,6 +396,26 @@ export function extractLiteralCandidates(
         alternatives: [],
       });
     }
+  }
+
+  const headerWorkMode = extractHeaderWorkModes(documentBundle);
+  if (headerWorkMode.modes.length > 0) {
+    drafts.push({
+      target: {
+        section: "search_preferences",
+        key: "workModes",
+        recordId: null,
+      },
+      label: "Work mode",
+      value: headerWorkMode.modes,
+      normalizedValue: headerWorkMode.modes,
+      valuePreview: headerWorkMode.modes.join(", "),
+      evidenceText: headerWorkMode.evidenceLines.join(" "),
+      sourceBlockIds: headerWorkMode.sourceBlockIds,
+      confidence: 0.99,
+      notes: ["explicit_header_work_mode"],
+      alternatives: [],
+    });
   }
 
   const urlTargets: Array<{

@@ -1236,9 +1236,8 @@ export function ApplicationsCrmDetail(props: {
             </ul>
           ) : null}
           <p className="text-xs leading-5 text-muted-foreground">
-            Only metadata is linked here. Candidate Asset consent, retention,
-            integrity checks, and stored bytes remain owned by Documents &amp;
-            assets.
+            Only metadata is linked here. The file itself, its integrity checks,
+            and its stored bytes stay with your files under Profile.
           </p>
         </div>
       </details>

@@ -221,6 +221,223 @@ describe("tool-using AI capabilities", () => {
     expect(result.fullText).toContain("Builds reliable automation");
   });
 
+  test("resume generation records a completed empty proposal as an unchanged AI review", async () => {
+    const client = createToolClient([{ content: "{}" }]);
+
+    const result = await runResumeGenerationAgentTask({
+      client,
+      substantivePrompt: "Balanced mode substantive resume instructions.",
+      request: {
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Saved base resume text",
+      },
+    });
+
+    expect(result.generationQuality).toEqual(
+      expect.objectContaining({
+        proposedRewriteCount: 0,
+        acceptedRewriteCount: 0,
+      }),
+    );
+    expect(result.generationProvenance).toEqual({
+      method: "ai",
+      reason: null,
+      detail:
+        "AI completed the review without proposing wording changes, so your wording stayed unchanged.",
+    });
+    expect(result.notes).not.toContain(
+      "Used the built-in deterministic resume tailorer.",
+    );
+  });
+
+  test("resume generation exposes the authoritative phase after inspection and recomposition", async () => {
+    const proposal = {
+      summary: {
+        text: "Builds reliable automation.",
+        evidenceRefs: ["profile:summary"],
+      },
+    };
+    const phases: Array<{
+      proposalComposed: boolean;
+      previewRenderedForCurrentProposal: boolean;
+      previewInspectedForCurrentProposal: boolean;
+      readyToFinish: boolean;
+      validationIssues: Array<{ code: string }>;
+    }> = [];
+    const deterministic = createDeterministicJobFinderAiClient();
+    let turn = 0;
+    let repairGuidanceSeen = false;
+    const client: AgentCapableJobFinderAiClient = {
+      ...deterministic,
+      chatWithTools(messages) {
+        const currentContext = messages.find(
+          (message) => message.role === "user",
+        );
+        const payload = JSON.parse(currentContext?.content ?? "{}") as {
+          resumeGenerationPhase: (typeof phases)[number];
+        };
+        phases.push(payload.resumeGenerationPhase);
+        turn += 1;
+        if (turn === 1) {
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: "compose-first",
+                type: "function" as const,
+                function: {
+                  name: "compose_resume_proposal",
+                  arguments: JSON.stringify({ proposal }),
+                },
+              },
+              {
+                id: "render-first",
+                type: "function" as const,
+                function: { name: "render_resume_preview", arguments: "{}" },
+              },
+              {
+                id: "inspect-first",
+                type: "function" as const,
+                function: {
+                  name: "inspect_completed_resume",
+                  arguments: "{}",
+                },
+              },
+            ],
+          });
+        }
+        if (turn === 2) {
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: "compose-revision",
+                type: "function" as const,
+                function: {
+                  name: "compose_resume_proposal",
+                  arguments: JSON.stringify({ proposal }),
+                },
+              },
+            ],
+          });
+        }
+        if (turn === 3) {
+          repairGuidanceSeen = messages.some(
+            (message) =>
+              message.role === "tool" &&
+              message.content.includes("call finish_task") &&
+              message.content.includes("reasonForRevision"),
+          );
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: "compose-reasoned-revision",
+                type: "function" as const,
+                function: {
+                  name: "compose_resume_proposal",
+                  arguments: JSON.stringify({
+                    proposal,
+                    reasonForRevision:
+                      "The inspected opening sentence was too vague.",
+                  }),
+                },
+              },
+            ],
+          });
+        }
+        if (turn === 4) {
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: "render-revision",
+                type: "function" as const,
+                function: {
+                  name: "render_resume_preview",
+                  arguments: "{}",
+                },
+              },
+              {
+                id: "inspect-revision",
+                type: "function" as const,
+                function: {
+                  name: "inspect_completed_resume",
+                  arguments: "{}",
+                },
+              },
+            ],
+          });
+        }
+        return Promise.resolve({
+          toolCalls: [
+            {
+              id: "finish",
+              type: "function" as const,
+              function: { name: "finish_task", arguments: "{}" },
+            },
+          ],
+        });
+      },
+    };
+
+    const result = await runResumeGenerationAgentTask({
+      client,
+      substantivePrompt: "Aggressive mode substantive resume instructions.",
+      request: {
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Saved base resume text",
+      },
+    });
+
+    expect(result.summary).toContain("Builds reliable automation");
+    expect(repairGuidanceSeen).toBe(true);
+    expect(phases).toEqual([
+      expect.objectContaining({
+        proposalComposed: false,
+        previewRenderedForCurrentProposal: false,
+        previewInspectedForCurrentProposal: false,
+        readyToFinish: false,
+        validationIssues: expect.arrayContaining([
+          expect.objectContaining({ code: "resume_proposal_required" }),
+          expect.objectContaining({ code: "resume_preview_required" }),
+        ]),
+      }),
+      expect.objectContaining({
+        proposalComposed: true,
+        previewRenderedForCurrentProposal: true,
+        previewInspectedForCurrentProposal: true,
+        readyToFinish: true,
+        validationIssues: [],
+      }),
+      expect.objectContaining({
+        proposalComposed: true,
+        previewRenderedForCurrentProposal: true,
+        previewInspectedForCurrentProposal: true,
+        readyToFinish: true,
+        validationIssues: [],
+      }),
+      expect.objectContaining({
+        proposalComposed: true,
+        previewRenderedForCurrentProposal: false,
+        previewInspectedForCurrentProposal: false,
+        readyToFinish: false,
+        validationIssues: [
+          expect.objectContaining({ code: "resume_preview_required" }),
+        ],
+      }),
+      expect.objectContaining({
+        proposalComposed: true,
+        previewRenderedForCurrentProposal: true,
+        previewInspectedForCurrentProposal: true,
+        readyToFinish: true,
+        validationIssues: [],
+      }),
+    ]);
+  });
+
   test("resume generation rejects an incomplete agent task instead of grading an empty draft", async () => {
     const client = createToolClient(
       Array.from({ length: 8 }, () => ({ toolCalls: [] })),
@@ -241,6 +458,159 @@ describe("tool-using AI capabilities", () => {
     ).rejects.toThrow(
       "Resume generation agent stopped before completing (no_progress).",
     );
+  });
+
+  test("resume generation repairs blocking preview validation without erasing person confirmations", async () => {
+    const proposal = {
+      summary: {
+        text: "Builds reliable automation.",
+        evidenceRefs: ["profile:summary"],
+      },
+    };
+    let renderCount = 0;
+    let repairIssueSeen = false;
+    let personConfirmationCountSeen = false;
+    const renderPreview = vi.fn(() => {
+      renderCount += 1;
+      return Promise.resolve({
+        templateId: "classic_ats",
+        pageCount: 1,
+        warnings: [],
+        fileName: "preview.pdf",
+        requiredModelRepairs:
+          renderCount === 1
+            ? [
+                {
+                  id: "issue_claim_grounding_summary",
+                  severity: "error" as const,
+                  category: "unsupported_claim" as const,
+                  sectionId: "summary",
+                  entryId: null,
+                  bulletId: null,
+                  message: "Saved evidence does not back this wording.",
+                  flaggedText: "Unsupported summary wording.",
+                },
+              ]
+            : [],
+        personConfirmationCount: 2,
+      });
+    });
+    const deterministic = createDeterministicJobFinderAiClient();
+    let turn = 0;
+    const client: AgentCapableJobFinderAiClient = {
+      ...deterministic,
+      chatWithTools(messages) {
+        const currentContext = messages.find(
+          (message) => message.role === "user",
+        );
+        const payload = JSON.parse(currentContext?.content ?? "{}") as {
+          resumeGenerationPhase: {
+            formattedArtifact?: {
+              personConfirmationCount?: number;
+            } | null;
+            validationIssues: Array<{ code: string }>;
+          };
+        };
+        turn += 1;
+        if (turn === 1) {
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: "compose",
+                type: "function" as const,
+                function: {
+                  name: "compose_resume_proposal",
+                  arguments: JSON.stringify({ proposal }),
+                },
+              },
+              {
+                id: "render",
+                type: "function" as const,
+                function: { name: "render_resume_preview", arguments: "{}" },
+              },
+              {
+                id: "inspect",
+                type: "function" as const,
+                function: {
+                  name: "inspect_completed_resume",
+                  arguments: "{}",
+                },
+              },
+            ],
+          });
+        }
+        if (turn === 2) {
+          repairIssueSeen = payload.resumeGenerationPhase.validationIssues.some(
+            (issue) =>
+              issue.code === "resume_preview_issue_claim_grounding_summary",
+          );
+          personConfirmationCountSeen =
+            payload.resumeGenerationPhase.formattedArtifact
+              ?.personConfirmationCount === 2;
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: "repair",
+                type: "function" as const,
+                function: {
+                  name: "compose_resume_proposal",
+                  arguments: JSON.stringify({
+                    proposal,
+                    reasonForRevision:
+                      "The preview reported unsupported summary wording.",
+                  }),
+                },
+              },
+            ],
+          });
+        }
+        if (turn === 3) {
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: "render-repair",
+                type: "function" as const,
+                function: { name: "render_resume_preview", arguments: "{}" },
+              },
+              {
+                id: "inspect-repair",
+                type: "function" as const,
+                function: {
+                  name: "inspect_completed_resume",
+                  arguments: "{}",
+                },
+              },
+            ],
+          });
+        }
+        return Promise.resolve({
+          toolCalls: [
+            {
+              id: "finish",
+              type: "function" as const,
+              function: { name: "finish_task", arguments: "{}" },
+            },
+          ],
+        });
+      },
+    };
+
+    await runResumeGenerationAgentTask({
+      client,
+      substantivePrompt: "Aggressive mode substantive resume instructions.",
+      request: {
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Saved base resume text",
+        renderPreview,
+      },
+    });
+
+    expect(repairIssueSeen).toBe(true);
+    expect(personConfirmationCountSeen).toBe(true);
+    expect(renderPreview).toHaveBeenCalledTimes(2);
   });
 
   test("resume generation can choose an unlocked template and inspects the real rendered artifact", async () => {
@@ -843,5 +1213,209 @@ describe("tool-using AI capabilities", () => {
       }),
     );
     expect(reply.executionReceipt?.stopReason).toBe("completed");
+  });
+
+  test("Guided Edits can show an existing hidden skill without creating a new fact", async () => {
+    const client = createToolClient([
+      {
+        toolCalls: [
+          {
+            id: "content",
+            type: "function",
+            function: {
+              name: "set_response_content",
+              arguments: JSON.stringify({
+                content: "I restored the existing saved Design Systems skill.",
+              }),
+            },
+          },
+          {
+            id: "show-skill",
+            type: "function",
+            function: {
+              name: "set_resume_bullet_included",
+              arguments: JSON.stringify({
+                sectionId: "skills",
+                bulletId: "design-systems",
+                included: true,
+              }),
+            },
+          },
+          {
+            id: "finish",
+            type: "function",
+            function: { name: "finish_task", arguments: "{}" },
+          },
+        ],
+      },
+    ]);
+    const draft = ResumeDraftSchema.parse({
+      id: "draft_1",
+      jobId: "job_1",
+      templateId: "classic_ats",
+      status: "draft",
+      identity: null,
+      sections: [
+        {
+          id: "skills",
+          kind: "skills",
+          label: "Core Skills",
+          bullets: [
+            {
+              id: "design-systems",
+              text: "Design Systems",
+              origin: "user_edited",
+              locked: false,
+              included: false,
+              updatedAt: "2026-08-12T12:00:00.000Z",
+            },
+          ],
+          origin: "user_edited",
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          updatedAt: "2026-08-12T12:00:00.000Z",
+        },
+      ],
+      targetPageCount: 2,
+      generationMethod: null,
+      createdAt: "2026-08-12T12:00:00.000Z",
+      updatedAt: "2026-08-12T12:00:00.000Z",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+    });
+
+    const reply = await runResumeEditAgentTask({
+      client,
+      request: {
+        draft,
+        job: createJobPosting(),
+        request: "Add Design Systems to the skills line.",
+      },
+    });
+
+    expect(reply.patches[0]).toEqual(
+      expect.objectContaining({
+        draftId: "draft_1",
+        operation: "toggle_include",
+        targetSectionId: "skills",
+        targetBulletId: "design-systems",
+        newIncluded: true,
+        origin: "assistant",
+      }),
+    );
+    expect(reply.executionReceipt?.stopReason).toBe("completed");
+  });
+
+  test("Guided Edits refuses locked and unknown top-level bullet targets", async () => {
+    const client = createToolClient([
+      {
+        toolCalls: [
+          {
+            id: "locked-skill",
+            type: "function",
+            function: {
+              name: "set_resume_bullet_included",
+              arguments: JSON.stringify({
+                sectionId: "skills",
+                bulletId: "locked-skill",
+                included: true,
+              }),
+            },
+          },
+          {
+            id: "unknown-keyword",
+            type: "function",
+            function: {
+              name: "set_resume_bullet_included",
+              arguments: JSON.stringify({
+                sectionId: "keywords",
+                bulletId: "missing-keyword",
+                included: true,
+              }),
+            },
+          },
+        ],
+      },
+      {
+        toolCalls: [
+          {
+            id: "content",
+            type: "function",
+            function: {
+              name: "set_response_content",
+              arguments: JSON.stringify({
+                content: "I could not change the locked or missing items.",
+              }),
+            },
+          },
+          {
+            id: "finish",
+            type: "function",
+            function: { name: "finish_task", arguments: "{}" },
+          },
+        ],
+      },
+    ]);
+    const draft = ResumeDraftSchema.parse({
+      id: "draft_1",
+      jobId: "job_1",
+      templateId: "classic_ats",
+      status: "draft",
+      identity: null,
+      sections: [
+        {
+          id: "skills",
+          kind: "skills",
+          label: "Core Skills",
+          bullets: [
+            {
+              id: "locked-skill",
+              text: "Design Systems",
+              origin: "user_edited",
+              locked: true,
+              included: false,
+              updatedAt: "2026-08-12T12:00:00.000Z",
+            },
+          ],
+          origin: "user_edited",
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          updatedAt: "2026-08-12T12:00:00.000Z",
+        },
+        {
+          id: "keywords",
+          kind: "keywords",
+          label: "Keywords",
+          bullets: [],
+          origin: "user_edited",
+          locked: false,
+          included: true,
+          sortOrder: 1,
+          updatedAt: "2026-08-12T12:00:00.000Z",
+        },
+      ],
+      targetPageCount: 2,
+      generationMethod: null,
+      createdAt: "2026-08-12T12:00:00.000Z",
+      updatedAt: "2026-08-12T12:00:00.000Z",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+    });
+
+    const reply = await runResumeEditAgentTask({
+      client,
+      request: {
+        draft,
+        job: createJobPosting(),
+        request: "Show both items.",
+      },
+    });
+
+    expect(reply.patches).toEqual([]);
+    expect(reply.executionReceipt?.stopReason).toBe("permanent_failure");
   });
 });

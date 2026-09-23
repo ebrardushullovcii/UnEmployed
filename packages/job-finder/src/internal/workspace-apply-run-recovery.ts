@@ -8,8 +8,44 @@ import {
   type ApplicationRecord,
   type ApplyJobResult,
   type ApplyRun,
+  type JobFinderActivityControl,
   type ApplySubmitApproval,
 } from "@unemployed/contracts";
+
+/** A paused queue may be resumed after restart only between jobs. */
+export function isSafelyParkedApplyQueue(input: {
+  run: ApplyRun;
+  results: readonly ApplyJobResult[];
+  control: JobFinderActivityControl;
+}): boolean {
+  const { run, results, control } = input;
+  if (
+    !control.paused ||
+    control.pauseBehavior !== "finish_current" ||
+    run.mode !== "queue_auto" ||
+    run.state !== "running" ||
+    results.length !== run.jobIds.length
+  )
+    return false;
+  if (new Set(results.map((result) => result.jobId)).size !== run.jobIds.length)
+    return false;
+  if (!results.some((result) => result.state === "planned")) return false;
+  return results.every(
+    (result) =>
+      result.runId === run.id &&
+      run.jobIds.includes(result.jobId) &&
+      (result.state !== "planned" ||
+        (result.applicationPreparationStartedAt == null &&
+          result.applicationPreparationStartedLocalDate == null)) &&
+      (result.state === "planned" ||
+        result.state === "awaiting_review" ||
+        result.state === "submitted" ||
+        result.state === "blocked" ||
+        result.state === "failed" ||
+        result.state === "skipped") &&
+      result.privacyReceipt?.submissionOutcome?.outcome !== "outcome_uncertain",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Reusing one batch approval across a retry of part of that batch

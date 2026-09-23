@@ -9,6 +9,7 @@ import {
   type CandidateAssetKind,
   type ClearApplicationAnswerCommand,
   type SaveApplicationAnswerCommand,
+  type UserActionCommand,
 } from "@unemployed/contracts";
 import {
   createReusableAnswerForQuestion,
@@ -181,8 +182,62 @@ export function createWorkspaceApplicationAnswerMethods(
     runId: string,
     jobId: string,
   ) => Promise<ApplyRunDetails>,
+  performUserAction?: (command: UserActionCommand) => Promise<unknown>,
 ) {
   const mutationFlights = new Map<string, Promise<ApplyRunDetails>>();
+
+  async function continueAnsweredStep(command: SaveApplicationAnswerCommand) {
+    if (!performUserAction) return;
+    const details = await getApplyRunDetails(command.runId, command.jobId);
+    if (
+      details.result?.id !== command.resultId ||
+      (details.result.state !== "blocked" &&
+        details.result.state !== "awaiting_review")
+    )
+      return;
+    const requiredQuestions = details.questionRecords.filter(
+      (question) =>
+        question.resultId === command.resultId && question.isRequired,
+    );
+    if (
+      !requiredQuestions.length ||
+      requiredQuestions.some((question) => {
+        const answer = getLatestQuestionAnswer(details, question.id);
+        return (
+          question.status !== "answered" ||
+          !answer ||
+          answer.status === "rejected" ||
+          answer.value === null
+        );
+      })
+    )
+      return;
+    const requests = await ctx.repository.listUserActionRequests({
+      scopeType: "application",
+      states: ["pending", "page_opened", "awaiting_user", "still_blocked"],
+    });
+    const request = requests.find(
+      (candidate) =>
+        (candidate.kind === "manual_answer" ||
+          candidate.kind === "manual_upload") &&
+        candidate.scope.type === "application" &&
+        candidate.scope.runId === command.runId &&
+        candidate.scope.jobId === command.jobId &&
+        candidate.scope.resultId === command.resultId &&
+        candidate.scope.applicationRecordId ===
+          details.result?.applicationRecordId,
+    );
+    if (!request) return;
+    await performUserAction({
+      action: "confirm_done",
+      commandId: `${command.commandId}_continue_${request.id}_r${request.revision}`,
+      requestId: request.id,
+      expectedRevision: request.revision,
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+  }
 
   async function getExactMutationContext(input: {
     expectedAnswerRevision: number;
@@ -234,7 +289,8 @@ export function createWorkspaceApplicationAnswerMethods(
         (answer) => answer.id === `application_answer_${command.commandId}`,
       )
     ) {
-      return existingDetails;
+      await continueAnsweredStep(command);
+      return getApplyRunDetails(command.runId, command.jobId);
     }
 
     const { latestAnswer, question } = await getExactMutationContext(command);
@@ -325,6 +381,7 @@ export function createWorkspaceApplicationAnswerMethods(
         "This answer changed in another view. Reload the application before replacing it.",
       );
     }
+    await continueAnsweredStep(command);
     return getApplyRunDetails(command.runId, command.jobId);
   }
 

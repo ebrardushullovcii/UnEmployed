@@ -81,7 +81,11 @@ function looksLikeApplyEntryText(text: string): boolean {
 const MAX_HTML_LENGTH = 1_500_000;
 const MAX_DESCRIPTION_LENGTH = 24_000;
 const MAX_PAGE_TEXT_LENGTH = 12_000;
-const MIN_PAGE_TEXT_WORDS = 120;
+// Some real small-company listings are concise. The compact allowance below
+// is used only when the page names the exact card title and carries listing
+// cue words; otherwise the original 120-word floor still applies.
+const MIN_PAGE_TEXT_WORDS = 50;
+const MIN_WEAKLY_IDENTIFIED_PAGE_TEXT_WORDS = 120;
 const MAX_JSON_LD_NODES = 200;
 
 export type ListingDetailExtractionMethod = "json_ld" | "page_text";
@@ -419,8 +423,7 @@ function readDirectApplyUrl(node: JsonRecord): string | null {
   return directApply === true && url ? url : null;
 }
 
-const ANCHOR_PATTERN =
-  /<a\b([^>]*?)>([\s\S]*?)<\/a\s*>/giu;
+const ANCHOR_PATTERN = /<a\b([^>]*?)>([\s\S]*?)<\/a\s*>/giu;
 const HREF_PATTERN = /\bhref\s*=\s*["']([^"']+)["']/iu;
 const ARIA_LABEL_PATTERN = /\baria-label\s*=\s*["']([^"']+)["']/iu;
 
@@ -434,7 +437,10 @@ const ARIA_LABEL_PATTERN = /\baria-label\s*=\s*["']([^"']+)["']/iu;
  * control in script has none of this in its HTML, and the run walks the page
  * itself instead.
  */
-export function findApplyLinkInHtml(html: string, baseUrl: string): string | null {
+export function findApplyLinkInHtml(
+  html: string,
+  baseUrl: string,
+): string | null {
   ANCHOR_PATTERN.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = ANCHOR_PATTERN.exec(html)) !== null) {
@@ -667,6 +673,9 @@ function extractListingDetailFromPageText(
   const titleNamed =
     Boolean(input.expectedTitle) &&
     text.split("\n").some((line) => lineNamesTitle(line, input.expectedTitle));
+  if (!titleNamed && wordCount < MIN_WEAKLY_IDENTIFIED_PAGE_TEXT_WORDS) {
+    return null;
+  }
   if (
     !LISTING_BODY_SIGNAL.test(text) &&
     !(titleNamed && wordCount >= MIN_UNCUED_PAGE_TEXT_WORDS)

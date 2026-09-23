@@ -206,21 +206,7 @@ const operationCases: Record<
       record: {
         id: null,
         companyName: "Acme Interactive",
-        companyUrl: null,
         title: "Frontend Engineer",
-        employmentType: null,
-        location: null,
-        workMode: [],
-        startDate: null,
-        endDate: null,
-        isCurrent: false,
-        isDraft: false,
-        summary: null,
-        achievements: [],
-        skills: [],
-        domainTags: [],
-        peopleManagementScope: null,
-        ownershipScope: null,
       },
     },
   },
@@ -244,13 +230,6 @@ const operationCases: Record<
       record: {
         id: null,
         schoolName: "Tech State University",
-        degree: null,
-        fieldOfStudy: null,
-        location: null,
-        startDate: null,
-        endDate: null,
-        isDraft: false,
-        summary: null,
       },
     },
   },
@@ -264,6 +243,16 @@ const operationCases: Record<
       recordId: "education_1",
     },
   },
+  reorder_education_records: {
+    input: {
+      operation: "reorder_education_records",
+      orderedRecordIds: ["education_2", "education_1"],
+    },
+    expected: {
+      operation: "reorder_education_records",
+      orderedRecordIds: ["education_2", "education_1"],
+    },
+  },
   upsert_certification_record: {
     input: {
       operation: "upsert_certification_record",
@@ -274,11 +263,6 @@ const operationCases: Record<
       record: {
         id: null,
         name: "AWS Solutions Architect",
-        issuer: null,
-        issueDate: null,
-        expiryDate: null,
-        credentialUrl: null,
-        isDraft: false,
       },
     },
   },
@@ -302,14 +286,6 @@ const operationCases: Record<
       record: {
         id: null,
         name: "Ops Dashboard",
-        projectType: null,
-        summary: null,
-        role: null,
-        skills: [],
-        outcome: null,
-        projectUrl: null,
-        repositoryUrl: null,
-        caseStudyUrl: null,
       },
     },
   },
@@ -333,7 +309,6 @@ const operationCases: Record<
         label: "Portfolio",
         url: "https://alexvanguard.example.com",
         kind: "portfolio",
-        isDraft: false,
       },
     },
   },
@@ -352,8 +327,6 @@ const operationCases: Record<
         id: null,
         language: "Albanian",
         proficiency: "Native",
-        interviewPreference: false,
-        notes: null,
       },
     },
   },
@@ -375,11 +348,6 @@ const operationCases: Record<
         id: null,
         title: "Cut checkout latency",
         claim: "Reduced p95 checkout latency by 40 percent.",
-        heroMetric: null,
-        supportingContext: null,
-        roleFamilies: [],
-        projectIds: [],
-        linkIds: [],
       },
     },
   },
@@ -405,8 +373,6 @@ const operationCases: Record<
         label: "Notice period",
         question: "When can you start?",
         answer: "Two weeks after signing.",
-        roleFamilies: [],
-        proofEntryIds: [],
       },
     },
   },
@@ -429,6 +395,36 @@ const operationCases: Record<
 };
 
 describe("propose_profile_operations model-tool harness", () => {
+  test("tells the model to omit unchanged record fields and reserve empty values for explicit clears", async () => {
+    const deterministic = createDeterministicJobFinderAiClient();
+    let systemPrompt = "";
+    const client: AgentCapableJobFinderAiClient = {
+      ...deterministic,
+      chatWithTools(messages) {
+        systemPrompt = messages
+          .filter((message) => message.role === "system")
+          .map((message) => message.content)
+          .join(" ");
+        return Promise.resolve({ toolCalls: [finishCall("finish")] });
+      },
+    };
+
+    await runProfileCopilotAgentTask({
+      client,
+      request: createCopilotRequest(
+        "Change only the location on my current role.",
+      ),
+    });
+
+    expect(systemPrompt).toContain("Omit every unchanged field");
+    expect(systemPrompt).toContain(
+      "Send null or an empty list only when the person explicitly asks to clear that field",
+    );
+    expect(systemPrompt).toContain(
+      "map the Settings names Light to tailoringMode conservative",
+    );
+  });
+
   for (const [operationName, testCase] of Object.entries(operationCases)) {
     test(`accepts ${operationName} and wraps it in one runtime-owned review-only group`, async () => {
       const client = createScriptedToolClient([
@@ -532,6 +528,52 @@ describe("propose_profile_operations model-tool harness", () => {
     expect(reply.patchGroups).toHaveLength(1);
     expect(reply.patchGroups[0]?.operations).toEqual([
       operationCases.replace_identity_fields.expected,
+    ]);
+  });
+
+  test("rejects an id-less field-only record update and repairs it with the existing id", async () => {
+    const client = createScriptedToolClient([
+      {
+        toolCalls: [
+          proposeCall("missing_id", [
+            {
+              operation: "upsert_experience_record",
+              record: { achievements: ["Mentored two frontend engineers."] },
+            },
+          ]),
+        ],
+      },
+      {
+        toolCalls: [
+          proposeCall("repaired_id", [
+            {
+              operation: "upsert_experience_record",
+              record: {
+                id: "experience_1",
+                achievements: ["Mentored two frontend engineers."],
+              },
+            },
+          ]),
+          finishCall("finish_repaired_id"),
+        ],
+      },
+    ]);
+
+    const reply = await runProfileCopilotAgentTask({
+      client,
+      request: createCopilotRequest("Add one bullet to my existing role."),
+    });
+
+    expect(reply.executionReceipt?.repairAttempts).toBe(1);
+    expect(reply.executionReceipt?.stopReason).toBe("completed");
+    expect(reply.patchGroups[0]?.operations).toEqual([
+      {
+        operation: "upsert_experience_record",
+        record: {
+          id: "experience_1",
+          achievements: ["Mentored two frontend engineers."],
+        },
+      },
     ]);
   });
 

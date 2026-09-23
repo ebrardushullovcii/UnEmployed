@@ -1395,7 +1395,7 @@ describe("ResumeGuidedEditsPopup", () => {
       expect(quickActions.className).toContain("shrink-0");
       expect(
         screen.getByRole("button", {
-          name: "Try the AI draft again — this replaces your edits",
+          name: "Create a new AI draft — this replaces your edits",
         }),
       ).toBeTruthy();
       expect(

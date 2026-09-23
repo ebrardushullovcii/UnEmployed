@@ -567,7 +567,31 @@ export function buildJobFinderPageContext(
               expanded: true,
             });
           }
-          return actions.performUserAction(command);
+          const snapshot = await actions.performUserAction(command);
+          const applicationScope =
+            request?.scope.type === "application" ? request.scope : null;
+          if (command.action === "open_page" && applicationScope) {
+            const latestRequest = (snapshot.userActionRequests ?? []).find(
+              (candidate) => candidate.id === command.requestId,
+            );
+            const applicationRecord = applicationScope.applicationRecordId
+              ? (snapshot.applicationRecords ?? []).find(
+                  (record) =>
+                    record.id === applicationScope.applicationRecordId,
+                )
+              : null;
+            if (
+              latestRequest?.state === "cancelled" ||
+              (applicationRecord?.lastAttemptState === "failed" &&
+                applicationRecord.lastActionLabel ===
+                  "The prepared application page is no longer open.")
+            ) {
+              throw new Error(
+                "That prepared application page is no longer open. Choose Try again in Applications to prepare it again.",
+              );
+            }
+          }
+          return snapshot;
         },
         () => undefined,
         // "Action inbox" is not a destination this app has — the page is

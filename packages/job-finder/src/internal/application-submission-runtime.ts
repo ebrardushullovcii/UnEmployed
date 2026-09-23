@@ -8,6 +8,7 @@ import type {
 } from "@unemployed/contracts";
 import {
   isActiveApplicationAuthorityEnvelope,
+  describeBrowserError,
   SubmissionFinalControlIdentitySchema,
   SubmissionObservationIdentitySchema,
 } from "@unemployed/contracts";
@@ -118,11 +119,20 @@ function mapBrowserActionResult(input: {
   authorityVetoed: boolean;
   preflightId: string;
 }): SyntheticSubmissionExecutorResult {
+  const browserAction = {
+    reason: input.result.reason,
+    actionAttempted: input.result.facts.actionAttempted,
+    actionIssued: input.result.facts.actionIssued,
+    actionCompleted: input.result.facts.actionCompleted,
+    requestsObservedDuringAction:
+      input.result.facts.requestsObservedDuringAction,
+  };
   if (input.result.outcome === "submitted") {
     const { destination, observedAt, summary } = input.result.confirmation;
     if (destination.origin && destination.safePath) {
       return {
         outcome: "submitted",
+        browserAction,
         verifiedAt: observedAt,
         evidence: [
           {
@@ -139,12 +149,13 @@ function mapBrowserActionResult(input: {
         ],
       };
     }
-    return { outcome: "outcome_uncertain", evidence: [] };
+    return { outcome: "outcome_uncertain", evidence: [], browserAction };
   }
 
   if (input.result.outcome === "not_submitted") {
     return {
       outcome: "not_submitted",
+      browserAction,
       evidence: [],
       retry: mapNotSubmittedRetry({
         authorityVetoed: input.authorityVetoed,
@@ -153,7 +164,7 @@ function mapBrowserActionResult(input: {
   }
 
   // Click, URL, and request facts alone never establish a submitted outcome.
-  return { outcome: "outcome_uncertain", evidence: [] };
+  return { outcome: "outcome_uncertain", evidence: [], browserAction };
 }
 
 function hasExactOneFinalControl(
@@ -243,6 +254,7 @@ export async function runApplicationSubmissionRuntime(
   try {
     observation = await input.browserRuntime.observeApplicationForm(
       input.source,
+      { pageBindingKey: input.lineage.resultId },
     );
   } catch {
     return blockedResult(
@@ -352,6 +364,7 @@ export async function runApplicationSubmissionRuntime(
     }
 
     const actionInput: ExecuteExactlyOneFinalActionInput = {
+      pageBindingKey: input.lineage.resultId,
       expectedObservation: executorInput.preflight.formObservation,
       expectedControl: executorInput.preflight.finalControl,
       expectedPageOrigin: preflightOrigin,
@@ -371,11 +384,28 @@ export async function runApplicationSubmissionRuntime(
         authorityVetoed,
         preflightId: executorInput.preflight.id,
       });
-    } catch {
+    } catch (error) {
       // Once the durable marker is armed, a browser hand failure is always
       // uncertain. The orchestrator records that state and permanently blocks
       // an automatic retry for this idempotency key.
-      return { outcome: "outcome_uncertain", evidence: [] };
+      const detail = describeBrowserError(
+        error,
+        "The final browser action failed.",
+      )
+        .replace(/https?:\/\/[^\s)]+/gu, (url) => {
+          try {
+            const parsed = new URL(url);
+            return `${parsed.origin}${parsed.pathname}`;
+          } catch {
+            return "the employer page";
+          }
+        })
+        .slice(0, 500);
+      return {
+        outcome: "outcome_uncertain",
+        evidence: [],
+        browserAction: { reason: "runtime_exception", detail },
+      };
     }
   };
 

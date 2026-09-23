@@ -1,4 +1,5 @@
 import { getEmbeddedBrowser } from "../browser/embedded-browser";
+import { publishJobFinderWorkspaceUpdate } from "./workspace-updates";
 import { withEmbeddedBrowserActivity } from "../browser/embedded-browser-runtime";
 import {
   type BrowserVisualAnalysisInput,
@@ -60,6 +61,7 @@ import { migrateLegacyResumeSource } from "./migrate-resume-source";
 import { recoverInterruptedDiscoveryRuns } from "./recover-interrupted-discovery-runs";
 import { recoverPendingJobFinderWorkspaceReset } from "./reset-workspace";
 import { getCandidateAssetLibrary } from "./candidate-asset-library-instance";
+import { installAutomaticSourceAccessResume } from "./automatic-source-access-resume";
 import type {
   JobFinderStartupDatabaseRecoveryBlockedFact,
   JobFinderStartupDatabaseRecoveryFact,
@@ -70,6 +72,7 @@ import type {
 // service. A weak association keeps this accessor scoped to the live service
 // instance without retaining a shut-down workspace in process memory.
 const repositoryByWorkspaceService = new WeakMap<object, JobFinderRepository>();
+let disposeAutomaticSourceAccessResume: (() => void) | null = null;
 
 export function getJobFinderRepositoryForWorkspaceService(
   workspaceService: object,
@@ -595,6 +598,7 @@ export async function createJobFinderWorkspaceServiceAsync(
     // Listing bodies are read over plain HTTP from the main process; the
     // package only reads when a host hands it a reader, so tests stay offline.
     fetchListingHtml: createDefaultListingHtmlFetcher(),
+    onDetachedApplyRunFinished: () => publishJobFinderWorkspaceUpdate(),
     // The embedded browser keeps its own pause flag. Every activity-control
     // change (Home's button, or an explicit click resuming paused work) is
     // mirrored onto it, so a resume never leaves the browser refusing work
@@ -602,16 +606,24 @@ export async function createJobFinderWorkspaceServiceAsync(
     ...(usesEmbeddedBrowser
       ? {
           onActivityControlChanged: (control) => {
-            getEmbeddedBrowser().syncActivityPaused(control.paused);
+            // Home pauses new work at the queue boundary. Keep the browser
+            // available to the job already being filled; browser takeover
+            // still uses the immediate abort path.
+            getEmbeddedBrowser().syncActivityPaused(
+              control.paused && control.pauseBehavior !== "finish_current",
+            );
           },
         }
       : {}),
   });
   repositoryByWorkspaceService.set(workspaceService, jobFinderRepository);
+  disposeAutomaticSourceAccessResume?.();
+  disposeAutomaticSourceAccessResume = null;
   if (usesEmbeddedBrowser) {
     const browser = getEmbeddedBrowser();
+    const savedControl = await jobFinderRepository.getActivityControl();
     browser.syncActivityPaused(
-      (await jobFinderRepository.getActivityControl()).paused,
+      savedControl.paused && savedControl.pauseBehavior !== "finish_current",
     );
     browser.setActivityHooks({
       pause: async (reason) => {
@@ -620,6 +632,13 @@ export async function createJobFinderWorkspaceServiceAsync(
       resume: async () => {
         await workspaceService.setActivityControl({ paused: false });
       },
+    });
+    disposeAutomaticSourceAccessResume = installAutomaticSourceAccessResume({
+      browser,
+      browserRuntime,
+      repository: jobFinderRepository,
+      performUserAction: (command) =>
+        workspaceService.performUserAction(command),
     });
   }
 

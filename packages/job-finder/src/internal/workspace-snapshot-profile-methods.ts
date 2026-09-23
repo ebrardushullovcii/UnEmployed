@@ -64,9 +64,12 @@ import {
   recoverInterruptedExactLineageProjections,
   refreshTerminalizedApplyRunCounters,
   cancelInterruptedApplyJobResult,
+  isSafelyParkedApplyQueue,
 } from "./workspace-apply-run-recovery";
 import { persistAutomaticApplicationSafeguards } from "./automatic-safeguards";
+import { reconcileAutomaticBatchSampleReviews } from "./automatic-batch-review-recovery";
 import { reconcileStaleMissingResumeBlockers } from "./workspace-application-blocker-sync";
+import { terminalizeApplicationAfterPreparedPageLost } from "./workspace-application-user-action";
 import { recoverInterruptedDiscoveryRun } from "./workspace-discovery-run-helpers";
 import {
   deriveSourceAccessPrompts,
@@ -99,7 +102,10 @@ import {
   ensureCampaignState,
 } from "./campaign-dashboard";
 import { projectDiscoveryJobViews } from "./listing-activity";
-import { deriveGlobalDailyApplicationPreparationCapacity } from "./application-preparation-capacity";
+import {
+  deriveGlobalDailyApplicationPreparationCapacity,
+  MAX_BEGUN_EMPLOYER_APPLICATIONS_PER_LOCAL_DAY,
+} from "./application-preparation-capacity";
 
 const BOOTSTRAP_DEFERRED_COLLECTIONS = [
   "discovery_jobs",
@@ -432,9 +438,13 @@ export function createWorkspaceSnapshotProfileMethods(
     }
 
     const recoveryPromise = (async () => {
-      const [runs, allResults] = await Promise.all([
+      const [runs, allResults, savedJobs, activityControl] = await Promise.all([
         ctx.repository.listApplyRuns(),
         ctx.repository.listApplyJobResults(),
+        ctx.browserRuntime.hasApplicationPageBinding
+          ? ctx.repository.listSavedJobs()
+          : Promise.resolve([]),
+        ctx.repository.getActivityControl(),
       ]);
 
       if (
@@ -445,7 +455,20 @@ export function createWorkspaceSnapshotProfileMethods(
       }
 
       const resultsByRunId = groupApplyJobResultsByRunId(allResults);
-      const interruptedRuns = runs.filter((run) => run.state === "running");
+      const parkedRunIds = new Set(
+        runs
+          .filter((run) =>
+            isSafelyParkedApplyQueue({
+              run,
+              results: resultsByRunId.get(run.id) ?? [],
+              control: activityControl,
+            }),
+          )
+          .map((run) => run.id),
+      );
+      const interruptedRuns = runs.filter(
+        (run) => run.state === "running" && !parkedRunIds.has(run.id),
+      );
       // Runs already terminal BECAUSE a prior recovery pass terminalized them:
       // a crash between committing the failed run and sweeping its results
       // once stranded non-terminal rows under it forever, because only running
@@ -466,6 +489,9 @@ export function createWorkspaceSnapshotProfileMethods(
       const recoveryTerminalizedRunIds = new Set(
         runs.filter(isRecoveryTerminalizedApplyRun).map((run) => run.id),
       );
+      const cancelledRunIds = new Set(
+        runs.filter((run) => run.state === "cancelled").map((run) => run.id),
+      );
       const hasPartiallyRecoveredOrphans =
         partiallyRecoveredRunIds.size > 0 &&
         allResults.some(
@@ -473,10 +499,34 @@ export function createWorkspaceSnapshotProfileMethods(
             partiallyRecoveredRunIds.has(result.runId) &&
             isInterruptedApplyJobState(result.state) &&
             (recoveryTerminalizedRunIds.has(result.runId) ||
+              cancelledRunIds.has(result.runId) ||
               result.state !== "planned"),
         );
 
-      if (interruptedRuns.length === 0 && !hasPartiallyRecoveredOrphans) {
+      const jobsById = new Map(savedJobs.map((job) => [job.id, job]));
+      const lostPreparedReviewCandidates = ctx.browserRuntime
+        .hasApplicationPageBinding
+        ? allResults.filter(
+            (result) =>
+              result.state === "awaiting_review" &&
+              result.applicationRecordId !== null &&
+              result.blockerReason === null &&
+              (result.reviewCard === null ||
+                result.reviewCard.waitingOnYou.length === 0) &&
+              result.privacyReceipt?.submissionOutcome?.outcome !==
+                "outcome_uncertain" &&
+              jobsById.has(result.jobId) &&
+              (runs.find((run) => run.id === result.runId)?.state !==
+                "running" ||
+                parkedRunIds.has(result.runId)),
+          )
+        : [];
+
+      if (
+        interruptedRuns.length === 0 &&
+        !hasPartiallyRecoveredOrphans &&
+        lostPreparedReviewCandidates.length === 0
+      ) {
         return;
       }
 
@@ -554,16 +604,22 @@ export function createWorkspaceSnapshotProfileMethods(
               if (!isInterruptedApplyJobState(result.state)) {
                 continue;
               }
-              // Under a run the person ended or that finished on its own,
-              // only rows still claiming live work are swept; queued
-              // "planned" rows are that run's own record and stay.
-              if (!recoveryTerminalized && result.state === "planned") {
+              // Completed runs retain their queued history. A cancelled
+              // run cannot still have a queued job waiting its turn.
+              if (
+                !recoveryTerminalized &&
+                run.state !== "cancelled" &&
+                result.state === "planned"
+              ) {
                 continue;
               }
               const recoveredResult = recoveryTerminalized
                 ? recoverInterruptedApplyJobResult(result, completedAt)
                 : run.state === "cancelled"
-                  ? cancelInterruptedApplyJobResult(result, completedAt)
+                  ? cancelInterruptedApplyJobResult(
+                      result,
+                      run.completedAt ?? run.updatedAt,
+                    )
                   : recoverInterruptedApplyJobResult(result, completedAt);
               if (!recoveredResult) {
                 continue;
@@ -578,15 +634,29 @@ export function createWorkspaceSnapshotProfileMethods(
             // Deterministic orphan sweep: the repository exposes no central
             // multi-entity recovery transaction, so convergence comes from
             // idempotent per-row writes with deterministic event ids instead.
-            // Lineage projection covers every exact-lineage row of this run —
-            // not just the orphans being terminalized — so a prior pass that
-            // died between committing results and projecting attempts/records
-            // heals here too. Null/ambiguous lineage is never attributed.
+            // A queued job never started an attempt. Nor may an older
+            // cancelled run overwrite a later retry of the same record.
+            // Other exact-lineage rows remain eligible so partial recovery
+            // of an in-flight attempt can still converge.
             const sweptRecordIds = new Set<string>();
             for (const result of runResults) {
-              if (result.applicationRecordId) {
-                sweptRecordIds.add(result.applicationRecordId);
+              const recordId = result.applicationRecordId;
+              if (!recordId) continue;
+              if (run.state === "cancelled" && result.state === "planned") {
+                continue;
               }
+              if (
+                run.state === "cancelled" &&
+                allResults.some(
+                  (other) =>
+                    other.runId !== run.id &&
+                    other.applicationRecordId === recordId &&
+                    other.startedAt > (run.completedAt ?? run.updatedAt),
+                )
+              ) {
+                continue;
+              }
+              sweptRecordIds.add(recordId);
             }
             await recoverInterruptedExactLineageProjections({
               repository: ctx.repository,
@@ -612,6 +682,60 @@ export function createWorkspaceSnapshotProfileMethods(
           }
         })(),
       ]);
+
+      if (ctx.browserRuntime.hasApplicationPageBinding) {
+        for (const result of lostPreparedReviewCandidates) {
+          const job = jobsById.get(result.jobId);
+          if (!job || !result.applicationRecordId) continue;
+          const isResuming = (
+            await ctx.repository.listUserActionRequests({
+              states: ["verifying"],
+              scopeType: "application",
+            })
+          ).some(
+            (request) =>
+              request.scope.type === "application" &&
+              request.scope.resultId === result.id,
+          );
+          if (isResuming) continue;
+          const hasBinding = await ctx.browserRuntime.hasApplicationPageBinding(
+            job.source,
+            result.id,
+          );
+          if (hasBinding) continue;
+          // Binding checks are asynchronous. A continuation or send may have
+          // claimed this exact run while the runtime answered, so recheck the
+          // in-memory owners and the persisted request immediately before any
+          // terminal write.
+          if (
+            ctx.activeApplyRunAbortControllers.has(result.runId) ||
+            ctx.activeApplyRunPromises.has(result.runId)
+          ) {
+            continue;
+          }
+          const beganResuming = (
+            await ctx.repository.listUserActionRequests({
+              states: ["verifying"],
+              scopeType: "application",
+            })
+          ).some(
+            (request) =>
+              request.scope.type === "application" &&
+              request.scope.resultId === result.id,
+          );
+          if (beganResuming) continue;
+          await terminalizeApplicationAfterPreparedPageLost({
+            repository: ctx.repository,
+            runId: result.runId,
+            jobId: result.jobId,
+            applicationRecordId: result.applicationRecordId,
+            resultId: result.id,
+            occurredAt: completedAt,
+            eventId: `event_${result.id}_prepared_page_binding_lost`,
+            preserveRunningRun: parkedRunIds.has(result.runId),
+          });
+        }
+      }
     })();
 
     interruptedApplyRecoveryPromise = recoveryPromise;
@@ -741,6 +865,7 @@ export function createWorkspaceSnapshotProfileMethods(
       recoverInterruptedDiscoveryStateOnLoad(),
       recoverInterruptedApplyRunsOnLoad(),
     ]);
+    await reconcileAutomaticBatchSampleReviews(ctx);
 
     if (!ctx.activeSourceDebugExecutionIdRef.current) {
       const discoveryState = await ctx.repository.getDiscoveryState();
@@ -1101,6 +1226,9 @@ export function createWorkspaceSnapshotProfileMethods(
       deriveGlobalDailyApplicationPreparationCapacity({
         applyRuns,
         applyJobResults,
+        limit:
+          settings.maxApplicationsPerLocalDay ??
+          MAX_BEGUN_EMPLOYER_APPLICATIONS_PER_LOCAL_DAY,
         // An application prepared outside an apply run leaves only its
         // record, and the day's counter has to see it.
         applicationRecords: orderedApplicationRecords,
@@ -1332,18 +1460,40 @@ export function createWorkspaceSnapshotProfileMethods(
     getWorkspaceSnapshot,
   });
 
-  async function saveSearchPreferences(searchPreferences: JobSearchPreferences) {
+  async function persistSearchPreferences(
+    searchPreferences: JobSearchPreferences,
+    options: { preserveAiBehaviorOwnedFields: boolean },
+  ) {
     const currentProfile = await ctx.repository.getProfile();
     const currentProfileSetupState =
       await ctx.repository.getProfileSetupState();
     const currentSearchPreferences = normalizeSearchPreferences(
       await ctx.repository.getSearchPreferences(),
     );
+    const parsedSearchPreferences = normalizeSearchPreferences(
+      JobSearchPreferencesSchema.parse(searchPreferences),
+    );
+    // Profile and guided-setup callers still send the complete preferences
+    // record. The resume approach and strict collection flag moved to
+    // Settings in ADR 0025, so an older Profile draft must never write its
+    // copies back over a newer Settings save. The AI-behavior save opts out
+    // because it is the sole owner allowed to change these two fields.
+    const ownedFieldsPreservedSearchPreferences =
+      options.preserveAiBehaviorOwnedFields
+        ? {
+            ...parsedSearchPreferences,
+            tailoringMode: currentSearchPreferences.tailoringMode,
+            discovery: {
+              ...parsedSearchPreferences.discovery,
+              collectOnlyHardCriteriaMatches:
+                currentSearchPreferences.discovery
+                  .collectOnlyHardCriteriaMatches ?? false,
+            },
+          }
+        : parsedSearchPreferences;
     const nextSearchPreferences = invalidateChangedSourceGuidance(
       currentSearchPreferences,
-      normalizeSearchPreferences(
-        JobSearchPreferencesSchema.parse(searchPreferences),
-      ),
+      ownedFieldsPreservedSearchPreferences,
     );
     await ctx.repository.saveSearchPreferences(nextSearchPreferences);
     await syncActiveCampaignPreferences(nextSearchPreferences);
@@ -1355,6 +1505,14 @@ export function createWorkspaceSnapshotProfileMethods(
         (await ctx.repository.getLatestResumeImportRun())?.id ?? null,
     });
     return getWorkspaceSnapshot();
+  }
+
+  async function saveSearchPreferences(
+    searchPreferences: JobSearchPreferences,
+  ) {
+    return persistSearchPreferences(searchPreferences, {
+      preserveAiBehaviorOwnedFields: true,
+    });
   }
 
   /**
@@ -1528,11 +1686,21 @@ export function createWorkspaceSnapshotProfileMethods(
       const currentSearchPreferences = normalizeSearchPreferences(
         await ctx.repository.getSearchPreferences(),
       );
+      const parsedSearchPreferences = normalizeSearchPreferences(
+        JobSearchPreferencesSchema.parse(searchPreferences),
+      );
       const nextSearchPreferences = invalidateChangedSourceGuidance(
         currentSearchPreferences,
-        normalizeSearchPreferences(
-          JobSearchPreferencesSchema.parse(searchPreferences),
-        ),
+        {
+          ...parsedSearchPreferences,
+          tailoringMode: currentSearchPreferences.tailoringMode,
+          discovery: {
+            ...parsedSearchPreferences.discovery,
+            collectOnlyHardCriteriaMatches:
+              currentSearchPreferences.discovery
+                .collectOnlyHardCriteriaMatches ?? false,
+          },
+        },
       );
       const nextProfileSetupState = resolvePendingReviewItemsAfterExplicitSave({
         currentProfile,
@@ -1834,21 +2002,24 @@ export function createWorkspaceSnapshotProfileMethods(
               (currentSearchPreferences.discovery
                 .collectOnlyHardCriteriaMatches ?? false));
         if (changed) {
-          await saveSearchPreferences({
-            ...currentSearchPreferences,
-            ...(nextTailoringMode !== undefined
-              ? { tailoringMode: nextTailoringMode }
-              : {}),
-            discovery: {
-              ...currentSearchPreferences.discovery,
-              ...(nextCollectOnlyHardCriteriaMatches !== undefined
-                ? {
-                    collectOnlyHardCriteriaMatches:
-                      nextCollectOnlyHardCriteriaMatches,
-                  }
+          await persistSearchPreferences(
+            {
+              ...currentSearchPreferences,
+              ...(nextTailoringMode !== undefined
+                ? { tailoringMode: nextTailoringMode }
                 : {}),
+              discovery: {
+                ...currentSearchPreferences.discovery,
+                ...(nextCollectOnlyHardCriteriaMatches !== undefined
+                  ? {
+                      collectOnlyHardCriteriaMatches:
+                        nextCollectOnlyHardCriteriaMatches,
+                    }
+                  : {}),
+              },
             },
-          });
+            { preserveAiBehaviorOwnedFields: false },
+          );
         }
       }
       return getWorkspaceSnapshot();

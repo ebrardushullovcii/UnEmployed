@@ -72,6 +72,11 @@ export {
   runSubmitPreflight,
   type ApplySubmitPreflightResult,
 } from "./submit-preflight";
+export {
+  completeTaskLocalSignIn,
+  selectObservedSignInAction,
+  type TaskLocalCredentialReference,
+} from "./task-local-credentials";
 export type {
   ApplyActionKind,
   ApplyAgentConfig,

@@ -44,6 +44,7 @@ import {
   clearJobFinderNavigationHint,
   noteJobFinderNavigation,
   setJobFinderStatusRoute,
+  stripActionStateOwner,
   type ActionStateStatusWrite,
 } from "./use-job-finder-page-controller-actions";
 import {
@@ -264,7 +265,7 @@ export function useJobFinderPageController() {
         carried.ownerPath ??
         ownerPathOverride ??
         latestLocationPathnameRef.current;
-      const cleanState: ActionState = { message: resolved.message };
+      const cleanState = stripActionStateOwner(carried);
       setActionState(cleanState);
     },
     [setActionState],

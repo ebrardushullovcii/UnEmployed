@@ -92,7 +92,6 @@ export function ApplicationsRecordsPanel({
   hasAnyApplications,
   liveRunLinesByJobId,
   latestApplyResultByRecordId,
-  applyMode = "fill_only",
   onFilterChange,
   onSelectRecord,
   selectedRecord,
@@ -286,10 +285,21 @@ export function ApplicationsRecordsPanel({
               latestApplyResultByRecordId?.get(record.id) ?? null;
             const applyState = latestResult
               ? resolveApplyStatePresentation({
-                  mode: applyMode,
+                  mode:
+                    record.automationMode === "autonomous_submit"
+                      ? "apply_for_me"
+                      : "fill_only",
                   result: latestResult,
                   pendingQuestionCount:
-                    record.questionSummary.total - record.questionSummary.answered,
+                    record.questionSummary.total -
+                    record.questionSummary.answered,
+                  recordFailure:
+                    record.lastAttemptState === "failed"
+                      ? {
+                          lastActionLabel: record.lastActionLabel,
+                          lastUpdatedAt: record.lastUpdatedAt,
+                        }
+                      : null,
                 })
               : null;
             const stage = applyState
@@ -310,7 +320,8 @@ export function ApplicationsRecordsPanel({
             // beside "Needs you") is the duplicate pill that made every row
             // read as two conflicting states. The attempt detail stays in the
             // panel and in the row's assistive description.
-            const attemptLabel = getAttemptLabel(record.lastAttemptState);
+            const attemptLabel =
+              applyState?.title ?? getAttemptLabel(record.lastAttemptState);
             const liveLine = liveRunLinesByJobId?.get(record.jobId) ?? null;
             const nextStepLabel =
               applyState?.questionsLeftLabel ??

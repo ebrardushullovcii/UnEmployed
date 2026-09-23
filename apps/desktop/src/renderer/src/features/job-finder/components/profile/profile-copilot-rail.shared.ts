@@ -297,6 +297,8 @@ export function describePatchOperation(
       return `Add or update education: ${operation.record.schoolName ?? operation.record.degree ?? "record"}`;
     case "remove_education_record":
       return `Remove education record ${operation.recordId}`;
+    case "reorder_education_records":
+      return `Reorder ${operation.orderedRecordIds.length} education records`;
     case "upsert_certification_record":
       return `Add or update certification: ${operation.record.name ?? "record"}`;
     case "remove_certification_record":
