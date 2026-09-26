@@ -36,6 +36,7 @@ import { resolveResumeIdentity } from "./resume-identity";
 import { extractLiteralCandidates } from "./resume-import-literal-extraction";
 import { enrichExperienceCandidatesFromNearbyMarkers } from "./resume-import-experience-markers";
 import {
+  NO_AI_PROVIDER_REASON,
   ResumeImportStageExtractionResultSchema,
   ResumeVisionExtractionResultSchema,
   type ResumeImportExtractionStage,
@@ -102,16 +103,39 @@ const RESUME_IMPORT_STAGE_FALLBACK_SUBJECTS: Record<
   shared_memory: "the shared resume context",
 };
 
+function describeResumeImportFallbackCause(input: {
+  kind: ResumeImportStageFallbackKind;
+  reason?: string | null;
+}): string {
+  if (input.reason === NO_AI_PROVIDER_REASON) {
+    return "no AI model is available right now";
+  }
+  return input.kind === "timeout"
+    ? "the model did not answer in time"
+    : "the model call failed";
+}
+
 export function describeResumeImportStageFallback(input: {
   stage: ResumeImportTextStage;
   kind: ResumeImportStageFallbackKind;
+  reason?: string | null;
 }): string {
-  const cause =
-    input.kind === "timeout"
-      ? "the model did not answer in time"
-      : "the model call failed";
+  const cause = describeResumeImportFallbackCause(input);
 
   return `${RESUME_IMPORT_STAGE_FALLBACK_MESSAGE_PREFIX} ${RESUME_IMPORT_STAGE_FALLBACK_SUBJECTS[input.stage]} because ${cause}. It filled that part with its built-in text reader instead, so check those details before you rely on them, or import the file again to retry.`;
+}
+
+/**
+ * When every model stage fell back, one sentence says so. Three sentences
+ * that differed only in which part of the resume they named read as three
+ * separate problems.
+ */
+export function describeWholeResumeImportFallback(input: {
+  kind: ResumeImportStageFallbackKind;
+  reason?: string | null;
+}): string {
+  const cause = describeResumeImportFallbackCause(input);
+  return `${RESUME_IMPORT_STAGE_FALLBACK_MESSAGE_PREFIX} this import because ${cause}. It filled in your profile with its built-in text reader instead, so check the details before you rely on them, or import the file again later to retry.`;
 }
 
 function holdResumeImportCandidatesForReview(
@@ -810,9 +834,13 @@ async function completeDeferredVisionBranch(input: {
         ]),
       ),
     );
+    // The text stage already settled this run. The visual scan's progress
+    // lives on `modelRoles.vision`; the run keeps its settled status so a
+    // snapshot read meanwhile never mistakes it for a text import that was
+    // cut off.
     run = ResumeImportRunSchema.parse({
       ...run,
-      status: "extracting",
+      status: appliedTextStageRun.status,
       visionProviderKind: visionBranch.ok
         ? visionBranch.result.analysisProviderKind
         : (run.visionProviderKind ?? null),
@@ -848,7 +876,7 @@ async function completeDeferredVisionBranch(input: {
     const adjudicationStartedAt = new Date().toISOString();
     run = ResumeImportRunSchema.parse({
       ...run,
-      status: "reconciling",
+      status: appliedTextStageRun.status,
       modelRoles: {
         ...modelRolesFor(run),
         adjudication: {
@@ -1026,6 +1054,9 @@ async function completeDeferredVisionBranch(input: {
     );
     const failedRun = ResumeImportRunSchema.parse({
       ...run,
+      // A failed visual scan never takes back what the text stage applied.
+      status: appliedTextStageRun.status,
+      completedAt: appliedTextStageRun.completedAt,
       modelRoles: {
         ...modelRolesFor(run),
         vision: {
@@ -1208,23 +1239,61 @@ async function maybeAdjudicateResumeImportCandidates(
   }
 }
 
-export async function runResumeImportWorkflow(
-  ctx: WorkspaceServiceContext,
-  input: {
-    profile: CandidateProfile;
-    searchPreferences: JobSearchPreferences;
-    documentBundle: ResumeDocumentBundle;
-    trigger: ResumeImportTrigger;
-    expectedProfileRevision: number;
-    importWarnings?: readonly string[];
-    visionArtifact?: ResumeImportVisionArtifact | null;
-  },
-): Promise<{
+type ResumeImportWorkflowInput = {
+  profile: CandidateProfile;
+  searchPreferences: JobSearchPreferences;
+  documentBundle: ResumeDocumentBundle;
+  trigger: ResumeImportTrigger;
+  expectedProfileRevision: number;
+  importWarnings?: readonly string[];
+  visionArtifact?: ResumeImportVisionArtifact | null;
+};
+
+type ResumeImportWorkflowResult = {
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
   run: ResumeImportRun;
   candidates: ResumeImportFieldCandidate[];
-}> {
+};
+
+/**
+ * Imports running in this process, per workspace repository. A run that is
+ * still marked in progress while none is running here was cut off by the app
+ * closing; recovery can then say so instead of reporting "importing" forever.
+ */
+const activeResumeImportCounts = new WeakMap<object, number>();
+
+export function isResumeImportActiveInProcess(
+  ctx: Pick<WorkspaceServiceContext, "repository">,
+): boolean {
+  return (activeResumeImportCounts.get(ctx.repository) ?? 0) > 0;
+}
+
+export async function runResumeImportWorkflow(
+  ctx: WorkspaceServiceContext,
+  input: ResumeImportWorkflowInput,
+): Promise<ResumeImportWorkflowResult> {
+  const key = ctx.repository;
+  activeResumeImportCounts.set(
+    key,
+    (activeResumeImportCounts.get(key) ?? 0) + 1,
+  );
+  try {
+    return await runResumeImportWorkflowInProcess(ctx, input);
+  } finally {
+    const remaining = (activeResumeImportCounts.get(key) ?? 1) - 1;
+    if (remaining > 0) {
+      activeResumeImportCounts.set(key, remaining);
+    } else {
+      activeResumeImportCounts.delete(key);
+    }
+  }
+}
+
+async function runResumeImportWorkflowInProcess(
+  ctx: WorkspaceServiceContext,
+  input: ResumeImportWorkflowInput,
+): Promise<ResumeImportWorkflowResult> {
   const expectedProfileRevision = input.expectedProfileRevision;
   const workflowStartedAtMs = performance.now();
   const supersededBaseResume = await readSupersededBaseResume(
@@ -1621,16 +1690,34 @@ export async function runResumeImportWorkflow(
             // A stage that fell back is not a failed stage, so it never
             // reaches `failedStages`. Reporting it here is the only thing that
             // stops a silent degradation from looking like a clean model run.
-            ...successfulStages.flatMap(({ stage, result }) =>
-              result.fallback
-                ? [
-                    describeResumeImportStageFallback({
-                      stage,
-                      kind: result.fallback.kind,
-                    }),
-                  ]
-                : [],
-            ),
+            ...(() => {
+              const fellBack = successfulStages.filter(
+                ({ result }) => result.fallback,
+              );
+              const modelStageCount = RESUME_IMPORT_STAGES.filter(
+                (stage) => stage !== "shared_memory",
+              ).length;
+              const first = fellBack[0]?.result.fallback;
+              if (first && fellBack.length >= modelStageCount) {
+                return [
+                  describeWholeResumeImportFallback({
+                    kind: first.kind,
+                    reason: first.reason,
+                  }),
+                ];
+              }
+              return fellBack.flatMap(({ stage, result }) =>
+                result.fallback
+                  ? [
+                      describeResumeImportStageFallback({
+                        stage,
+                        kind: result.fallback.kind,
+                        reason: result.fallback.reason,
+                      }),
+                    ]
+                  : [],
+              );
+            })(),
             ...failedStages.map((entry) => entry.diagnostic),
           ]),
         };

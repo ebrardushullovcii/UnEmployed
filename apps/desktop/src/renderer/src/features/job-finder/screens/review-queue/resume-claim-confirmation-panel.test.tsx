@@ -413,11 +413,11 @@ describe("ResumeClaimConfirmationPanel", () => {
     expect(container.textContent).not.toContain("fnv1a32");
 
     fireEvent.click(
-      screen.getByRole("button", { name: `Remove · ${bulletTargetLabel}` }),
+      screen.getByRole("button", { name: `Remove “${confirmNeededBullet.claimText}” · ${bulletTargetLabel}` }),
     );
     expect(onRejectClaim).toHaveBeenCalledWith(confirmNeededBullet);
     fireEvent.click(
-      screen.getByRole("button", { name: `Edit · ${bulletTargetLabel}` }),
+      screen.getByRole("button", { name: `Edit “${confirmNeededBullet.claimText}” · ${bulletTargetLabel}` }),
     );
     expect(onEditClaim).toHaveBeenCalledWith(confirmNeededBullet);
   });
@@ -475,7 +475,7 @@ describe("ResumeClaimConfirmationPanel", () => {
     );
 
     const keepButton = screen.getByRole("button", {
-      name: `Keep · ${bulletTargetLabel}`,
+      name: `Keep “${confirmNeededBullet.claimText}” · ${bulletTargetLabel}`,
     });
 
     fireEvent.click(keepButton);
@@ -517,7 +517,7 @@ describe("ResumeClaimConfirmationPanel", () => {
     const { rerender } = renderPanel({ onSetResumeClaimConfirmation });
 
     await actAndFlush(() => {
-      fireEvent.click(screen.getByRole("button", { name: /^Keep · / }));
+      fireEvent.click(screen.getByRole("button", { name: /^Keep “/ }));
     });
 
     // The committed workspace snapshot comes back through props: same
@@ -535,10 +535,10 @@ describe("ResumeClaimConfirmationPanel", () => {
 
     expect(screen.getByText("Kept")).toBeTruthy();
     expect(screen.getByText("All decided")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Keep · / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Keep “/ })).toBeNull();
 
     const undoButton = screen.getByRole("button", {
-      name: `Undo keeping · ${bulletTargetLabel}`,
+      name: `Undo keeping “${confirmNeededBullet.claimText}” · ${bulletTargetLabel}`,
     });
     await actAndFlush(() => {
       fireEvent.click(undoButton);
@@ -592,7 +592,7 @@ describe("ResumeClaimConfirmationPanel", () => {
     const { container } = renderPanel({ onSetResumeClaimConfirmation });
 
     await actAndFlush(() => {
-      fireEvent.click(screen.getByRole("button", { name: /^Keep · / }));
+      fireEvent.click(screen.getByRole("button", { name: /^Keep “/ }));
     });
 
     expect(screen.getByRole("alert").textContent).toBe(
@@ -601,7 +601,7 @@ describe("ResumeClaimConfirmationPanel", () => {
     expect(container.querySelector("[data-pending]")).toBeNull();
 
     await actAndFlush(() => {
-      fireEvent.click(screen.getByRole("button", { name: /^Keep · / }));
+      fireEvent.click(screen.getByRole("button", { name: /^Keep “/ }));
     });
     expect(onSetResumeClaimConfirmation).toHaveBeenCalledTimes(2);
   });
@@ -700,7 +700,7 @@ describe("ResumeClaimConfirmationPanel", () => {
     expect(
       screen.getByRole("button", { name: "Keep all 2 skills" }),
     ).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /^Keep · / })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /^Keep “/ })).toHaveLength(3);
 
     await actAndFlush(() => {
       fireEvent.click(
@@ -778,6 +778,6 @@ describe("ResumeClaimConfirmationPanel", () => {
     );
 
     expect(screen.queryByRole("button", { name: /Keep all / })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Keep · / })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Keep “/ })).toBeTruthy();
   });
 });

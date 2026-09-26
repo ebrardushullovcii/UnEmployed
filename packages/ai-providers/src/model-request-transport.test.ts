@@ -248,6 +248,100 @@ describe("performModelRequest", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  test("retries a chat stream that stopped in the middle of a tool call", async () => {
+    const cutOff = sseResponse([
+      JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_cut",
+                  type: "function",
+                  function: {
+                    name: "compose_resume_proposal",
+                    arguments: '{"summary":"A long proposal that was cu',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ]);
+    const complete = sseResponse([
+      JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_full",
+                  type: "function",
+                  function: {
+                    name: "compose_resume_proposal",
+                    arguments: '{"summary":"Done"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      }),
+      "[DONE]",
+    ]);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(cutOff)
+      .mockResolvedValueOnce(complete);
+
+    const payload = await performModelRequest({
+      ...baseInput,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(payload.choices?.[0]?.message?.tool_calls?.[0]?.function).toEqual({
+      name: "compose_resume_proposal",
+      arguments: '{"summary":"Done"}',
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test("gives up on a chat stream that keeps stopping mid tool call with a plain error", async () => {
+    const fetchImpl = vi.fn(() =>
+      sseResponse([
+        JSON.stringify({
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "call_cut",
+                    type: "function",
+                    function: { name: "inspect", arguments: '{"a":' },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      ]),
+    );
+
+    await expect(
+      performModelRequest({
+        ...baseInput,
+        maxAttempts: 2,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/closed the stream before finishing/);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   test("does not retry a validation error", async () => {
     const fetchImpl = vi.fn(() =>
       jsonResponse({ error: { message: "bad request" } }, { status: 400 }),

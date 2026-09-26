@@ -7,6 +7,7 @@ import type { JobFinderActionFailureReporting } from "./job-finder-page-context"
 import {
   appendDiscoveryLiveActivityEvent,
   evaluateProfileSetupReadiness,
+  getProfileSetupReadinessBlockers,
   isRunnableJobDiscoveryTarget,
 } from "@unemployed/contracts";
 import type {
@@ -49,9 +50,12 @@ import type {
 } from "@unemployed/contracts";
 import {
   countTailoredDraftPreparationEligible,
+  describeResumeRunResult,
+  describeSavedResumeLevel,
   getTailoredDraftPreparationCandidates,
   getTailoredDraftPreparationResultMessage,
   prepareTailoredDraftsSequentially,
+  shouldRewriteResumeAfterLevelChange,
   type TailoredDraftPreparationViewState,
 } from "@renderer/features/job-finder/screens/review-queue/review-queue-status";
 import {
@@ -116,6 +120,7 @@ import {
   useResumeSourceNameForProfile,
 } from "@unemployed/job-finder/resume-identity";
 import { describeFailure } from "@renderer/features/job-finder/lib/describe-failure";
+import { describeApplicationDefaultsSave } from "@renderer/features/job-finder/screens/settings/settings-application-defaults-save-copy";
 
 /**
  * How long a browser-backed command may keep its controls disabled. Defined
@@ -295,6 +300,40 @@ export function clearProfileSetupJustFinished(): void {
 
 export function isProfileSetupJustFinished(): boolean {
   return profileSetupJustFinished;
+}
+
+let firstSearchRequested = false;
+
+/** Asks Find jobs to start the first search when it next mounts. */
+export function requestFirstSearchOnFindJobs(): void {
+  firstSearchRequested = true;
+}
+
+/** True once per request; Find jobs calls it on mount. */
+export function consumeFirstSearchRequest(): boolean {
+  const requested = firstSearchRequested;
+  firstSearchRequested = false;
+  return requested;
+}
+
+/**
+ * Finishing guided setup starts the first search itself, but only when no
+ * search has ever run and at least one source can be searched.
+ */
+export function shouldStartFirstSearchAfterSetup(
+  workspace: Pick<
+    JobFinderWorkspaceSnapshot,
+    "activeDiscoveryRun" | "recentDiscoveryRuns" | "searchPreferences"
+  >,
+): boolean {
+  // Read defensively: a partial snapshot must never stop the hand-off.
+  return (
+    !workspace.activeDiscoveryRun &&
+    (workspace.recentDiscoveryRuns?.length ?? 0) === 0 &&
+    (workspace.searchPreferences?.discovery?.targets ?? []).some(
+      isRunnableJobDiscoveryTarget,
+    )
+  );
 }
 
 export function clearJobFinderNavigationHint(): void {
@@ -528,6 +567,26 @@ export function describePreparedApplicationSubmitResult(
     return "The employer site did not confirm whether this was sent. Check the application before trying again.";
   }
   return result?.summary ?? "Application status updated.";
+}
+
+/** One line for a Send-all press: how many went out, and what did not. */
+export function describePreparedApplicationsSendResult(
+  snapshot: JobFinderWorkspaceSnapshot,
+  jobIds: readonly string[],
+): string {
+  if (jobIds.length === 1) {
+    return describePreparedApplicationSubmitResult(snapshot, jobIds[0]!);
+  }
+  const sent = jobIds.filter((jobId) => {
+    const result = [...snapshot.applyJobResults]
+      .filter((entry) => entry.jobId === jobId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    return result?.state === "submitted";
+  }).length;
+  const notSent = jobIds.length - sent;
+  return notSent === 0
+    ? `Sent all ${sent} applications.`
+    : `Sent ${sent} of ${jobIds.length} applications. The others are in Applications with what stopped them.`;
 }
 
 export function createActionRunners(args: {
@@ -1515,6 +1574,24 @@ export function createPrimaryPageActions(
         },
       );
     },
+    onSendPreparedApplications: async (
+      jobIds: readonly string[],
+    ): Promise<void> => {
+      await runAction(
+        // One permission covers the whole press; main then sends each kept
+        // page in turn. A page that is gone is recorded on that job alone
+        // and the rest still go out.
+        () => actions.sendPreparedApplications({ jobIds: [...jobIds] }),
+        () => undefined,
+        (snapshot) =>
+          snapshot
+            ? describePreparedApplicationsSendResult(snapshot, jobIds)
+            : null,
+        {
+          scope: jobFinderPendingActions.apply(),
+        },
+      );
+    },
     onCheckBrowserSession: () =>
       void runAction(
         actions.checkBrowserSession,
@@ -1592,7 +1669,12 @@ export function createPrimaryPageActions(
 
           setSelectedReviewJobId(jobId);
         },
-        "Resume created for this job.",
+        (snapshot) =>
+          describeResumeRunResult(
+            snapshot,
+            jobId,
+            "Resume created for this job.",
+          ),
         { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onRemoveReviewJob: (jobId: string) => {
@@ -1760,14 +1842,17 @@ export function createPrimaryPageActions(
           : "Removed the leave-off decision for this role.",
         { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
-    onImportResume: () => {
+    onImportResume: (options?: { retryInterrupted?: boolean }) => {
       if (!canImportResume) {
         applyRouteScopedMessage({ message: importResumeGuardMessage });
         return;
       }
 
       void runAction(
-        actions.importResume,
+        () =>
+          options?.retryInterrupted === true
+            ? actions.importResume({ retryInterrupted: true })
+            : actions.importResume(),
         () => undefined,
         // Main persists a non-ready import as a normal resolution (the file
         // is saved even when text extraction or analysis did not finish), so
@@ -1940,24 +2025,59 @@ export function createPrimaryPageActions(
       jobId: string,
       resumeApplicationMode: ResumeApplicationMode,
       resumeTailoringMode?: TailoringMode | null,
-    ) =>
+    ) => {
+      const current = latestWorkspaceRef.current ?? workspace;
+      const item = current.reviewQueue.find((entry) => entry.jobId === jobId);
+      // A written resume is rewritten at the level just picked, in the same
+      // press; otherwise Apply would approve and send the old level's text.
+      const rewrite = item
+        ? shouldRewriteResumeAfterLevelChange({
+            item,
+            defaultTailoringMode: current.searchPreferences.tailoringMode,
+            nextApplicationMode: resumeApplicationMode,
+            nextTailoringMode: resumeTailoringMode ?? null,
+          })
+        : false;
+      const levelName =
+        resumeTailoringMode === "aggressive"
+          ? "Aggressive"
+          : resumeTailoringMode === "conservative"
+            ? "Light"
+            : "Tailored";
       void runAction(
-        () =>
-          actions.setJobResumeApplicationMode(
+        async () => {
+          const snapshot = await actions.setJobResumeApplicationMode(
             jobId,
             resumeApplicationMode,
             resumeTailoringMode,
-          ),
+          );
+          return rewrite ? actions.regenerateResumeDraft(jobId) : snapshot;
+        },
         () => setSelectedReviewJobId(jobId),
-        resumeApplicationMode === "original_resume"
-          ? "This job will use your original resume unchanged."
-          : resumeTailoringMode === "aggressive"
-            ? "This job will get an aggressive resume."
-            : resumeTailoringMode === "conservative"
-              ? "This job will get a lightly tailored resume."
-              : "This job will get a tailored resume.",
-        { scope: jobFinderPendingActions.resumeJob(jobId) },
-      ),
+        rewrite
+          ? (snapshot) =>
+              describeResumeRunResult(
+                snapshot,
+                jobId,
+                `Resume rewritten at ${levelName} for this job.`,
+              )
+          : resumeApplicationMode === "original_resume"
+            ? "This job will use your original resume unchanged."
+            : resumeTailoringMode === "aggressive"
+              ? "This job will get an aggressive resume."
+              : resumeTailoringMode === "conservative"
+                ? "This job will get a lightly tailored resume."
+                : "This job will get a tailored resume.",
+        {
+          scope: jobFinderPendingActions.resumeJob(jobId),
+          ...(rewrite
+            ? {
+                startMessage: `Rewriting this job's resume at ${levelName}…`,
+              }
+            : {}),
+        },
+      );
+    },
     onRejectProfileCopilotPatchGroup: (patchGroupId: string) =>
       void runAction(
         () => actions.rejectProfileCopilotPatchGroup(patchGroupId),
@@ -2038,6 +2158,58 @@ export function createPrimaryPageActions(
           await refreshResumeWorkspace(jobId);
         },
         "Earlier draft restored. Review it before exporting or approving again.",
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
+      ),
+    onWriteEditableResumeForOriginalJob: (
+      jobId: string,
+      pendingRequest: string | null,
+    ) => {
+      // Original sends the imported file, so nothing in the studio reaches
+      // the employer. One press moves this job to the saved level, writes the
+      // resume, and sends the Assistant request the Original draft could not
+      // take, so the person only has to accept the proposal.
+      const current = latestWorkspaceRef.current ?? workspace;
+      const savedLevel = current.searchPreferences.tailoringMode;
+      const levelName = describeSavedResumeLevel(savedLevel);
+      void runResumeWorkspaceAction(
+        async () => {
+          await actions.setJobResumeApplicationMode(
+            jobId,
+            "tailored_per_job",
+            savedLevel,
+          );
+          const snapshot = await actions.generateResume(jobId);
+          if (pendingRequest) {
+            await actions.sendResumeAssistantMessage(jobId, pendingRequest);
+          }
+          return snapshot;
+        },
+        async () => {
+          await refreshResumeWorkspace(jobId, {
+            updateAssistantMessages: true,
+          });
+        },
+        (snapshot) =>
+          describeResumeRunResult(
+            snapshot,
+            jobId,
+            pendingRequest
+              ? `Wrote an editable ${levelName} resume and asked the Assistant again. Review its proposal.`
+              : `Wrote an editable ${levelName} resume for this job.`,
+          ),
+        {
+          scope: jobFinderPendingActions.resumeJob(jobId),
+          startMessage: `Writing an editable ${levelName} resume for this job…`,
+        },
+      );
+    },
+    onUndoResumeAssistantEdit: (jobId: string, revisionId: string) =>
+      void runResumeWorkspaceAction(
+        () => actions.undoResumeAssistantEdit(jobId, revisionId),
+        async () => {
+          await refreshResumeWorkspace(jobId);
+        },
+        "AI edit undone. Your later edits are kept.",
         { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onRunAgentDiscovery: (searchRequest?: JobFinderSearchRequest) =>
@@ -2183,6 +2355,7 @@ export function createPrimaryPageActions(
             ? "Saved. Opening the full Profile editor."
             : "Saved.");
       let handOffToFindJobs = false;
+      let startFirstSearch = false;
 
       return void runSaveAction({
         action: async () => {
@@ -2235,9 +2408,13 @@ export function createPrimaryPageActions(
           );
           // Only required setup items and critical items gate completion;
           // recommended imported suggestions stay optional to review.
+          // The same blocker list the footer reads, so Finish is never
+          // offered and then refused: it now includes the two work-eligibility
+          // answers application forms ask for.
           const nextStatus =
             options?.finishSetup === true &&
             readiness.materiallyComplete &&
+            getProfileSetupReadinessBlockers(readiness).length === 0 &&
             !reviewItems.some(isFinishBlockingReviewItem)
               ? "completed"
               : "in_progress";
@@ -2248,6 +2425,10 @@ export function createPrimaryPageActions(
           handOffToFindJobs = nextStatus === "completed";
           if (handOffToFindJobs) {
             markProfileSetupJustFinished();
+            // Read from the snapshot this save returned: the source added on
+            // this same step is not in the workspace the handler closed over,
+            // so the first search was never requested.
+            startFirstSearch = shouldStartFirstSearchAfterSetup(snapshot);
           }
 
           return actions
@@ -2294,6 +2475,13 @@ export function createPrimaryPageActions(
         // (nothing in flight for the route blocker to park) lets Find jobs
         // win over that redirect.
         if (saved && handOffToFindJobs) {
+          // "Finish setup and find jobs" means exactly that: Find jobs starts
+          // the first search itself instead of waiting for a second press of
+          // Search now. Only before any search has run. Find jobs starts it
+          // once it has mounted, so the hand-off navigation is never raced.
+          if (startFirstSearch) {
+            requestFirstSearchOnFindJobs();
+          }
           navigate("/job-finder/discovery", { replace: true });
         }
         if (handOffToFindJobs) {
@@ -2578,14 +2766,10 @@ export function createPrimaryPageActions(
       runSaveAction({
         action: () => actions.updateApplicationDefaults(input),
         dedupeKey: createSaveDedupeKey("settings", input),
-        failedFallback:
-          "Resume defaults were not saved. Retry before leaving this page.",
-        label: "Resume defaults",
+        // Named after what was saved: the apply mode, the resume look, or
+        // the resume level all share this save.
+        ...describeApplicationDefaultsSave(input),
         onSuccess: () => undefined,
-        savedMessage:
-          input.resumeApplicationMode === "original_resume"
-            ? "Settings saved. Newly shortlisted jobs will start with your original resume unchanged."
-            : "Settings saved. Newly shortlisted jobs will start with a tailored resume.",
         scope: jobFinderPendingActions.settingsSave(),
         surface: "settings",
       }),
@@ -2597,7 +2781,7 @@ export function createPrimaryPageActions(
           "Workspace behavior was not saved. Retry before leaving this page.",
         label: "Workspace behavior",
         onSuccess: () => undefined,
-        savedMessage: "Workspace behavior saved.",
+        savedMessage: "Browser & saved jobs saved.",
         scope: jobFinderPendingActions.settingsSave(),
         surface: "settings",
       }),
@@ -2677,7 +2861,7 @@ export function createPrimaryPageActions(
           setProfileCopilotBusy(false);
           setProfileCopilotPendingContextKey(null);
           applyRouteScopedMessage(
-            { message: "Profile Copilot replied." },
+            { message: "The Assistant replied." },
             ownerStartRoute,
           );
           return true;
@@ -2686,15 +2870,21 @@ export function createPrimaryPageActions(
             return false;
           }
 
-          const message =
-            error instanceof Error
-              ? error.message
-              : "The requested Job Finder action failed.";
+          // The question is kept (the service saved it before asking the
+          // model), and the Assistant shows this sentence under it with Ask
+          // again. Rejecting with it, rather than returning false, is what
+          // lets the chat say why instead of a generic "could not complete".
+          const message = describeFailure(error, {
+            action: "get an answer from the Assistant",
+          }).userMessage;
           setOptimisticProfileCopilotMessages([]);
           setProfileCopilotBusy(false);
           setProfileCopilotPendingContextKey(null);
           applyRouteScopedMessage({ message }, ownerStartRoute);
-          return false;
+          // Picks up the saved question so it stays on screen after this
+          // rail closes; the chat then offers Ask again under it.
+          void actions.refreshWorkspace().catch(() => undefined);
+          throw new Error(message);
         }
       })(),
     onUndoProfileRevision: (revisionId: string) =>

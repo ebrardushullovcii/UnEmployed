@@ -27,6 +27,7 @@ import {
   countShortlistedJobs,
   selectCampaignJobIds,
 } from "../../lib/destination-counts";
+import { listApplyRunsStoppedBySafeguard } from "../../lib/apply-run-pause-state";
 import {
   formatDiscoveryRunCountLabel,
   formatDiscoveryRunReportLabel,
@@ -37,7 +38,9 @@ import {
 import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
 import { getProfileSetupReadinessBlockerLabel } from "../../components/profile/setup/profile-setup-screen-helpers";
 import { resolveApplyStatePresentation } from "../applications/apply-state";
+import { buildApplyRunContextReader } from "../applications/applications-recovery-state";
 import { isDiscoveryAlsoFoundResult } from "../discovery/discovery-result-groups";
+import { getDiscoveryRunFailureRecovery } from "../discovery/discovery-run-feedback";
 import {
   APPLICATION_PREPARATION_BATCH_LIMIT,
   collectInProgressApplicationJobIds,
@@ -49,6 +52,7 @@ import {
 import {
   formatDiscoveryRunSourceProblemSummary,
   selectNewestSettledDiscoveryRun,
+  summarizeDiscoveryRunSourceProblems,
 } from "./home-source-health-summary";
 
 /**
@@ -65,6 +69,8 @@ export type HomeAction =
   | { kind: "create_resumes" }
   | { kind: "resume_setup"; step: ProfileSetupStep }
   | { kind: "apply_all"; jobIds: readonly string[] }
+  /** Job Finder presses Send on each filled-in form (Send for me). */
+  | { kind: "send_prepared"; jobIds: readonly string[] }
   | { kind: "stop_search"; runId: string }
   | { kind: "stop_apply"; runId: string }
   | { kind: "stop_resumes" }
@@ -97,9 +103,16 @@ interface HomeNextStep {
     | "look_through"
     | "nothing_found"
     | "search_failed"
+    | "source_failed"
     | "caught_up";
   title: string;
   detail: string;
+  /**
+   * A quiet link after the detail, for the one deliberate change the detail
+   * mentions. Applying names the saved mode and links straight to it, so
+   * changing the mode is one press away instead of a hunt through Settings.
+   */
+  detailLink?: HomeButton;
   primary: HomeButton;
   secondary: readonly HomeButton[];
 }
@@ -252,6 +265,92 @@ function formatRelativeDay(iso: string, now: number): string {
   );
 }
 
+/**
+ * The summary the apply service writes on an application the person stepped
+ * into while it was being filled (`PERSON_TOOK_OVER_SUMMARY` in
+ * `@unemployed/job-finder`, which the renderer cannot import). The tab stays
+ * theirs until they press Resume agent in the browser, which carries it on.
+ */
+export const PERSON_TOOK_OVER_APPLICATION_SUMMARY =
+  "You took over this application.";
+
+/**
+ * Why the retry card is there. "Stopped before the form was finished" was
+ * wrong after a restart, when the forms had been filled in and were waiting
+ * for Send: closing Job Finder closes their pages, and nothing was sent.
+ */
+function describeRetryReason(
+  retryJobIds: readonly string[],
+  closedFilledFormJobIds: readonly string[],
+  takenOverJobIds: readonly string[] = [],
+  notStartedJobIds: readonly string[] = [],
+): string {
+  const takenOver = retryJobIds.filter((jobId) =>
+    takenOverJobIds.includes(jobId),
+  ).length;
+  if (takenOver > 0) {
+    // The person is (or was) working in that tab. Handing it back is the
+    // step that carries it on; Try again is for a tab they closed.
+    const lead =
+      takenOver === 1
+        ? "You took over this application in the Job Finder browser. Press Resume agent there when you are done and Job Finder carries it on."
+        : `You took over ${takenOver} applications in the Job Finder browser. Press Resume agent there when you are done and Job Finder carries them on.`;
+    return takenOver === retryJobIds.length
+      ? `${lead} If you closed the tab, try again to start from the listing.`
+      : `${lead} Trying again starts the others from the listing.`;
+  }
+  const closed = retryJobIds.filter((jobId) =>
+    closedFilledFormJobIds.includes(jobId),
+  ).length;
+  if (closed === 0) {
+    const notStarted = retryJobIds.filter((jobId) =>
+      notStartedJobIds.includes(jobId),
+    ).length;
+    if (notStarted === retryJobIds.length) {
+      return notStarted === 1
+        ? "The batch stopped before Job Finder got to this one, so nothing was filled in or sent. Trying again starts it from the listing."
+        : "The batch stopped before Job Finder got to these, so nothing was filled in or sent. Trying again starts each one from the listing.";
+    }
+    return "The last attempt stopped before the form was finished. A fresh attempt starts from the listing again.";
+  }
+  const filledIn =
+    closed === 1
+      ? "This form was filled in, but its page closed before it was sent (closing Job Finder closes it), so nothing was sent."
+      : `${closed} forms were filled in, but their pages closed before they were sent (closing Job Finder closes them), so nothing was sent.`;
+  if (closed === retryJobIds.length) {
+    return `${filledIn} Trying again fills ${closed === 1 ? "it" : "them"} in again from the listing.`;
+  }
+  const unfinished = retryJobIds.length - closed;
+  return `${filledIn} ${unfinished === 1 ? "One other attempt" : `${unfinished} other attempts`} stopped before the form was finished. Trying again starts each one from the listing.`;
+}
+
+/** Retryable jobs the batch leaves out until their resume is approved again. */
+function describeHeldForResumeReview(count: number): string | null {
+  if (count === 0) return null;
+  return count === 1
+    ? "One other waits until you approve its changed Aggressive resume; open it in Applications."
+    : `${count} others wait until you approve their changed Aggressive resumes; open them in Applications.`;
+}
+
+/** The in-place press named with its count, for use beside another card. */
+function describeSecondaryPress(step: HomeNextStep, total: number): string {
+  const action = step.primary.action;
+  if (action.kind !== "apply_all") return step.primary.label;
+  const n = action.jobIds.length;
+  if (step.id === "retry") {
+    return n < total
+      ? `Try again for ${n} of ${total}`
+      : n === 1
+        ? "Try again for 1 application"
+        : `Try again for all ${n}`;
+  }
+  return n < total
+    ? `Apply to ${n} of ${total}`
+    : n === 1
+      ? "Apply to 1 ready job"
+      : `Apply to all ${n}`;
+}
+
 function describeApplyMode(mode: ApplicationAutomationMode): string {
   switch (mode) {
     case "autonomous_submit":
@@ -265,32 +364,69 @@ function describeApplyMode(mode: ApplicationAutomationMode): string {
 
 interface ApplicationCounts {
   fillingIn: number;
+  /** Jobs held by the person's pause before they started. */
+  paused: number;
+  /** Jobs of a running batch that have not started yet. */
+  waiting: number;
+  /** Jobs a stopped batch never got to (retryable, counted as could not apply). */
+  notStarted: number;
   readyToSend: number;
+  /** The jobs whose filled-in form is waiting to be sent. */
+  readyToSendJobIds: readonly string[];
   applied: number;
   needsYou: number;
   couldNotApply: number;
   /** The jobs Applications' own "Try again for all" would retry, same rule. */
   retryJobIds: readonly string[];
+  /**
+   * Retry jobs whose form was filled in but whose page closed before it was
+   * sent, usually because Job Finder was closed. They are not unfinished.
+   */
+  closedFilledFormJobIds: readonly string[];
+  /** Retry jobs the person stepped into in the browser (see above). */
+  takenOverJobIds: readonly string[];
+  /** Retry jobs a stopped batch never got to. */
+  notStartedJobIds: readonly string[];
+  /**
+   * Retryable jobs left out of the batch because their Aggressive resume
+   * changed and must be approved again first (the start refuses them).
+   */
+  heldForResumeReview: number;
 }
 
 function countApplications(
   workspace: JobFinderWorkspaceSnapshot,
   jobIds: ReadonlySet<string>,
+  /** Jobs whose resume the person must approve first; a batch refuses them. */
+  resumeReviewJobIds: ReadonlySet<string>,
 ): ApplicationCounts {
   const retryJobIds: string[] = [];
+  const closedFilledFormJobIds: string[] = [];
+  const takenOverJobIds: string[] = [];
+  const notStartedJobIds: string[] = [];
+  const readyToSendJobIds: string[] = [];
   const counts: ApplicationCounts = {
     fillingIn: 0,
+    paused: 0,
+    waiting: 0,
+    notStarted: 0,
     readyToSend: 0,
+    readyToSendJobIds,
     applied: 0,
     needsYou: 0,
     couldNotApply: 0,
     retryJobIds,
+    closedFilledFormJobIds,
+    takenOverJobIds,
+    notStartedJobIds,
+    heldForResumeReview: 0,
   };
   const runningJobIds = new Set(
     (workspace.applyRuns ?? [])
       .filter((run) => run.state === "running")
       .flatMap((run) => run.jobIds),
   );
+  const readApplyRunContext = buildApplyRunContextReader(workspace);
   const latestResultByRecordId = new Map<
     string,
     JobFinderWorkspaceSnapshot["applyJobResults"][number]
@@ -326,6 +462,7 @@ function countApplications(
           ? "apply_for_me"
           : "fill_only",
       result,
+      run: readApplyRunContext(result),
       pendingQuestionCount: Math.max(
         0,
         record.questionSummary.total - record.questionSummary.answered,
@@ -338,12 +475,19 @@ function countApplications(
             }
           : null,
     });
+    if (presentation.plannedStanding === "not_started") {
+      counts.notStarted += 1;
+    }
     switch (presentation.kind) {
       case "filling_in":
-        counts.fillingIn += 1;
+        if (presentation.plannedStanding === "paused") counts.paused += 1;
+        else if (presentation.plannedStanding === "waiting_turn")
+          counts.waiting += 1;
+        else counts.fillingIn += 1;
         break;
       case "ready_to_send":
         counts.readyToSend += 1;
+        readyToSendJobIds.push(record.jobId);
         break;
       case "applied":
         counts.applied += 1;
@@ -353,13 +497,36 @@ function countApplications(
         break;
       case "could_not_apply":
         counts.couldNotApply += 1;
+        // Every retryable job is counted; the batch limit caps the press,
+        // not the number (Applications lists them all). A job whose
+        // Aggressive resume is waiting for approval would make the whole
+        // batch refuse, so it goes through Shortlisted's review instead.
         if (
           presentation.action === "try_again" &&
           !runningJobIds.has(record.jobId) &&
-          !retryJobIds.includes(record.jobId) &&
-          retryJobIds.length < APPLICATION_PREPARATION_BATCH_LIMIT
+          resumeReviewJobIds.has(record.jobId)
+        ) {
+          counts.heldForResumeReview += 1;
+        } else if (
+          presentation.action === "try_again" &&
+          !runningJobIds.has(record.jobId) &&
+          !retryJobIds.includes(record.jobId)
         ) {
           retryJobIds.push(record.jobId);
+          if (presentation.plannedStanding === "not_started") {
+            notStartedJobIds.push(record.jobId);
+          }
+          if (result.summary === PERSON_TOOK_OVER_APPLICATION_SUMMARY) {
+            takenOverJobIds.push(record.jobId);
+          }
+          // The one failure that means the form was finished: the prepared
+          // page was gone when it was next needed (after a restart).
+          if (
+            result.state === "failed" &&
+            result.blockerReason === "unexpected_navigation"
+          ) {
+            closedFilledFormJobIds.push(record.jobId);
+          }
         }
         break;
     }
@@ -374,6 +541,8 @@ interface ShortlistCounts {
   readyToApply: number;
   readyJobIds: readonly string[];
   inApplications: number;
+  /** Shortlisted jobs in no bucket above (for example an out-of-date resume). */
+  elsewhere: number;
 }
 
 function countShortlist(
@@ -387,31 +556,57 @@ function countShortlist(
     workspace.applicationRecords,
   );
   const unavailable = new Set([...prepared, ...inProgress]);
-  const readyJobIds = queue
-    .filter((item) => isQueueStageReady(item, unavailable))
-    .map((item) => item.jobId)
-    .slice(0, APPLICATION_PREPARATION_BATCH_LIMIT);
+  const assetsById = new Map(
+    (workspace.tailoredAssets ?? []).map((asset) => [asset.id, asset]),
+  );
+  // Every ready job counts (Shortlisted lists them all); only the press is
+  // capped at one batch.
+  const readyJobIds = [
+    ...new Set(
+      queue
+        .filter((item) => isQueueStageReady(item, unavailable))
+        .map((item) => item.jobId),
+    ),
+  ];
   let writing = 0;
   let reviewResumes = 0;
   let inApplications = 0;
+  const seen = new Set<string>();
   for (const item of queue) {
+    if (seen.has(item.jobId)) continue;
+    seen.add(item.jobId);
     if (prepared.has(item.jobId) || inProgress.has(item.jobId)) {
       inApplications += 1;
       continue;
     }
     if (item.assetStatus === "generating" || item.assetStatus === "queued") {
       writing += 1;
-    } else if (needsPersonResumeReview(item)) {
+    } else if (
+      needsPersonResumeReview(
+        item,
+        item.resumeAssetId ? assetsById.get(item.resumeAssetId) : null,
+      )
+    ) {
       reviewResumes += 1;
     }
   }
+  const missingResumes = countTailoredDraftPreparationEligible(queue, prepared);
   return {
-    missingResumes: countTailoredDraftPreparationEligible(queue, prepared),
+    missingResumes,
     writing,
     reviewResumes,
     readyToApply: readyJobIds.length,
     readyJobIds,
     inApplications,
+    elsewhere: Math.max(
+      0,
+      seen.size -
+        inApplications -
+        writing -
+        reviewResumes -
+        readyJobIds.length -
+        missingResumes,
+    ),
   };
 }
 
@@ -593,20 +788,59 @@ export function buildJobSearchHomeModel(
   const shortlisted = countShortlistedJobs(workspace, jobIds);
   const shortlist = countShortlist(queue, workspace);
   const applicationCount = countApplicationRecords(workspace, jobIds);
-  const applications = countApplications(workspace, jobIds);
+  const applications = countApplications(
+    workspace,
+    jobIds,
+    new Set(
+      queue
+        .filter((item) =>
+          needsPersonResumeReview(
+            item,
+            (workspace.tailoredAssets ?? []).find(
+              (asset) => asset.id === item.resumeAssetId,
+            ) ?? null,
+          ),
+        )
+        .map((item) => item.jobId),
+    ),
+  );
   const dailyPreparationRemaining = Math.max(
     0,
     workspace.dashboard?.globalDailyApplicationPreparationCapacity?.remaining ??
       Number.POSITIVE_INFINITY,
   );
-  const retryJobIdsWithinDailyLimit = applications.retryJobIds.slice(
-    0,
+  // One press starts at most one batch, and never more than today's limit.
+  const pressLimit = Math.min(
+    APPLICATION_PREPARATION_BATCH_LIMIT,
     dailyPreparationRemaining,
   );
+  // A job its batch never reached goes first when a press covers only some:
+  // it has no failed attempt behind it, and it was the one left stranded.
+  const retryJobIdsWithinDailyLimit = [
+    ...applications.retryJobIds.filter((jobId) =>
+      applications.notStartedJobIds.includes(jobId),
+    ),
+    ...applications.retryJobIds.filter(
+      (jobId) => !applications.notStartedJobIds.includes(jobId),
+    ),
+  ].slice(0, pressLimit);
   const readyJobIdsWithinDailyLimit = shortlist.readyJobIds.slice(
     0,
-    dailyPreparationRemaining,
+    pressLimit,
   );
+  /** Why a press covers fewer jobs than are waiting, or null when it covers all. */
+  const describePartialPress = (
+    n: number,
+    total: number,
+    stay: "Applications" | "Shortlisted",
+  ): string | null => {
+    if (n >= total) return null;
+    const others = total - n;
+    return dailyPreparationRemaining <
+      Math.min(total, APPLICATION_PREPARATION_BATCH_LIMIT)
+      ? `Today's limit allows ${plural(n, "application")} now. The others stay in ${stay} for later.`
+      : `Job Finder works through ${APPLICATION_PREPARATION_BATCH_LIMIT} at a time. The other ${others} ${others === 1 ? "stays" : "stay"} in ${stay} for the next press.`;
+  };
   const needsYouCount = countNeedsYou(workspace);
   const safeguardPauses = projectPlanSafeguardPauses(
     workspace.intelligence?.safeguards,
@@ -616,6 +850,13 @@ export function buildJobSearchHomeModel(
   // batch waiting for its sample review, a company cap, a conflict. A sample
   // review gates further application preparation, not read-only discovery.
   const safeguardBlockerCount = countSafeguardBlockers(workspace);
+  // A batch a safety limit stopped is a safeguard only until its remaining
+  // jobs start again. With no limit left to settle, "Open Safeguards" only
+  // sent the person on to Applications' "Prepare remaining jobs"; Home offers
+  // that retry itself.
+  const onlyStoppedBatchesHeld =
+    safeguardBlockerCount > 0 &&
+    listApplyRunsStoppedBySafeguard(workspace).length === safeguardBlockerCount;
 
   const runCounts = formatRunCounts(newestRun);
   const runFinished = newestRun?.state === "completed";
@@ -657,9 +898,33 @@ export function buildJobSearchHomeModel(
       },
     });
   } else if (!setupIncomplete && !searchRunning) {
-    const summary = formatDiscoveryRunSourceProblemSummary(
-      selectNewestSettledDiscoveryRun(workspace.recentDiscoveryRuns ?? []),
+    const newestSettledRun = selectNewestSettledDiscoveryRun(
+      workspace.recentDiscoveryRuns ?? [],
     );
+    // Only sources still turned on: a problem with a source the person has
+    // since removed or turned off has nothing left to fix.
+    const settledRun =
+      newestSettledRun && newestSettledRun.summary
+        ? {
+            ...newestSettledRun,
+            summary: {
+              ...newestSettledRun.summary,
+              sourceHealth: (
+                newestSettledRun.summary.sourceHealth ?? []
+              ).filter((entry) =>
+                enabledTargets.some((target) => target.id === entry.targetId),
+              ),
+            },
+          }
+        : newestSettledRun;
+    // A stop the person pressed is not a source problem, and the status line
+    // already says the search stopped early; a line with "Open job sources"
+    // for it pointed at nothing to fix.
+    const onlyStoppedByPerson =
+      (summarizeDiscoveryRunSourceProblems(settledRun)?.total ?? 0) === 0;
+    const summary = onlyStoppedByPerson
+      ? null
+      : formatDiscoveryRunSourceProblemSummary(settledRun);
     if (summary) {
       problems.push({
         id: "source-problems",
@@ -676,6 +941,12 @@ export function buildJobSearchHomeModel(
   // The next step, in priority order: blocked things first, then whatever is
   // closest to a sent application, then finding more.
   let next: HomeNextStep;
+  // The saved mode is used by every Apply until the person deliberately
+  // changes it; this is the one press that gets them to that choice.
+  const changeApplyModeLink: HomeButton = {
+    label: "Change how it applies",
+    action: { kind: "navigate", route: applyingSettingsRoute },
+  };
   const dailyLimitNext: HomeNextStep = {
     id: "daily_limit",
     title: "Today's application limit is reached",
@@ -688,13 +959,225 @@ export function buildJobSearchHomeModel(
     secondary: [searchAgain],
   };
   const firstPause = safeguardPauses[0];
+
+  // The in-place steps, built once so a blocker card above them can still
+  // offer the next one as a second button. "Send 1 application" used to hide
+  // "Try again for all 2" and "Apply to all 3" until that one form was sent.
+  const retryNext: HomeNextStep | null =
+    applications.retryJobIds.length > 0 && !applyRunning
+      ? (() => {
+          const n = retryJobIdsWithinDailyLimit.length;
+          const total = applications.retryJobIds.length;
+          if (n === 0) return dailyLimitNext;
+          const partial = describePartialPress(n, total, "Applications");
+          return {
+            id: "retry",
+            title: `Try again for ${n < total ? `${n} of ${total} applications` : plural(n, "application")}`,
+            detail: [
+              partial ??
+                describeRetryReason(
+                  retryJobIdsWithinDailyLimit,
+                  applications.closedFilledFormJobIds,
+                  applications.takenOverJobIds,
+                  applications.notStartedJobIds,
+                ),
+              describeHeldForResumeReview(applications.heldForResumeReview),
+              describeApplyMode(input.applicationAutomationMode),
+            ]
+              .filter(Boolean)
+              .join(" "),
+            detailLink: changeApplyModeLink,
+            primary: {
+              label:
+                n === 1
+                  ? "Try again"
+                  : n < total
+                    ? `Try again for ${n}`
+                    : `Try again for all ${n}`,
+              action: {
+                kind: "apply_all",
+                jobIds: retryJobIdsWithinDailyLimit,
+              },
+            },
+            secondary: [
+              {
+                label: "Open Applications",
+                action: { kind: "navigate", route: applicationsRoute },
+              },
+            ],
+          };
+        })()
+      : null;
+  const applyNext: HomeNextStep | null =
+    shortlist.readyToApply > 0 && !applyRunning
+      ? (() => {
+          const n = readyJobIdsWithinDailyLimit.length;
+          const total = shortlist.readyToApply;
+          if (n === 0) return dailyLimitNext;
+          const partial = describePartialPress(n, total, "Shortlisted");
+          return {
+            id: "apply",
+            title: `Apply to ${n < total ? `${n} of ${total} ready jobs` : plural(n, "ready job")}`,
+            detail: partial
+              ? `${partial} ${describeApplyMode(input.applicationAutomationMode)}`
+              : describeApplyMode(input.applicationAutomationMode),
+            detailLink: changeApplyModeLink,
+            primary: {
+              label:
+                n === 1
+                  ? "Apply now"
+                  : n < total
+                    ? `Apply to ${n}`
+                    : `Apply to all ${n}`,
+              action: {
+                kind: "apply_all",
+                jobIds: readyJobIdsWithinDailyLimit,
+              },
+            },
+            secondary: [
+              {
+                label: "Open Shortlisted",
+                action: { kind: "navigate", route: reviewQueueRoute },
+              },
+            ],
+          };
+        })()
+      : null;
+  const createNext: HomeNextStep | null =
+    shortlist.missingResumes > 0 && !resumesWriting
+      ? {
+          id: "create_resumes",
+          title: `Create ${plural(shortlist.missingResumes, "resume")}`,
+          detail:
+            "About a minute each, written here while you wait. To change a job's resume level first, open Shortlisted.",
+          primary: {
+            label:
+              shortlist.missingResumes === 1
+                ? "Create the resume"
+                : `Create ${shortlist.missingResumes} resumes`,
+            action: { kind: "create_resumes" },
+          },
+          secondary: [
+            {
+              label: "Open Shortlisted",
+              action: { kind: "navigate", route: reviewQueueRoute },
+            },
+          ],
+        }
+      : null;
+  // While a batch of resumes is being written, applying waits for it (one
+  // press for all instead of one now and another later).
+  const nextInPlaceStep = [
+    retryNext,
+    resumesWriting ? null : applyNext,
+    createNext,
+  ].find((candidate) => candidate !== null && candidate.id !== "daily_limit");
+  // As a second button on another card the title is not there to say how
+  // many, so the label carries the count ("Try again" alone beside "Send 5
+  // applications" did not say it meant 1 of the 3 that failed).
+  // When today's limit is what holds the next press back, say so beside the
+  // blocker instead of leaving those jobs waiting without a word.
+  const nextInPlaceAction: HomeButton | undefined = nextInPlaceStep
+    ? {
+        ...nextInPlaceStep.primary,
+        label: describeSecondaryPress(
+          nextInPlaceStep,
+          nextInPlaceStep.id === "retry"
+            ? applications.retryJobIds.length
+            : shortlist.readyToApply,
+        ),
+      }
+    : retryNext?.id === "daily_limit" || applyNext?.id === "daily_limit"
+      ? {
+          label: "Change today's limit",
+          action: { kind: "navigate", route: applyingSettingsRoute },
+        }
+      : undefined;
+
+  // Why the newest search failed, when every source it tried failed for a
+  // reason searching again cannot fix (an address that leads to a missing
+  // page, a plan with no sites). "Run it again" was wrong there.
+  const failedSourceFix = (() => {
+    if (newestRun?.state !== "failed") return null;
+    const failed = (newestRun.targetExecutions ?? []).filter(
+      (execution) => execution.state === "failed",
+    );
+    if (
+      failed.length === 0 ||
+      failed.length !== (newestRun.targetExecutions ?? []).length
+    ) {
+      return null;
+    }
+    const recoveries = failed.map((execution) =>
+      getDiscoveryRunFailureRecovery(execution.warning ?? ""),
+    );
+    if (!recoveries.every((recovery) => recovery.kind === "source_setup")) {
+      return null;
+    }
+    // Once the person removed or turned off the broken source, there is
+    // nothing left to fix; searching again is the next step, not a card
+    // with no search on it.
+    const stillOn = failed.filter((execution) =>
+      enabledTargets.some((target) => target.id === execution.targetId),
+    );
+    if (stillOn.length === 0) return null;
+    const labels = stillOn
+      .map(
+        (execution) =>
+          targets.find((target) => target.id === execution.targetId)?.label,
+      )
+      .filter((label): label is string => Boolean(label));
+    const recovery = recoveries[0];
+    return recovery ? { recovery, labels } : null;
+  })();
+
+  const pendingSampleReviews = (() => {
+    const safeguards = workspace.intelligence?.safeguards;
+    if (!safeguards) return 0;
+    const dismissed = new Set(
+      safeguards.safeguardDismissals.map(
+        (dismissal) => `${dismissal.kind}\u0000${dismissal.referenceId}`,
+      ),
+    );
+    return safeguards.preparedBatchSampleReviews.filter(
+      (review) =>
+        !review.reviewCompleted &&
+        !dismissed.has(`batch_sample_review_pending\u0000${review.id}`),
+    ).length;
+  })();
+
+  const unresolvedRequests = (workspace.userActionRequests ?? []).filter(
+    (request) =>
+      !["resolved", "skipped", "cancelled", "expired", "superseded"].includes(
+        request.state,
+      ),
+  );
+  const sourceSignIns = unresolvedRequests.filter(
+    (request) => request.scope?.type === "discovery_source",
+  ).length;
+
+  const stoppedEarly =
+    newestRun?.runPhase === "interrupted" || newestRun?.state === "cancelled";
+
   if (workspace.activityControl.paused) {
     next = {
       id: "paused",
       title: "Work is paused",
-      detail: "Resume to continue or start work.",
+      detail:
+        needsYouCount > 0
+          ? `Resume to continue or start work. ${needsYouCount === 1 ? "1 thing needs" : `${needsYouCount} things need`} you meanwhile.`
+          : "Resume to continue or start work.",
       primary: { label: "Resume", action: { kind: "resume_activity" } },
-      secondary: [],
+      // The pause holds new work, not the person's answers.
+      secondary:
+        needsYouCount > 0
+          ? [
+              {
+                label: "Open Needs you",
+                action: { kind: "navigate", route: needsYouRoute },
+              },
+            ]
+          : [],
     };
   } else if (firstPause) {
     next = {
@@ -711,6 +1194,27 @@ export function buildJobSearchHomeModel(
       },
       secondary: [],
     };
+  } else if (
+    onlyStoppedBatchesHeld &&
+    retryNext?.id === "retry" &&
+    needsYouCount === 0
+  ) {
+    next = {
+      ...retryNext,
+      detail: retryNext.detail.startsWith("The batch stopped before")
+        ? retryNext.detail.replace(
+            "The batch stopped before",
+            "A safety limit stopped the batch before",
+          )
+        : `A safety limit stopped your last batch. ${retryNext.detail}`,
+      secondary: [
+        ...retryNext.secondary,
+        {
+          label: "Open Safeguards",
+          action: { kind: "navigate", route: "/job-finder/safeguards" },
+        },
+      ],
+    };
   } else if (safeguardBlockerCount > 0) {
     next = {
       id: "safeguards",
@@ -718,16 +1222,28 @@ export function buildJobSearchHomeModel(
         safeguardBlockerCount === 1
           ? "A safeguard is waiting on you"
           : `${safeguardBlockerCount} safeguards are waiting on you`,
+      // A sample review is one decision about a prepared batch; the other
+      // blockers (a company limit, two applications to one employer, a
+      // warning on a listing) each hold one job back. Name what it is.
       detail:
-        "Review the held application work in Safeguards. This review does not block searches.",
+        pendingSampleReviews > 0
+          ? "Look over a sample of the last prepared batch in Safeguards before more applications start. Searches carry on."
+          : "Job Finder held some application work back until you decide. Safeguards says why and what carries it on; searches carry on meanwhile.",
       primary: {
         label: "Open Safeguards",
         action: {
           kind: "navigate",
-          route: "/job-finder/safeguards?tab=reviews",
+          route:
+            pendingSampleReviews > 0
+              ? "/job-finder/safeguards?tab=reviews"
+              : "/job-finder/safeguards",
         },
       },
-      secondary: [],
+      // The stopped batch's remaining jobs stay one press away.
+      secondary:
+        onlyStoppedBatchesHeld && retryNext?.id === "retry"
+          ? [retryNext.primary]
+          : [],
     };
   } else if (setupIncomplete) {
     next = setupFresh
@@ -755,19 +1271,27 @@ export function buildJobSearchHomeModel(
           secondary: [],
         };
   } else if (needsYouCount > 0) {
+    const others = needsYouCount - sourceSignIns;
     next = {
       id: "needs_you",
       title:
         needsYouCount === 1
           ? "1 thing needs you"
           : `${needsYouCount} things need you`,
+      // The count holds source sign-ins too; "An application is waiting"
+      // was wrong when the only item was a job site asking to sign in.
       detail:
-        "An application is waiting on an answer or a step only you can take. Open it to keep that application moving.",
+        others <= 0
+          ? `${sourceSignIns === 1 ? "A job source wants" : `${sourceSignIns} job sources want`} you to sign in before Job Finder can search ${sourceSignIns === 1 ? "it" : "them"}. Sign in once in the Job Finder browser; the search carries on by itself.`
+          : sourceSignIns > 0
+            ? "An application is waiting on an answer or a step only you can take, and a job source wants you to sign in. Open Needs you to keep them moving."
+            : "An application is waiting on an answer or a step only you can take. Open it to keep that application moving.",
       primary: {
         label: "Open Needs you",
         action: { kind: "navigate", route: needsYouRoute },
       },
-      secondary: [],
+      // The rest of the pipeline does not wait on this one item.
+      secondary: nextInPlaceAction ? [nextInPlaceAction] : [],
     };
   } else if (enabledSourceCount === 0) {
     next =
@@ -796,42 +1320,23 @@ export function buildJobSearchHomeModel(
           };
   } else if (applications.readyToSend > 0) {
     const n = applications.readyToSend;
-    next = {
-      id: "send",
-      title: `Send ${plural(n, "application")}`,
-      detail:
-        input.applicationAutomationMode === "confirm_before_submit"
-          ? "The forms are filled in. Look each one over and give the go-ahead."
-          : "The forms are filled in and the resume is attached. Press Send on each one in the browser.",
-      primary: {
-        label: "Open Applications",
-        action: { kind: "navigate", route: applicationsRoute },
-      },
-      secondary: [],
-    };
-  } else if (applications.retryJobIds.length > 0 && !applyRunning) {
-    const n = retryJobIdsWithinDailyLimit.length;
-    const total = applications.retryJobIds.length;
+    // Send for me covers forms filled in before the person chose it: the
+    // agent presses Send on each kept page, one press for all of them.
     next =
-      n === 0
-        ? dailyLimitNext
-        : {
-            id: "retry",
-            title: `Try again for ${n < total ? `${n} of ${total} applications` : plural(n, "application")}`,
+      input.applicationAutomationMode === "autonomous_submit" &&
+      applications.readyToSendJobIds.length > 0
+        ? {
+            id: "send",
+            title: `Send ${plural(n, "application")}`,
             detail:
-              n < total
-                ? `Today's limit allows ${plural(n, "application")} now. The others stay in Applications for later.`
-                : "The last attempt stopped before the form was finished. A fresh attempt starts from the listing again, in the mode chosen in Settings.",
+              n === 1
+                ? "The form is filled in and you chose Send for me, so Job Finder presses Send on it."
+                : "The forms are filled in and you chose Send for me, so Job Finder presses Send on each one.",
             primary: {
-              label:
-                n === 1
-                  ? "Try again"
-                  : n < total
-                    ? `Try again for ${n}`
-                    : `Try again for all ${n}`,
+              label: n === 1 ? "Send it" : `Send all ${n}`,
               action: {
-                kind: "apply_all",
-                jobIds: retryJobIdsWithinDailyLimit,
+                kind: "send_prepared",
+                jobIds: applications.readyToSendJobIds,
               },
             },
             secondary: [
@@ -840,7 +1345,39 @@ export function buildJobSearchHomeModel(
                 action: { kind: "navigate", route: applicationsRoute },
               },
             ],
+          }
+        : {
+            id: "send",
+            title: `Send ${plural(n, "application")}`,
+            detail:
+              input.applicationAutomationMode === "confirm_before_submit"
+                ? "The forms are filled in. Look each one over and give the go-ahead."
+                : "The forms are filled in and the resume is attached. Press Send on each one in the browser.",
+            primary: {
+              label: "Open Applications",
+              action: { kind: "navigate", route: applicationsRoute },
+            },
+            secondary: nextInPlaceAction ? [nextInPlaceAction] : [],
           };
+  } else if (retryNext) {
+    next = retryNext;
+  } else if (applications.heldForResumeReview > 0 && !applyRunning) {
+    // Trying these again would be refused until the changed Aggressive
+    // resume is read and approved; say that instead of offering the press.
+    const n = applications.heldForResumeReview;
+    next = {
+      id: "review_resumes",
+      title: `Approve ${plural(n, "changed resume")}`,
+      detail:
+        n === 1
+          ? "An application could not be finished and its Aggressive resume has changed since. Read and approve it, then try again from Applications."
+          : `${n} applications could not be finished and their Aggressive resumes have changed since. Read and approve each one, then try again from Applications.`,
+      primary: {
+        label: "Open Applications",
+        action: { kind: "navigate", route: applicationsRoute },
+      },
+      secondary: [],
+    };
   } else if (shortlist.reviewResumes > 0) {
     const n = shortlist.reviewResumes;
     next = {
@@ -854,56 +1391,43 @@ export function buildJobSearchHomeModel(
       },
       secondary: [],
     };
-  } else if (shortlist.readyToApply > 0 && !applyRunning) {
-    const n = readyJobIdsWithinDailyLimit.length;
-    const total = shortlist.readyToApply;
-    next =
-      n === 0
-        ? dailyLimitNext
-        : {
-            id: "apply",
-            title: `Apply to ${n < total ? `${n} of ${total} ready jobs` : plural(n, "ready job")}`,
-            detail:
-              n < total
-                ? `Today's limit allows ${plural(n, "application")} now. The others stay in Shortlisted for later. ${describeApplyMode(input.applicationAutomationMode)}`
-                : `${describeApplyMode(input.applicationAutomationMode)} Change this in Settings.`,
-            primary: {
-              label:
-                n === 1
-                  ? "Apply now"
-                  : n < total
-                    ? `Apply to ${n}`
-                    : `Apply to all ${n}`,
-              action: {
-                kind: "apply_all",
-                jobIds: readyJobIdsWithinDailyLimit,
-              },
-            },
-            secondary: [
-              {
-                label: "Open Shortlisted",
-                action: { kind: "navigate", route: reviewQueueRoute },
-              },
-            ],
-          };
-  } else if (shortlist.missingResumes > 0 && !resumesWriting) {
-    const n = shortlist.missingResumes;
+  } else if (
+    applyNext &&
+    applyNext.id === "apply" &&
+    createNext &&
+    shortlist.missingResumes > shortlist.readyToApply
+  ) {
+    // Most shortlisted jobs still need a resume: writing them is the next
+    // step, and applying to the few ready ones stays one press beside it.
+    // Leading with "Apply to 1 ready job" and no Create cost two presses
+    // through Shortlisted.
     next = {
-      id: "create_resumes",
-      title: `Create ${plural(n, "resume")}`,
-      detail:
-        "About a minute each, written here while you wait. To change a job's resume level first, open Shortlisted.",
-      primary: {
-        label: n === 1 ? "Create the resume" : `Create ${n} resumes`,
-        action: { kind: "create_resumes" },
-      },
+      ...createNext,
       secondary: [
         {
-          label: "Open Shortlisted",
-          action: { kind: "navigate", route: reviewQueueRoute },
+          ...applyNext.primary,
+          label: describeSecondaryPress(applyNext, shortlist.readyToApply),
         },
+        ...createNext.secondary,
       ],
     };
+  } else if (applyNext && !(resumesWriting && applyNext.id === "apply")) {
+    // While the batch of resumes is still being written, waiting for it and
+    // applying to all at once is one press; "Apply to 1 ready job" mid-batch
+    // invited a partial press and a second one later. Jobs still waiting for
+    // a resume get Create in place beside Apply.
+    next =
+      createNext && applyNext.id === "apply"
+        ? {
+            ...applyNext,
+            secondary: [
+              createNext.primary,
+              ...applyNext.secondary,
+            ],
+          }
+        : applyNext;
+  } else if (createNext) {
+    next = createNext;
   } else if (applyRunning) {
     next = {
       id: "wait_apply",
@@ -921,12 +1445,26 @@ export function buildJobSearchHomeModel(
       id: "wait_resumes",
       title: "Nothing needed from you right now",
       detail:
-        "The resumes are being written. Apply is the next step once they are ready.",
+        applyNext?.id === "apply"
+          ? `The resumes are being written; ${shortlist.readyToApply} ${shortlist.readyToApply === 1 ? "is" : "are"} ready so far. Apply to all of them once the rest are done, or start the ready ones now.`
+          : "The resumes are being written. Apply is the next step once they are ready.",
       primary: {
         label: "Open Shortlisted",
         action: { kind: "navigate", route: reviewQueueRoute },
       },
-      secondary: [],
+      secondary:
+        applyNext?.id === "apply" &&
+        applyNext.primary.action.kind === "apply_all"
+          ? [
+              {
+                label:
+                  applyNext.primary.action.jobIds.length === 1
+                    ? "Apply to the ready one now"
+                    : `Apply to the ${applyNext.primary.action.jobIds.length} ready now`,
+                action: applyNext.primary.action,
+              },
+            ]
+          : [],
     };
   } else if (searchRunning) {
     next = {
@@ -953,14 +1491,30 @@ export function buildJobSearchHomeModel(
           },
       secondary: [],
     };
-  } else if (runFailed) {
+  } else if (failedSourceFix) {
+    const { recovery, labels } = failedSourceFix;
+    next = {
+      id: "source_failed",
+      title:
+        labels.length > 1
+          ? `Fix ${labels.length} job sources`
+          : "Fix a job source",
+      detail: `${recovery.headline}${labels.length > 0 ? ` (${labels.join(", ")})` : ""} ${recovery.nextStep}`,
+      primary: {
+        label: "Open job sources",
+        action: { kind: "navigate", route: profileSourcesRoute },
+      },
+      secondary: [],
+    };
+  } else if (
+    runFailed &&
+    !(stoppedEarly && visibleJobs > 0 && shortlisted === 0)
+  ) {
     next = {
       id: "search_failed",
-      title:
-        newestRun?.runPhase === "interrupted" ||
-        newestRun?.state === "cancelled"
-          ? "Your last search stopped early"
-          : "Your last search failed",
+      title: stoppedEarly
+        ? "Your last search stopped early"
+        : "Your last search failed",
       detail:
         retryRequest === null
           ? "The sources it used are no longer enabled. Choose which sources to search."
@@ -986,13 +1540,47 @@ export function buildJobSearchHomeModel(
     next = {
       id: "look_through",
       title: `Look through ${plural(visibleJobs, "job")}`,
-      detail:
-        "Shortlist the ones you want to apply to. Job Finder writes a resume for each and applies.",
+      detail: stoppedEarly
+        ? "You stopped the search; the jobs it found so far are in Find jobs. Shortlist the ones you want to apply to."
+        : "Shortlist the ones you want to apply to. Job Finder writes a resume for each and applies.",
       primary: {
         label: "Open Find jobs",
         action: { kind: "navigate", route: discoveryRoute },
       },
       secondary: [searchAgain],
+    };
+  } else if (visibleJobs === 0 && hiddenWeaker > 0 && shortlisted === 0) {
+    // Everything the search kept scored below your targets. "Nothing is
+    // waiting on you" beside a tile saying "N weaker matches hidden" was
+    // wrong: they are there to look at.
+    next = {
+      id: "look_through",
+      title: `Look through ${plural(hiddenWeaker, "weaker match", "weaker matches")}`,
+      detail:
+        "The last search found no strong matches. The weaker ones are behind Show weaker matches in Find jobs; shortlist any worth applying to, or widen the roles and places in your profile.",
+      primary: {
+        label: "Open Find jobs",
+        action: { kind: "navigate", route: discoveryRoute },
+      },
+      secondary: [searchAgain],
+    };
+  } else if (shortlist.elsewhere > 0) {
+    // Shortlisted jobs in no other bucket: an out-of-date resume, one that
+    // could not be written. "All caught up" was not true for them.
+    const n = shortlist.elsewhere;
+    next = {
+      id: "review_resumes",
+      title: `Check ${plural(n, "shortlisted job")}`,
+      detail:
+        n === 1
+          ? "Its resume is out of date or could not be written. Open Shortlisted to write it again or pick another level."
+          : "Their resumes are out of date or could not be written. Open Shortlisted to write them again or pick another level.",
+      primary: {
+        label: "Open Shortlisted",
+        action: { kind: "navigate", route: reviewQueueRoute },
+      },
+      // Search again is added below, as for every review step.
+      secondary: [],
     };
   } else {
     next = {
@@ -1011,6 +1599,19 @@ export function buildJobSearchHomeModel(
       ],
     };
   }
+
+  // The card already names the broken source and the one place to fix it;
+  // a problem line saying the same thing again is noise.
+  const shownProblems =
+    // With no source turned on, the last search's source problems are about
+    // sources that are off; the card asks for a source instead.
+    next.id === "source_failed" || next.id === "sources"
+      ? problems.filter(
+          (problem) =>
+            problem.id !== "source-problems" &&
+            problem.id !== "failing-sources",
+        )
+      : problems;
 
   // Searching again is always one press for a returning person (the search
   // loop is the product), so every step that is not itself a search, a wait,
@@ -1037,13 +1638,23 @@ export function buildJobSearchHomeModel(
       ".",
     );
   } else if (nowItems.length > 1) {
-    statusLine = `${nowItems.length} things are running. Nothing needs you yet.`;
+    // "Nothing needs you yet" stood beside a card saying "2 things need you".
+    statusLine = `${nowItems.length} things are running. ${
+      needsYouCount === 0
+        ? "Nothing needs you yet."
+        : needsYouCount === 1
+          ? "1 thing needs you."
+          : `${needsYouCount} things need you.`
+    }`;
   } else if (setupIncomplete) {
     statusLine = setupFresh
       ? "Nothing here yet. Set up your profile to start."
       : "Setup is not finished yet.";
   } else if (enabledSourceCount === 0) {
-    statusLine = "No job source is turned on, so nothing can be searched.";
+    statusLine =
+      savedSourceCount > 0
+        ? "No job source is turned on, so nothing can be searched."
+        : "No job source added yet, so nothing can be searched.";
   } else if (!hasSearchHistory) {
     statusLine = `Ready to search ${plural(enabledSourceCount, "source")}. Nothing has been searched yet.`;
   } else if (newestRun && lastSearchAt) {
@@ -1079,17 +1690,24 @@ export function buildJobSearchHomeModel(
             label: "Shortlisted",
             count: shortlisted,
             detail: joinParts([
-              shortlist.missingResumes > 0
+              // A running batch writes the missing ones; they are not
+              // waiting on the person while it does.
+              shortlist.missingResumes > 0 && !resumesWriting
                 ? `${shortlist.missingResumes} need a resume`
                 : null,
-              shortlist.writing > 0
-                ? `${shortlist.writing} being written`
+              shortlist.writing +
+                (resumesWriting ? shortlist.missingResumes : 0) >
+              0
+                ? `${shortlist.writing + (resumesWriting ? shortlist.missingResumes : 0)} being written`
                 : null,
               shortlist.reviewResumes > 0
                 ? `${shortlist.reviewResumes} to review`
                 : null,
               shortlist.readyToApply > 0
                 ? `${shortlist.readyToApply} ready to apply`
+                : null,
+              shortlist.elsewhere > 0
+                ? `${shortlist.elsewhere} to check`
                 : null,
               shortlist.inApplications > 0
                 ? `${shortlist.inApplications} in Applications`
@@ -1105,6 +1723,10 @@ export function buildJobSearchHomeModel(
               applications.fillingIn > 0
                 ? `${applications.fillingIn} filling in`
                 : null,
+              applications.waiting > 0
+                ? `${applications.waiting} waiting`
+                : null,
+              applications.paused > 0 ? `${applications.paused} paused` : null,
               applications.readyToSend > 0
                 ? `${applications.readyToSend} ready to send`
                 : null,
@@ -1114,8 +1736,11 @@ export function buildJobSearchHomeModel(
               applications.applied > 0
                 ? `${applications.applied} applied`
                 : null,
-              applications.couldNotApply > 0
-                ? `${applications.couldNotApply} could not apply`
+              applications.couldNotApply - applications.notStarted > 0
+                ? `${applications.couldNotApply - applications.notStarted} could not apply`
+                : null,
+              applications.notStarted > 0
+                ? `${applications.notStarted} not started`
                 : null,
             ]),
             route: applicationsRoute,
@@ -1127,7 +1752,7 @@ export function buildJobSearchHomeModel(
     statusLine,
     paused,
     now: nowItems,
-    problems,
+    problems: shownProblems,
     next,
     stages,
     showPlanSelector: !setupIncomplete && workspace.campaigns.length > 1,

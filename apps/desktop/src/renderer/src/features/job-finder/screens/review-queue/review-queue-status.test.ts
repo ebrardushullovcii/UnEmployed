@@ -53,6 +53,23 @@ it("holds an Aggressive draft back for the person's review before Apply", () => 
   );
 });
 
+it("asks for no flagged-line review when the listing text was never read", () => {
+  const draft = createItem("aggressive_untailored", {
+    assetStatus: "ready",
+    resumeAssetId: "resume_untailored",
+    resumeTailoringMode: "aggressive",
+    resumeReview: { status: "needs_review" },
+  });
+  const asset = {
+    id: "resume_untailored",
+    generationMethod: "deterministic",
+    generationReason: "listing_text_missing",
+  } as const;
+
+  expect(needsPersonResumeReview(draft)).toBe(true);
+  expect(needsPersonResumeReview(draft, asset)).toBe(false);
+});
+
 it("does not describe an Aggressive resume as ready before a draft exists", () => {
   const draft = createItem("aggressive_missing", {
     assetStatus: "not_started",
@@ -67,6 +84,27 @@ it("does not describe an Aggressive resume as ready before a draft exists", () =
     tone: "muted",
   });
   expect(getReviewQueueResumePolicyCaption(draft)).toBe("No resume yet");
+});
+
+it("names an AI outage in the row instead of calling the built-in resume ready", () => {
+  const draft = createItem("outage", {
+    assetStatus: "ready",
+    resumeAssetId: "resume_outage",
+    resumeReview: { status: "needs_review" },
+  });
+
+  expect(
+    getReviewQueueResumePolicyCaption(draft, {
+      generationMethod: "deterministic",
+      generationReason: "provider_failed",
+    } as TailoredAsset),
+  ).toBe("Your saved wording — AI was unavailable");
+  expect(
+    getReviewQueueResumePolicyCaption(draft, {
+      generationMethod: "ai_assisted",
+      generationReason: null,
+    } as TailoredAsset),
+  ).toBe("Resume ready — Apply approves it");
 });
 
 function createItem(

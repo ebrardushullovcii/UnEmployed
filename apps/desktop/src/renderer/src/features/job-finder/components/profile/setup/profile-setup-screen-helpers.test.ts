@@ -477,6 +477,7 @@ describe("profile setup review priority", () => {
         hasEligibilityPreferences: true,
         hasWorkModePreference: true,
         hasDiscoverySource: true,
+        hasWorkEligibilityAnswers: true,
       },
       reviewItems: [recommendedImportedLocation, requiredMissingWorkMode],
     });
@@ -578,6 +579,7 @@ describe("isProfileSetupPathStepComplete domain evidence", () => {
     hasEligibilityPreferences: false,
     hasMeaningfulBackground: false,
     hasNarrative: false,
+    hasWorkEligibilityAnswers: false,
     hasWorkModePreference: false,
   };
   const completeReadiness: ProfileSetupPathStepReadiness = {
@@ -588,6 +590,7 @@ describe("isProfileSetupPathStepComplete domain evidence", () => {
     hasEligibilityPreferences: true,
     hasMeaningfulBackground: true,
     hasNarrative: true,
+    hasWorkEligibilityAnswers: true,
     hasWorkModePreference: true,
   };
 

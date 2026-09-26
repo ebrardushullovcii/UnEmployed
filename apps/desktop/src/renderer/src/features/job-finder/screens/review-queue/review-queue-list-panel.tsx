@@ -51,6 +51,8 @@ interface ReviewQueueListPanelProps {
   onPrepareTailoredDrafts?: () => void;
   /** Starts the application for every job whose resume is ready. */
   onApplyToAllReady?: (readyCount: number) => void;
+  /** What Apply to all does in the mode saved in Settings, in one sentence. */
+  applyAllOutcome?: string | null;
   isApplyToAllPending?: boolean;
   onOpenSafeguards?: () => void;
   /** A safeguard holding every application start back, in plain words. */
@@ -81,6 +83,7 @@ export function ReviewQueueListPanel({
   isJobPending,
   onPrepareTailoredDrafts = () => undefined,
   onApplyToAllReady,
+  applyAllOutcome = null,
   isApplyToAllPending = false,
   onOpenSafeguards,
   safeguardBlocker = null,
@@ -349,6 +352,18 @@ export function ReviewQueueListPanel({
                 : "About a minute each. Stop any time; finished resumes are kept."}
             </p>
           ) : null}
+          {!isDraftPreparationRunning &&
+          !safeguardBlockerSentence &&
+          readyToApplyCount > 0 &&
+          onApplyToAllReady &&
+          applyAllOutcome ? (
+            <p
+              className="m-0 text-xs text-foreground-muted"
+              data-testid="apply-all-outcome"
+            >
+              {applyAllOutcome}
+            </p>
+          ) : null}
           {safeguardBlockerSentence && readyToApplyCount > 0 ? (
             <p
               className="m-0 text-xs text-foreground-muted"
@@ -423,10 +438,17 @@ export function ReviewQueueListPanel({
                 key={item.jobId}
                 onSelect={selectItem}
                 onSelectionKeyDown={handleListKeyDown}
-                resumePolicyCaption={getReviewQueueResumePolicyCaption(
-                  item,
-                  assetsByJobId.get(item.jobId),
-                )}
+                resumePolicyCaption={
+                  // While this job's resume is being (re)written the row's
+                  // status already says so; the caption must not still read
+                  // "Resume ready — Apply approves it" for the old text.
+                  workflowStatus.label === "Writing resume"
+                    ? "Writing the resume…"
+                    : getReviewQueueResumePolicyCaption(
+                        item,
+                        assetsByJobId.get(item.jobId),
+                      )
+                }
                 selected={selectedItem?.jobId === item.jobId}
                 showProgress={isResumeGenerationInProgress(item) || isPending}
                 statusLabel={workflowStatus.label}

@@ -74,6 +74,11 @@ function getCandidateConflictLabel(
 export function ProfileSetupSummaryCards(props: {
   actionMessage: string | null;
   importDisabledReason?: string | null;
+  /** Set when the last import was cut off by the app closing. */
+  interruptedImportMessage?: string | null;
+  interruptedImportFileName?: string | null;
+  /** Imports that file again from the copy the stopped import saved. */
+  onRetryInterruptedImport?: () => void;
   isImportResumePending: boolean;
   isProfileSetupPending: boolean;
   resumeImportProgress: ResumeImportProgressEvent | null;
@@ -114,6 +119,30 @@ export function ProfileSetupSummaryCards(props: {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 pt-6">
+          {props.interruptedImportMessage ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)"
+              data-profile-setup-import-interrupted
+              role="status"
+            >
+              <p className="min-w-0 flex-1 basis-80">
+                {props.interruptedImportMessage}
+              </p>
+              {props.onRetryInterruptedImport &&
+              props.interruptedImportFileName ? (
+                <Button
+                  disabled={Boolean(props.importDisabledReason)}
+                  onClick={props.onRetryInterruptedImport}
+                  pending={props.isImportResumePending}
+                  size="compact"
+                  type="button"
+                  variant="outline"
+                >
+                  Import {props.interruptedImportFileName} again
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid items-stretch gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
             <button
               // F49: this card was `bg-foreground text-background`, which in
@@ -209,7 +238,10 @@ export function ProfileSetupSummaryCards(props: {
             <ul className="mt-2 grid list-none gap-1.5 p-0 text-(length:--text-body) leading-7 text-foreground">
               <li>Your resume, or the same details entered by hand.</li>
               <li>At least one contact method, such as an email address.</li>
-              <li>A work-mode preference, like remote, hybrid, onsite, or flexible.</li>
+              <li>
+                Where you can work, and whether you would need visa sponsorship:
+                application forms ask both.
+              </li>
               <li>
                 One public job page for Job Finder to search — for example, a
                 job board you already browse.

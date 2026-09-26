@@ -11,8 +11,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import {
   closePrepareOnlyIntermediateMutationWindow,
   createApplicationRunServiceWorkerSentinel,
+  closePrepareOnlyFinalActionWindow,
   ensurePrepareOnlyMutationGuard,
   getLatestBlockedPrepareOnlyAttempt,
+  openPrepareOnlyFinalActionWindow,
   openPrepareOnlyIntermediateMutationWindow,
   readServiceWorkerRegisterGuardInPage,
   registerPrepareOnlyPreparedValueInPage,
@@ -237,6 +239,83 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
       }
       expect(requestHitsFor(app.hits, "/create-account")).toHaveLength(0);
       expect(requestHitsFor(app.hits, "/submit-application")).toHaveLength(0);
+    },
+  );
+  test(
+    "with the send window open, a site script's submit() and requestSubmit() go through; closed again, they are blocked",
+    { timeout: 60_000 },
+    async () => {
+      const app = await startTrackedServer();
+      app.registerHtml(
+        "/scripted-send",
+        `<iframe name="result"></iframe>
+         <form id="application" action="/submit-application" method="post" target="result">
+           <input id="name" name="name">
+           <button id="apply" type="button" onclick="document.getElementById('application').requestSubmit()">Apply</button>
+           <button id="legacy" type="button" onclick="document.getElementById('application').submit()">Apply (legacy)</button>
+         </form>`,
+      );
+      const { page } = await newGuardedPage();
+      await page.goto(`${app.baseUrl}/scripted-send`);
+      await page.fill("#name", "Jamie Rivers");
+      await page.evaluate(
+        registerPrepareOnlyPreparedValueInPage,
+        "Jamie Rivers",
+      );
+
+      await page.click("#apply");
+      await page.waitForTimeout(200);
+      expect(requestHitsFor(app.hits, "/submit-application")).toHaveLength(0);
+
+      await openPrepareOnlyFinalActionWindow(page);
+      await page.click("#apply");
+      await page.waitForTimeout(300);
+      expect(requestHitsFor(app.hits, "/submit-application")).toHaveLength(1);
+      await page.click("#legacy");
+      await page.waitForTimeout(300);
+      expect(requestHitsFor(app.hits, "/submit-application")).toHaveLength(2);
+
+      await closePrepareOnlyFinalActionWindow(page);
+      await page.click("#apply");
+      await page.waitForTimeout(200);
+      expect(requestHitsFor(app.hits, "/submit-application")).toHaveLength(2);
+    },
+  );
+  test(
+    "a page handed to the person stays theirs after it moves to another page, until it is locked again",
+    { timeout: 60_000 },
+    async () => {
+      const app = await startTrackedServer();
+      app.registerHtml(
+        "/sign-in",
+        `<a id="register" href="/register">Create account</a>`,
+      );
+      app.registerHtml(
+        "/register",
+        `<form action="/create-account" method="post">
+           <input name="email" value="person@example.test">
+           <button id="create" type="submit">Create account</button>
+         </form>`,
+      );
+      const { page } = await newGuardedPage();
+      await page.goto(`${app.baseUrl}/sign-in`);
+      await openPrepareOnlyFinalActionWindow(page, 60_000);
+
+      // The person follows the site to its account page and creates one.
+      await page.click("#register");
+      await page.waitForURL(`${app.baseUrl}/register`);
+      await page.waitForTimeout(200);
+      await page.click("#create");
+      await page.waitForTimeout(400);
+      expect(requestHitsFor(app.hits, "/create-account")).toHaveLength(1);
+
+      // Locked again (a continuation starts): the next document stays shut.
+      await closePrepareOnlyFinalActionWindow(page);
+      await page.goto(`${app.baseUrl}/register`);
+      await page.waitForTimeout(200);
+      await page.click("#create");
+      await page.waitForTimeout(300);
+      expect(requestHitsFor(app.hits, "/create-account")).toHaveLength(1);
     },
   );
   test(

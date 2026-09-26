@@ -45,7 +45,10 @@ import {
   buildReviewQueue,
   compareDiscoveryJobs,
 } from "./matching";
-import { deriveAndPersistProfileSetupState } from "./profile-workspace-state";
+import {
+  deriveAndPersistProfileSetupState,
+  landProfileSetupAfterImport,
+} from "./profile-workspace-state";
 import { resolvePendingReviewItemsAfterExplicitSave } from "./profile-setup-review-items";
 import { normalizeProfileBeforeSave } from "./profile-merge";
 import { runResumeImportWorkflow } from "./resume-import-workflow";
@@ -1458,6 +1461,9 @@ export function createWorkspaceSnapshotProfileMethods(
     ctx,
     getCurrentSetupStateContext,
     getWorkspaceSnapshot,
+    // The same write Settings > AI behavior makes for the resume level.
+    commitResumeApplicationMode: (resumeApplicationMode) =>
+      commitApplicationDefaultFields({ resumeApplicationMode }),
   });
 
   async function persistSearchPreferences(
@@ -1781,6 +1787,7 @@ export function createWorkspaceSnapshotProfileMethods(
         return getWorkspaceSnapshot();
       }
 
+      const importStartedAt = new Date().toISOString();
       const workflowResult = await runResumeImportWorkflow(ctx, {
         profile: nextProfile,
         searchPreferences,
@@ -1794,6 +1801,7 @@ export function createWorkspaceSnapshotProfileMethods(
           ? { visionArtifact: input.visionArtifact }
           : {}),
       });
+      await landProfileSetupAfterImport(ctx, { importStartedAt });
 
       if (
         hasResumeAffectingProfileChange(currentProfile, workflowResult.profile)

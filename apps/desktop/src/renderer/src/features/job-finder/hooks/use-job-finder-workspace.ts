@@ -234,7 +234,17 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         assertWorkspaceHydrated();
       }
       const sequence = beginWorkspaceRequest();
-      const workspace = await action();
+      let workspace: JobFinderWorkspaceSnapshot;
+      try {
+        workspace = await action();
+      } catch (error) {
+        // Main often records the failure before it throws (a resume run that
+        // failed saves a failed asset with its cause). Without a re-sync the
+        // screen kept its pre-action state, "No resume yet" with "Create the
+        // resume", until the window was reloaded.
+        scheduleConvergenceFetch();
+        throw error;
+      }
       if (!isCurrentWorkspaceRequest(sequence)) {
         scheduleConvergenceFetch();
         return workspaceRef.current ?? workspace;
@@ -264,6 +274,7 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       beginWorkspaceRequest,
       commitWorkspace,
       isCurrentWorkspaceRequest,
+      scheduleConvergenceFetch,
     ],
   );
 
@@ -538,6 +549,13 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
             revisionId,
           ),
         ),
+      undoResumeAssistantEdit: (jobId: string, revisionId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.undoResumeAssistantEdit(
+            jobId,
+            revisionId,
+          ),
+        ),
       exportResumePdf: (
         jobId: string,
         intent: ResumePdfExportIntent = "download",
@@ -640,6 +658,10 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.submitPreparedApplication(input),
         ),
+      sendPreparedApplications: (input: { jobIds: string[] }) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.sendPreparedApplications(input),
+        ),
       mutateApplicationCrm: (input: ApplicationCrmMutationInput) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.mutateApplicationCrm(input),
@@ -658,25 +680,30 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         ),
       exportApplicationCrm: (input: ApplicationCrmExportInput) =>
         window.unemployed.jobFinder.exportApplicationCrm(input),
-      importResume: () => {
+      importResume: (options?: { retryInterrupted?: boolean }) => {
         const requestSequence = ++resumeImportRequestSequenceRef.current;
         setWorkspaceState((currentState) =>
           currentState.status === "ready"
             ? { ...currentState, resumeImportProgress: null }
             : currentState,
         );
-        const importPromise = runWorkspaceAction(() =>
-          window.unemployed.jobFinder.importResume((progress) => {
-            if (resumeImportRequestSequenceRef.current !== requestSequence) {
-              return;
-            }
+        const onImportProgress = (progress: ResumeImportProgressEvent) => {
+          if (resumeImportRequestSequenceRef.current !== requestSequence) {
+            return;
+          }
 
-            setWorkspaceState((currentState) =>
-              currentState.status === "ready"
-                ? { ...currentState, resumeImportProgress: progress }
-                : currentState,
-            );
-          }),
+          setWorkspaceState((currentState) =>
+            currentState.status === "ready"
+              ? { ...currentState, resumeImportProgress: progress }
+              : currentState,
+          );
+        };
+        const importPromise = runWorkspaceAction(() =>
+          options?.retryInterrupted === true
+            ? window.unemployed.jobFinder.importResume(onImportProgress, {
+                retryInterrupted: true,
+              })
+            : window.unemployed.jobFinder.importResume(onImportProgress),
         );
 
         return importPromise.finally(() => {

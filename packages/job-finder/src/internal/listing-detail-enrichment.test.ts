@@ -99,6 +99,47 @@ const assess = vi.fn(
 );
 
 describe("jobNeedsListingDetail", () => {
+  it("reads a rate-limited page as soon as the site's own wait has passed", () => {
+    const rateLimited = (attemptedAt: string, retryAfterAt: string) =>
+      cardOnlyJob({
+        listingDetailFetch: {
+          attemptedAt,
+          outcome: "blocked",
+          method: null,
+          detail: "Rate limited.",
+          retryAfterAt,
+        },
+      });
+    // NOW is 10:00. Asked to wait two seconds a minute ago: due now, not in
+    // an hour.
+    expect(
+      jobNeedsListingDetail(
+        rateLimited("2026-09-05T09:59:00.000Z", "2026-09-05T09:59:02.000Z"),
+        NOW,
+      ),
+    ).toBe(true);
+    expect(
+      jobNeedsListingDetail(
+        rateLimited("2026-09-05T09:59:58.000Z", "2026-09-05T10:00:30.000Z"),
+        NOW,
+      ),
+    ).toBe(false);
+    // A refusal without a stated wait keeps the hour-long back-off.
+    expect(
+      jobNeedsListingDetail(
+        cardOnlyJob({
+          listingDetailFetch: {
+            attemptedAt: "2026-09-05T09:59:00.000Z",
+            outcome: "blocked",
+            method: null,
+            detail: "The page answered 403.",
+          },
+        }),
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
   it("reads fetchable jobs until this stage has captured their complete page", () => {
     expect(jobNeedsListingDetail(cardOnlyJob(), NOW)).toBe(true);
     expect(
@@ -352,30 +393,53 @@ describe("enrichSavedJobListingDetails", () => {
       id: "job_rate_limited",
       canonicalUrl: "https://jobs.example.test/rate-limited",
     });
+    const alwaysRateLimited = vi.fn<ListingHtmlFetcher>().mockResolvedValue({
+      status: 429,
+      html: "",
+      finalUrl: rateLimited.canonicalUrl,
+      retryAfterMs: 0,
+    });
     const rateLimitedResult = await enrichSavedJobListingDetails({
       jobs: [rateLimited],
-      fetchHtml: vi
-        .fn<ListingHtmlFetcher>()
-        .mockResolvedValueOnce({
-          status: 429,
-          html: "",
-          finalUrl: rateLimited.canonicalUrl,
-          retryAfterMs: 0,
-        })
-        .mockResolvedValueOnce({
-          status: 429,
-          html: "",
-          finalUrl: rateLimited.canonicalUrl,
-          retryAfterMs: 0,
-        }),
+      fetchHtml: alwaysRateLimited,
       assess,
       now: () => NOW,
     });
+    // Asked once, then again twice after the site's pause, then left for the
+    // next search.
+    expect(alwaysRateLimited).toHaveBeenCalledTimes(3);
     expect(rateLimitedResult.jobs[0]?.listingDetailFetch).toMatchObject({
       outcome: "blocked",
       detail:
-        "The page answered 429 because it rate-limited listing reads. Job Finder will try again later.",
+        "The site asked Job Finder to slow down (HTTP 429). The listing is read again on the next search.",
     });
+
+    // Every page that was rate-limited gets its own retry, not just the first.
+    const firstLimited = cardOnlyJob({
+      id: "job_first_limited",
+      canonicalUrl: "https://jobs.example.test/first-limited",
+    });
+    const secondLimited = cardOnlyJob({
+      id: "job_second_limited",
+      canonicalUrl: "https://jobs.example.test/second-limited",
+    });
+    const limitedOnce = new Set<string>();
+    const eachOnceFetcher = vi.fn<ListingHtmlFetcher>(async (url) => {
+      if (!limitedOnce.has(url)) {
+        limitedOnce.add(url);
+        return { status: 429, html: "", finalUrl: url, retryAfterMs: 0 };
+      }
+      return { status: 200, html: RECORD_PAGE, finalUrl: url };
+    });
+    const bothRecovered = await enrichSavedJobListingDetails({
+      jobs: [firstLimited, secondLimited],
+      fetchHtml: eachOnceFetcher,
+      assess,
+      now: () => NOW,
+      concurrency: 1,
+    });
+    expect(eachOnceFetcher).toHaveBeenCalledTimes(4);
+    expect(bothRecovered.summary).toMatchObject({ enriched: 2, blocked: 0 });
 
     const recoversAfterRateLimit = cardOnlyJob({
       id: "job_rate_limit_recovers",

@@ -22,7 +22,9 @@ import {
   type JobFinderSettings,
   type JobPosting,
   type JobSearchPreferences,
+  type ResumeApproach,
   type ResumeDraft,
+  type ResumeDraftPatch,
   type ResumeTemplateDefinition,
   type ResumeValidationIssue,
   ResumeStrategyCoveragePolicySchema,
@@ -388,11 +390,104 @@ export const ResumeAssistantReplySchema = z.object({
 });
 export type ResumeAssistantReply = z.infer<typeof ResumeAssistantReplySchema>;
 
+/** One earlier turn of the Resume Studio Assistant, as the model sees it. */
+export interface ResumeAssistantConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+  /**
+   * The changes this reply proposed and what became of them, so "do it",
+   * "yes" or "the second one" can refer to them.
+   */
+  proposal: {
+    status: "waiting_for_review" | "accepted" | "rejected";
+    changes: readonly {
+      patchId: string;
+      operation: string;
+      sectionId: string;
+      entryId: string | null;
+      bulletId: string | null;
+      newText: string | null;
+      applied: boolean | null;
+    }[];
+  } | null;
+}
+
+/**
+ * The approval gate's verdict on a proposed set of changes, from the same
+ * classifier that later decides whether the resume can be approved.
+ */
+export interface ResumeProposalCheckFinding {
+  patchId: string | null;
+  sectionId: string | null;
+  entryId: string | null;
+  bulletId: string | null;
+  flaggedText: string | null;
+  message: string;
+  /**
+   * `needs_confirmation`: a stretch past the saved evidence the person keeps
+   * or removes under Lines to confirm after accepting. `unsupported`: the
+   * saved evidence does not back the wording, so it blocks approval until the
+   * person rewrites it or approves it as accurate.
+   */
+  kind: "needs_confirmation" | "unsupported";
+}
+
+export interface ResumeProposalCheckResult {
+  /** A change that cannot be applied at all; nothing else was checked. */
+  applyError: string | null;
+  findings: readonly ResumeProposalCheckFinding[];
+  /**
+   * Changes that leave no visible trace once the resume is saved: the save
+   * cleanup removes them (a skill that is neither in the saved profile nor in
+   * the listing) or they change nothing.
+   */
+  droppedOnSave?: readonly { patchId: string; message: string }[];
+}
+
 export interface ReviseResumeDraftInput {
   draft: ResumeDraft;
   job: JobPosting;
   request: string;
   validationIssues?: readonly string[];
+  /**
+   * The last few turns of this job's Assistant thread, oldest first, not
+   * counting `request`.
+   */
+  recentConversation?: readonly ResumeAssistantConversationTurn[];
+  /**
+   * Lines already on the draft that wait for the person's Keep or Remove
+   * under Lines to confirm. Without them the Assistant told the person a
+   * line on that list had "nothing to flag".
+   */
+  linesToConfirm?: readonly {
+    text: string;
+    sectionId: string;
+    entryId: string | null;
+    bulletId: string | null;
+  }[];
+  /**
+   * Runs the approval gate over the draft that accepting these changes would
+   * produce, so the agent can repair its proposal before it finishes.
+   */
+  checkProposal?: (
+    patches: readonly ResumeDraftPatch[],
+  ) => ResumeProposalCheckResult | Promise<ResumeProposalCheckResult>;
+  /** Pages the current draft renders to, when known. */
+  currentPageCount?: number | null;
+  /**
+   * Renders the draft these changes would produce to the application PDF and
+   * returns its page count, so a request like "fit it on one page" can be
+   * checked instead of guessed.
+   */
+  measurePages?: (
+    patches: readonly ResumeDraftPatch[],
+  ) => Promise<{ pageCount: number | null; targetPageCount: number }>;
+  /** Templates the person can switch to in the studio, for plain answers. */
+  availableTemplates?: readonly {
+    id: string;
+    label: string;
+    density: "comfortable" | "balanced" | "compact";
+  }[];
   /**
    * The job's effective tailoring strength when known. Model-backed review
    * and section-regeneration passes route through the aggressive model for
@@ -407,6 +502,16 @@ export interface ReviseResumeDraftInput {
   };
 }
 
+/** One earlier turn of the Profile chat, as the model sees it. */
+export interface ReviseCandidateProfileConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+  proposals: readonly {
+    summary: string;
+    status: "applied" | "rejected" | "waiting_for_review";
+  }[];
+}
+
 export interface ReviseCandidateProfileInput {
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
@@ -414,8 +519,18 @@ export interface ReviseCandidateProfileInput {
   relevantReviewItems: readonly ProfileCopilotRelevantReviewItem[];
   request: string;
   conversationFacts?: readonly string[];
+  /**
+   * The last few turns of this conversation, oldest first, so "fix it" or
+   * "do the second one" can refer to what was just said or proposed.
+   */
+  recentConversation?: readonly ReviseCandidateProfileConversationTurn[];
   /** The saved AI behavior for the Profile chat (Settings). */
   assistantBehavior?: AiProfileAssistantBehavior;
+  /**
+   * The resume level Settings shows for jobs shortlisted from now on,
+   * including Original, which is not a search preference.
+   */
+  resumeApproach?: ResumeApproach;
 }
 
 /**
@@ -430,21 +545,29 @@ export function describeProfileAssistantBehavior(
 ): string[] {
   const initiative = behavior?.initiative ?? "suggest";
   const replyStyle = behavior?.replyStyle ?? "brief";
+  // A built-app check found Proactive and Only what I ask answering a small
+  // request identically: the level sat among twenty tool rules and read as
+  // optional, and "mention it in one clause" contradicted the rule that every
+  // gap mentioned must be proposed or asked about. Each level now says what
+  // to add, or that nothing may be added, in words the model cannot skip.
   return [
     initiative === "answer_only"
-      ? "Do only what the person asked. Do not volunteer other edits, gaps, or advice; if you notice something else, at most mention it in one clause and leave it."
+      ? "How much to volunteer (the person chose Only what I ask): do only what the person asked. Do not propose, mention, or ask about anything else, not even a gap you notice."
       : initiative === "proactive"
-        ? "Be proactive: after doing what was asked, also propose the further profile improvements the saved facts support (gaps, weak wording, missing strengths), each as its own reviewable change with a one-line reason."
-        : "Do what the person asked, and propose one closely related improvement when the saved facts clearly support it; otherwise stop there.",
+        ? "How much to volunteer (the person chose Proactive): do what the person asked, then look over the whole profile and add up to three further improvements, every time, even after a small request. Each is its own reviewable change with a one-line reason when the saved profile or resume supports it (a skill the resume names that the skills list lacks, vague wording, a missing summary), or one direct question when only the person knows the fact (a missing date or employer). An empty skills list is the first gap to raise, because matching and every resume lean on it: propose the skills the resume or work history names outright, and when it names none, ask which languages, tools and platforms they use."
+        : "How much to volunteer (the person chose Suggest a little): do what the person asked, then add exactly one closely related improvement the saved profile or resume supports, as its own reviewable change with a one-line reason. If nothing related is supported, add nothing.",
     replyStyle === "conversational"
       ? "Reply in a conversational tone with the reasoning behind each change, a short paragraph at most."
-      : "Reply briefly: one or two plain sentences that say what changed or what you found, with no preamble.",
+      : "Reply briefly: one or two plain sentences that say what you prepared or what you found, with no preamble; each proposal card carries its own detail.",
   ];
 }
 
 /** User-facing Settings names that differ from stored preference values. */
-export const PROFILE_RESUME_APPROACH_VOCABULARY =
-  "When the person asks to change the default resume approach, map the Settings names Light to tailoringMode conservative, Tailored to tailoringMode balanced, and Aggressive to tailoringMode aggressive. Original is a separate Settings choice and cannot be changed through a profile search-preference patch.";
+export const PROFILE_RESUME_APPROACH_VOCABULARY = [
+  "resumeApproach is the saved resume level for jobs shortlisted from now on (Settings > AI behavior > Resumes): original_resume is Original and sends the imported resume file exactly as it is, so nothing in it can be edited; conservative is Light, balanced is Tailored and aggressive is Aggressive, and each of those writes an editable resume for each job from the profile.",
+  "To change the resume level, including onto or off Original, propose set_resume_approach with original_resume, conservative, balanced or aggressive (map the Settings names Light to conservative, Tailored to balanced, Aggressive to aggressive); never tell the person to change it in Settings. A job already on Shortlisted keeps the level it has.",
+  "When resumeApproach is original_resume and the person asks to change the resume itself (its wording, length, layout or what it shows), say in one sentence that Original sends their imported file unchanged, and propose set_resume_approach conservative so Job Finder writes a resume they can edit. When the request also implies a profile change, put both in one propose_profile_operations call so a single Apply & save does both.",
+].join(" ");
 
 export interface AssessJobFitInput {
   profile: CandidateProfile;

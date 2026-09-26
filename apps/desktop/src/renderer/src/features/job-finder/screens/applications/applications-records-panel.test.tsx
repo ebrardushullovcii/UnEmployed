@@ -11,6 +11,7 @@ import {
   ApplicationRecordSchema,
   ApplyJobResultSchema,
   type ApplicationRecord,
+  type ApplyJobResult,
 } from "@unemployed/contracts";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1010,5 +1011,87 @@ describe("ApplicationsRecordsPanel", () => {
     expect(application.textContent).toContain("Staff Platform Engineer");
     expect(application.textContent).toContain("Northwind");
     expect(application.textContent).toContain("Next: Try again");
+  });
+
+  it("never calls a job held by the person's pause Filling in", () => {
+    const record = {
+      id: "application_held",
+      jobId: "job_held",
+      title: "Frontend Engineer",
+      company: "Dusk",
+      status: "ready_for_review",
+      lastActionLabel: "Waiting its turn in this run.",
+      nextActionLabel: "Review the prepared run approval in Applications.",
+      lastUpdatedAt: "2026-09-01T08:00:00.000Z",
+      lastAttemptState: "in_progress",
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+      automationMode: "prepare_only" as const,
+    } as ApplicationRecord;
+    const result = {
+      id: "result_held",
+      runId: "run_1",
+      jobId: "job_held",
+      applicationRecordId: "application_held",
+      state: "planned",
+      startedAt: "2026-09-01T08:00:00.000Z",
+      updatedAt: "2026-09-01T08:00:00.000Z",
+      completedAt: null,
+    } as unknown as ApplyJobResult;
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          filterCounts={{
+            all: 1,
+            needs_action: 0,
+            in_progress: 1,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          latestApplyResultByRecordId={new Map([[record.id, result]])}
+          liveRunLinesByJobId={
+            new Map([
+              [
+                "job_held",
+                "Paused before this application. It carries on when you resume.",
+              ],
+            ])
+          }
+          readApplyRunContext={() => ({
+            state: "running",
+            activityPaused: true,
+            started: true,
+          })}
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    const application = within(
+      screen.getByRole("list", { name: "Applications" }),
+    ).getByRole("listitem");
+    const badge = application.querySelector('[data-slot="badge"]');
+    expect(badge?.textContent).toBe("Paused");
+    expect(application.textContent).not.toContain("Filling in");
   });
 });

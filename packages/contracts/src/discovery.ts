@@ -130,6 +130,14 @@ const JobDiscoveryPreferencesObjectSchema = z.object({
     .min(1)
     .max(DISCOVERY_RUN_JOB_BUDGET_MAX)
     .nullish(),
+  /**
+   * Run-time copy of Settings' "Count remote jobs as any location"
+   * (`settings.aiBehavior.jobSearch.remoteCountsAsAnyLocation`), set by the
+   * search and scoring code from the saved settings when they read the
+   * preferences. Only `false` is ever set; absent means on. No save path
+   * writes it.
+   */
+  remoteCountsAsAnyLocation: z.boolean().optional(),
 });
 type JobDiscoveryPreferencesInput = z.input<
   typeof JobDiscoveryPreferencesObjectSchema
@@ -1264,6 +1272,20 @@ export const SavedJobDiscoveryProvenanceSchema = z.object({
   providerKey: SourceIntelligenceProviderKeySchema.nullable().default(null),
   providerBoardToken: NonEmptyStringSchema.nullable().default(null),
   titleTriageOutcome: DiscoveryTitleTriageOutcomeSchema.default("pass"),
+  // What this one source showed for the job. A job seen on several sources is
+  // built from exactly one of these sightings (ADR 0030), so each keeps its own
+  // listing and application link instead of the latest one overwriting the job.
+  // Optional: provenance written before these fields existed stays valid.
+  /** The listing page this source linked to. */
+  listingUrl: NonEmptyStringSchema.nullable().optional(),
+  /** The application link this source's collection carried. */
+  applicationUrl: UrlStringSchema.nullable().optional(),
+  /** The apply link read from this sighting's own listing page. */
+  pageApplyUrl: UrlStringSchema.nullable().optional(),
+  /** When this sighting's listing page was read for its apply link. */
+  routeReadAt: IsoDateTimeSchema.nullable().optional(),
+  sourceJobId: NonEmptyStringSchema.nullable().optional(),
+  applyPath: JobApplyPathSchema.nullable().optional(),
 });
 export type SavedJobDiscoveryProvenance = z.infer<
   typeof SavedJobDiscoveryProvenanceSchema

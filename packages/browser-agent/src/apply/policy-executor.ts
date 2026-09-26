@@ -2,6 +2,7 @@ import type { ApplicationAttemptQuestion } from "@unemployed/contracts";
 
 import {
   matchOption,
+  personFacingNeedsYouReason,
   resolveApplyAnswer,
   resolveReusableAnswer,
 } from "./answer-sourcing";
@@ -15,6 +16,7 @@ import {
   requiredLetterFileType,
 } from "./cover-letter";
 import { attemptKey, judgeBlockedAttempt } from "./blocked-attempts";
+import { isSecurityChallengeControl } from "./blockers";
 import { runSubmitPreflight } from "./submit-preflight";
 import type {
   ApplyAgentConfig,
@@ -224,8 +226,11 @@ export function buildPendingQuestion(input: {
   detectedAt: string;
   suggestion: ApplyAnswer | null;
   siblings?: readonly ApplyFormControl[];
+  /** Why stored answers did not settle it, said beside the question. */
+  reason?: string | null;
 }): ApplicationAttemptQuestion {
   const { control, suggestion } = input;
+  const note = input.reason ? personFacingNeedsYouReason(input.reason) : null;
   const radioSiblings =
     control.kind === "radio" && control.choiceGroupKey
       ? (input.siblings ?? []).filter(
@@ -262,6 +267,7 @@ export function buildPendingQuestion(input: {
           },
         ]
       : [],
+    ...(note ? { note } : {}),
     submittedAnswer: null,
     status: "detected",
   };
@@ -809,6 +815,7 @@ export async function executeApplyProposal(
             detectedAt: at,
             suggestion: resolution.suggestion,
             siblings: observation.controls,
+            reason: resolution.reason,
           })
         : null,
       controlRef: control.ref,
@@ -823,6 +830,26 @@ export async function executeApplyProposal(
       kind: "refused",
       reason:
         "The page changed since you last looked, so that step was not taken. Here is the page as it is now — decide again from this.",
+      observation,
+    };
+  }
+
+  // Security checks stay with the person. A continuation after the person
+  // solved one used to tick the box again, which unticked their answer.
+  if (
+    (proposal.tool === "click" ||
+      proposal.tool === "type" ||
+      proposal.tool === "select" ||
+      proposal.tool === "set_checkbox") &&
+    (() => {
+      const control = findControl(observation, proposal.ref);
+      return control !== null && isSecurityChallengeControl(control);
+    })()
+  ) {
+    return {
+      kind: "refused",
+      reason:
+        "That control is a security check. Only the person answers it; leave it exactly as it is and carry on with the rest of the form.",
       observation,
     };
   }
@@ -1077,6 +1104,31 @@ export async function executeApplyProposal(
         sources: config.sources,
         salaryDisclosure: config.authority.salaryDisclosure,
       });
+      // A notice period or start date with nothing saved is the person's to
+      // give; a composed sentence is not their answer.
+      if (
+        resolution.status === "needs_you" &&
+        (control.questionKind === "notice_period" ||
+          control.questionKind === "availability")
+      ) {
+        return {
+          kind: "suggestion",
+          answer: null,
+          note: `"${questionPrompt(control)}" asks for a fact only the person can give. ${resolution.reason} Leave it empty and carry on with the rest; it has been kept for the person.`,
+          question: control.required
+            ? buildPendingQuestion({
+                control,
+                jobId: config.application.jobId,
+                detectedAt: at,
+                suggestion: null,
+                siblings: observation.controls,
+                reason: resolution.reason,
+              })
+            : null,
+          controlRef: control.ref,
+          observation,
+        };
+      }
       if (resolution.status !== "answered" && deps.checkWrittenAnswer) {
         const check = await deps.checkWrittenAnswer(
           questionPrompt(control),

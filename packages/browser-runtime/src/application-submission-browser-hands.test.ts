@@ -345,7 +345,7 @@ describe("source-generic application browser hands", () => {
     ).toHaveLength(1);
   });
 
-  test("keeps actionIssued false when an overlay prevents click dispatch", async () => {
+  test("an overlay that prevents click dispatch leaves the form not submitted, not uncertain", async () => {
     const { page, server } = await createPage(
       "<form action='/submit'><button id=send type=submit>Send application</button><div id=overlay></div></form>",
     );
@@ -365,8 +365,10 @@ describe("source-generic application browser hands", () => {
       clickTimeoutMs: 50,
     });
 
+    // Playwright never got past its clickability wait, so no click reached
+    // the page: nothing was sent and the prepared form can be sent again.
     expect(result).toMatchObject({
-      outcome: "outcome_uncertain",
+      outcome: "not_submitted",
       reason: "action_error",
       facts: {
         actionAttempted: true,

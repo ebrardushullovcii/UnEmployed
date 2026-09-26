@@ -116,6 +116,21 @@ export {
   isDiscoveryClearMismatch,
 } from "./discovery-result-groups";
 
+/**
+ * Whether Find jobs opens with the weaker matches shown. It follows the rule
+ * that picks a search's own mode (ADR 0025): "Cast a wide net" runs broad,
+ * "Best matches only" runs precise, and the middle setting defers to the
+ * plan's mode.
+ */
+export function resolveDiscoveryListOpensWide(
+  searchSelectivity: JobSearchSelectivity | null | undefined,
+  activeCampaignMode: "precision" | "scale",
+): boolean {
+  if (searchSelectivity === "wide_net") return true;
+  if (searchSelectivity === "best_matches") return false;
+  return activeCampaignMode === "scale";
+}
+
 export function getNewestRunForCampaign(
   recentRuns: readonly DiscoveryRunRecord[],
   campaignId: string | null,
@@ -430,12 +445,18 @@ export function DiscoveryScreen(props: {
     campaigns?.find((campaign) => campaign.id === activeCampaignId)?.mode ??
     "precision";
   const [showHistory, setShowHistory] = useState(false);
-  const [showAlsoFound, setShowAlsoFound] = useState(
-    () => activeCampaignMode === "scale",
+  // The list opens as wide as the search ran: "Cast a wide net" (and a scale
+  // plan under the middle setting) shows the weaker matches too, the same
+  // rule that picks the run's own mode. "Best matches only" always opens on
+  // the strong matches.
+  const opensWide = resolveDiscoveryListOpensWide(
+    searchSelectivity,
+    activeCampaignMode,
   );
+  const [showAlsoFound, setShowAlsoFound] = useState(() => opensWide);
   useEffect(() => {
-    setShowAlsoFound(activeCampaignMode === "scale");
-  }, [activeCampaignId, activeCampaignMode]);
+    setShowAlsoFound(opensWide);
+  }, [activeCampaignId, opensWide]);
   // What the results panel actually displays on its current filtered and
   // paginated page. Null state means "not reported yet"; an explicit null
   // jobId means the panel is showing no results at all.
@@ -1157,6 +1178,10 @@ export function DiscoveryScreen(props: {
           jobs={resultVisibility.jobs}
           latestRun={selectedPlanLatestRun}
           latestRunVerdict={latestRunVerdict}
+          failureCalloutShown={
+            visibleDiscoveryRunFeedback?.status === "failed" &&
+            visibleDiscoveryRunFeedback.recovery !== null
+          }
           preferredLocations={searchPreferences.locations}
           remoteIncluded={searchPreferences.workModes.includes("remote")}
           totalLocationJobCount={stableJobs.length}

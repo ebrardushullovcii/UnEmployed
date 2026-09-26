@@ -430,6 +430,8 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
         importResume: (
           onProgress?: (event: ResumeImportProgressEvent) => void,
+          /** `retryInterrupted` imports again the file a stopped import saved. */
+          options?: { retryInterrupted?: boolean },
         ) => Promise<JobFinderWorkspaceSnapshot>;
         cancelImportResume: () => void;
         runDiscovery: () => Promise<JobFinderWorkspaceSnapshot>;
@@ -535,6 +537,10 @@ declare global {
           jobId: string,
           revisionId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
+        undoResumeAssistantEdit: (
+          jobId: string,
+          revisionId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         regenerateResumeDraft: (
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
@@ -606,6 +612,9 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
         submitPreparedApplication: (input: {
           jobId: string;
+        }) => Promise<JobFinderWorkspaceSnapshot>;
+        sendPreparedApplications: (input: {
+          jobIds: string[];
         }) => Promise<JobFinderWorkspaceSnapshot>;
         approveApply: (
           input: JobFinderApplicationStartTarget,

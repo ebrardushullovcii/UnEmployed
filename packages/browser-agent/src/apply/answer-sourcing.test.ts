@@ -6,9 +6,11 @@ import { describe, expect, test } from "vitest";
 
 import {
   matchOption,
+  NO_STORED_ANSWER_REASON,
   resolveApplyAnswer,
   resolveReusableAnswer,
 } from "./answer-sourcing";
+import { buildPendingQuestion } from "./policy-executor";
 import type { ApplyAnswerSources, ApplyFormControl } from "./types";
 
 /**
@@ -595,5 +597,240 @@ describe("a retry finds every answer the person gave", () => {
     });
 
     expect(resolution.status).toBe("answered");
+  });
+});
+
+describe("work authorization answers follow the job's country", () => {
+  function withCountries(
+    countries: string[],
+    location: string,
+    requiresVisaSponsorship: boolean | null = false,
+  ): ApplyAnswerSources {
+    const base = sources([]);
+    return {
+      ...base,
+      profile: CandidateProfileSchema.parse({
+        ...base.profile,
+        workEligibility: {
+          ...base.profile.workEligibility,
+          authorizedWorkCountries: countries,
+          requiresVisaSponsorship,
+        },
+      }),
+      posting: { ...base.posting, location },
+    };
+  }
+
+  function authorizationQuestion(label: string, options = ["Yes", "No"]) {
+    return control({
+      label,
+      questionKind: "work_authorization",
+      options,
+    });
+  }
+
+  test("answers Yes with the country the question names when the list has it", () => {
+    const result = resolveApplyAnswer({
+      control: authorizationQuestion(
+        "Are you legally authorized to work in the United States?",
+        [],
+      ),
+      sources: withCountries(["Canada", "United States"], "Remote"),
+      salaryDisclosure: "pause_for_user",
+    });
+
+    expect(result).toMatchObject({
+      status: "answered",
+      answer: {
+        value: "Yes — authorised to work in United States",
+        sourceId: "profile.workEligibility.authorizedWorkCountries",
+      },
+    });
+  });
+
+  test("uses the job's country when the question names none, with EU membership counting", () => {
+    const result = resolveApplyAnswer({
+      control: authorizationQuestion(
+        "Are you legally authorized to work in the country where this role is located?",
+      ),
+      sources: withCountries(["European Union"], "Berlin, Germany"),
+      salaryDisclosure: "pause_for_user",
+    });
+
+    expect(result).toMatchObject({
+      status: "answered",
+      answer: { value: "Yes" },
+    });
+  });
+
+  test("answers No when the named country is clearly not on the list", () => {
+    // Authorized only in Germany, applying to a US job: "Yes" was a legal
+    // misstatement.
+    const result = resolveApplyAnswer({
+      control: authorizationQuestion(
+        "Are you legally authorized to work in the U.S.?",
+      ),
+      sources: withCountries(["Germany"], "Berlin, Germany"),
+      salaryDisclosure: "pause_for_user",
+    });
+
+    expect(result).toMatchObject({
+      status: "answered",
+      answer: { value: "No" },
+    });
+  });
+
+  test("hands the question back when neither the question nor the job names a country", () => {
+    const result = resolveApplyAnswer({
+      control: authorizationQuestion(
+        "Are you authorized to work in the country where this job is located?",
+      ),
+      sources: withCountries(["Germany"], "Remote"),
+      salaryDisclosure: "pause_for_user",
+    });
+
+    expect(result).toMatchObject({ status: "needs_you", suggestion: null });
+    expect(result.status === "needs_you" && result.reason).toContain("Germany");
+  });
+
+  test("hands back a free-text question instead of writing an answer", () => {
+    const result = resolveApplyAnswer({
+      control: control({
+        kind: "text",
+        label: "Describe your right to work for us",
+        questionKind: "work_authorization",
+        options: [],
+      }),
+      sources: withCountries(["Germany"], "Remote, Worldwide"),
+      salaryDisclosure: "pause_for_user",
+    });
+
+    expect(result.status).toBe("needs_you");
+  });
+
+  test("hands back when another member state's rules depend on citizenship", () => {
+    // A German work visa does not cover Austria; German citizenship does.
+    const result = resolveApplyAnswer({
+      control: authorizationQuestion("Are you eligible to work in Austria?"),
+      sources: withCountries(["Germany"], "Vienna, Austria"),
+      salaryDisclosure: "pause_for_user",
+    });
+
+    expect(result.status).toBe("needs_you");
+  });
+
+  test("does not claim no sponsorship is needed for a country the list leaves out", () => {
+    const result = resolveApplyAnswer({
+      control: control({
+        label:
+          "Will you now or in the future require sponsorship to work in the United States?",
+        questionKind: "visa_sponsorship",
+      }),
+      sources: withCountries(["Germany"], "New York, NY"),
+      salaryDisclosure: "pause_for_user",
+    });
+
+    expect(result.status).toBe("needs_you");
+  });
+
+  test("keeps the saved sponsorship answer for a country on the list", () => {
+    const result = resolveApplyAnswer({
+      control: control({
+        label: "Will you require visa sponsorship?",
+        questionKind: "visa_sponsorship",
+      }),
+      sources: withCountries(["United Kingdom"], "Manchester, United Kingdom"),
+      salaryDisclosure: "pause_for_user",
+    });
+
+    expect(result).toMatchObject({
+      status: "answered",
+      answer: { value: "No" },
+    });
+  });
+});
+
+describe("what the person is told when a question comes back", () => {
+  test("an unsettled work-country question says which countries the profile has", () => {
+    const base = sources([]);
+    const control_ = control({
+      label: "Are you legally authorized to work in the country where this job is based?",
+      questionKind: "work_authorization",
+      options: ["Yes", "No"],
+    });
+    const resolution = resolveApplyAnswer({
+      control: control_,
+      sources: {
+        ...base,
+        profile: {
+          ...base.profile,
+          workEligibility: {
+            ...base.profile.workEligibility,
+            authorizedWorkCountries: ["Germany"],
+          },
+        },
+        posting: { ...base.posting, location: "Remote, Europe" },
+      },
+      salaryDisclosure: "pause_for_user",
+    });
+    expect(resolution.status).toBe("needs_you");
+    const question = buildPendingQuestion({
+      control: control_,
+      jobId: "job_1",
+      detectedAt: "2026-09-24T10:00:00.000Z",
+      suggestion: null,
+      reason: resolution.status === "needs_you" ? resolution.reason : null,
+    });
+    expect(question.note).toMatch(/Germany/);
+
+    // The bare "nothing answers this" is the card's own heading already.
+    const bare = buildPendingQuestion({
+      control: control_,
+      jobId: "job_1",
+      detectedAt: "2026-09-24T10:00:00.000Z",
+      suggestion: null,
+      reason: NO_STORED_ANSWER_REASON,
+    });
+    expect(bare.note).toBeUndefined();
+  });
+});
+
+describe("a notice period or start date with nothing saved", () => {
+  test("goes to the person instead of being written", () => {
+    for (const [label, questionKind] of [
+      ["What is your notice period?", "notice_period"],
+      ["When can you start?", "availability"],
+    ] as const) {
+      const result = resolveApplyAnswer({
+        control: control({
+          kind: "long_text",
+          label,
+          questionKind,
+          options: [],
+          answerControlType: "text",
+        }),
+        sources: sources([]),
+        salaryDisclosure: "pause_for_user",
+      });
+      expect(result.status).toBe("needs_you");
+    }
+  });
+
+  test("a saved answer still answers it", () => {
+    const result = resolveApplyAnswer({
+      control: control({
+        kind: "long_text",
+        label: "What is your notice period?",
+        questionKind: "notice_period",
+        options: [],
+        answerControlType: "text",
+      }),
+      sources: sources([savedAnswer("What is your notice period?", "Two weeks")]),
+      salaryDisclosure: "pause_for_user",
+    });
+    expect(result).toMatchObject({
+      status: "answered",
+      answer: { value: "Two weeks" },
+    });
   });
 });

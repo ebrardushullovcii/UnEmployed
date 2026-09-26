@@ -8,6 +8,7 @@ import type {
   DiscoveryJobView,
   EmployerExclusionPreview,
   JobDiscoveryTarget,
+  JobKeywordSignal,
   MatchAssessmentChangeAudit,
   ReviewQueueItem,
   SavedJob,
@@ -69,7 +70,11 @@ import {
   DISCOVERY_DETAIL_REGION_ID,
 } from "./discovery-accessibility";
 import { getDiscoverySourceLabels } from "./discovery-source-attribution";
-import { describeMissingListingText } from "@renderer/features/job-finder/lib/listing-detail-fetch-copy";
+import {
+  RATE_LIMITED_LISTING_TEXT,
+  describeMissingListingText,
+  isRateLimitedListingRead,
+} from "@renderer/features/job-finder/lib/listing-detail-fetch-copy";
 
 function describeDiscoveryMissingListingText(
   job: Pick<SavedJob, "listingDetailCapture" | "listingDetailFetch">,
@@ -78,7 +83,9 @@ function describeDiscoveryMissingListingText(
     job.listingDetailCapture?.state === "blocked" ||
     job.listingDetailFetch?.outcome === "blocked"
   ) {
-    return "This site did not let Job Finder read the listing";
+    return isRateLimitedListingRead(job.listingDetailFetch)
+      ? RATE_LIMITED_LISTING_TEXT
+      : "This site did not let Job Finder read the listing";
   }
   return describeMissingListingText(
     job.listingDetailFetch,
@@ -105,6 +112,36 @@ import {
  * The bare workflow value reads as a verdict on the job itself ("APPROVED"),
  * not on the artifact the state is actually about.
  */
+const TERM_KEYWORD_KINDS: ReadonlySet<JobKeywordSignal["kind"]> = new Set([
+  "skill",
+  "tool",
+  "domain",
+  "industry",
+]);
+
+/**
+ * The keyword chips worth showing: short terms only. Responsibility,
+ * qualification and benefit signals are whole sentences from the listing
+ * text, which the pane already shows, and a skill already listed under
+ * "Skills mentioned" is not repeated.
+ */
+export function listFlaggedKeywordTerms(
+  signals: readonly JobKeywordSignal[],
+  keySkills: readonly string[],
+): string[] {
+  const seen = new Set(keySkills.map((skill) => skill.trim().toLowerCase()));
+  const terms: string[] = [];
+  for (const signal of signals) {
+    const key = signal.label.trim().toLowerCase();
+    if (!TERM_KEYWORD_KINDS.has(signal.kind) || !key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    terms.push(signal.label.trim());
+  }
+  return terms;
+}
+
 export function presentDiscoveryJobStatusLabel(status: string): string {
   switch (status) {
     case "approved":
@@ -472,6 +509,10 @@ export function DiscoveryDetailPanel({
     formatStatedNormalizedCompensation(selectedJob);
   const intelligenceSummaries = buildIntelligenceSummaries(
     selectedJob?.sourceIntelligence ?? null,
+  );
+  const flaggedKeywords = listFlaggedKeywordTerms(
+    selectedJob?.keywordSignals ?? [],
+    selectedJob?.keySkills ?? [],
   );
   const isSelectedJobPending = selectedJob
     ? isJobPending(selectedJob.id)
@@ -1218,13 +1259,11 @@ export function DiscoveryDetailPanel({
                         </div>
                       ) : null}
                     </div>
-                    {selectedJob.keywordSignals.length > 0 ? (
+                    {flaggedKeywords.length > 0 ? (
                       <PreferenceList
                         compact
                         label="Keywords the source flagged"
-                        values={selectedJob.keywordSignals.map(
-                          (signal) => signal.label,
-                        )}
+                        values={flaggedKeywords}
                       />
                     ) : null}
                     <SourceDiagnostics summaries={intelligenceSummaries} />

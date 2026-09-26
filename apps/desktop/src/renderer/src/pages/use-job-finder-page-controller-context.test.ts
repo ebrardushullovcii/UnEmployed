@@ -1260,6 +1260,112 @@ describe("Applications browser hand-off failure reporting", () => {
     });
   });
 
+  it("shows the application page expanded after opening it, not minimized", async () => {
+    const command = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("window", {
+      ...globalThis.window,
+      unemployed: { browser: { command, getState: vi.fn() } },
+    });
+    try {
+      const performUserAction = vi
+        .fn<JobFinderShellActions["performUserAction"]>()
+        .mockResolvedValue({
+          userActionRequests: pendingRequests(),
+          applicationRecords: [],
+        } as unknown as JobFinderWorkspaceSnapshot);
+      const { context } = buildContext({
+        actions: { performUserAction },
+        workspace: {
+          activeCampaignId: "campaign_active",
+          userActionRequests: pendingRequests(),
+        } as JobFinderWorkspaceSnapshot,
+      });
+
+      await context.onPerformUserAction(
+        {
+          action: "open_page",
+          requestId: "request_a",
+          commandId: "open_a",
+          expectedRevision: 3,
+          credentialsPolicy: "browser_only",
+          submitAuthorized: false,
+          accountCreationAuthorized: false,
+        },
+        { rethrowError: true },
+      );
+
+      expect(command).toHaveBeenCalledWith({ type: "expand", expanded: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("opens a parked sign-in whose tab is gone through main, then shows it", async () => {
+    const command = vi.fn().mockResolvedValue(undefined);
+    const getState = vi.fn().mockResolvedValue({
+      activeTabId: "tab_before_restart",
+      tabs: [{ id: "tab_before_restart", url: "http://localhost/authboard/" }],
+    });
+    vi.stubGlobal("window", {
+      ...globalThis.window,
+      unemployed: { browser: { command, getState } },
+    });
+    try {
+      const requests = [
+        {
+          id: "request_sign_in",
+          revision: 2,
+          state: "pending",
+          scope: {
+            type: "discovery_source",
+            discoveryRunId: "run_1",
+            parkedTab: {
+              tabId: "tab_before_restart",
+              url: "http://localhost/authboard/",
+              title: null,
+            },
+          },
+        },
+      ] as unknown as JobFinderWorkspaceSnapshot["userActionRequests"];
+      const performUserAction = vi
+        .fn<JobFinderShellActions["performUserAction"]>()
+        .mockResolvedValue({
+          userActionRequests: requests,
+        } as unknown as JobFinderWorkspaceSnapshot);
+      const { context } = buildContext({
+        actions: { performUserAction },
+        workspace: {
+          activeCampaignId: "campaign_active",
+          userActionRequests: requests,
+        } as JobFinderWorkspaceSnapshot,
+      });
+
+      await context.onPerformUserAction(
+        {
+          action: "open_page",
+          requestId: "request_sign_in",
+          commandId: "open_sign_in",
+          expectedRevision: 2,
+          credentialsPolicy: "browser_only",
+          submitAuthorized: false,
+          accountCreationAuthorized: false,
+        },
+        { rethrowError: true },
+      );
+
+      // Main reopens the tab first (the renderer no longer refuses when the
+      // tab is missing from its view), then it is selected and expanded.
+      expect(performUserAction).toHaveBeenCalledOnce();
+      expect(command).toHaveBeenCalledWith({
+        type: "select_tab",
+        tabId: "tab_before_restart",
+      });
+      expect(command).toHaveBeenCalledWith({ type: "expand", expanded: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("carries the real cause when only the window could be opened", async () => {
     const openBrowserSession = vi
       .fn<JobFinderShellActions["openBrowserSession"]>()

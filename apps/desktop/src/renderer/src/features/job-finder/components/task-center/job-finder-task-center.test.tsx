@@ -258,6 +258,25 @@ describe("JobFinderTaskCenter", () => {
       company: "Venus",
       title: "Platform Engineer",
     } as JobFinderWorkspaceSnapshot["discoveryJobs"][number]);
+    // The safety limit here is a sample waiting to be reviewed.
+    workspace.intelligence = {
+      ...workspace.intelligence,
+      safeguards: {
+        companyApplicationCaps: [],
+        simultaneousApplicationConflicts: [],
+        listingSignals: [],
+        abnormalFailurePauses: [],
+        contradictoryAnswerDetections: [],
+        safeguardDismissals: [],
+        updatedAt: null,
+        preparedBatchSampleReviews: [
+          {
+            batchId: workspace.applyRuns[0]!.id,
+            reviewCompleted: false,
+          },
+        ],
+      },
+    } as unknown as JobFinderWorkspaceSnapshot["intelligence"];
 
     render(
       <JobFinderTaskCenter

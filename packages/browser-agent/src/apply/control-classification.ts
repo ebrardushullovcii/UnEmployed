@@ -204,9 +204,10 @@ export function inferQuestionKind(
       return kind;
     }
   }
-  if (control.kind === "file") {
-    return "resume";
-  }
+  // A file control that names no resume, letter or portfolio is some other
+  // document (a transcript, a certificate, a work sample, or one the page
+  // does not name). Calling it a resume hid Profile › Files from the person
+  // and kept a restored transcript from continuing the application.
   return "other";
 }
 

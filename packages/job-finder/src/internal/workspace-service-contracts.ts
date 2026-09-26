@@ -92,6 +92,7 @@ import type {
   UpdateWorkspaceBehaviorInput,
   UpdateAiBehaviorInput,
   UserActionCommandInput,
+  CandidateAssetKind,
 } from "@unemployed/contracts";
 import type {
   JobFinderRepository,
@@ -146,6 +147,15 @@ export interface JobFinderWorkspaceService {
   clearApplicationAnswer(
     command: ClearApplicationAnswerCommandInput,
   ): Promise<ApplyRunDetails>;
+  /**
+   * Carries on applications waiting on a file question once a fitting file is
+   * restored or added in Profile > Files. Returns how many were continued;
+   * the continuations run in the background.
+   */
+  continueApplicationsWaitingForFiles(input: {
+    assetId: string;
+    assetKind: CandidateAssetKind;
+  }): Promise<number>;
   resetWorkspace(
     seed: JobFinderRepositorySeed,
     options?: JobFinderWorkspaceResetOptions,
@@ -435,6 +445,14 @@ export interface JobFinderWorkspaceService {
     jobId: string,
     revisionId: string,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Removes one accepted AI edit and keeps every edit made after it. Unlike
+   * restoring a revision, later manual edits survive.
+   */
+  undoResumeAssistantEdit(
+    jobId: string,
+    revisionId: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeDraft(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeSection(
     jobId: string,
@@ -522,6 +540,11 @@ export interface JobFinderWorkspaceService {
   focusPreparedApplicationPage(
     input: JobFinderPreparedApplicationPageInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Records filled-in applications the person sent themselves on the page
+   * they were handed (the site showed its confirmation). Returns how many.
+   */
+  recordApplicationsSentByPerson(): Promise<number>;
   /**
    * Sends one application the person already looked over.
    *
@@ -699,4 +722,10 @@ export interface CreateJobFinderWorkspaceServiceOptions {
   ) => void | Promise<void>;
   /** Publishes the terminal snapshot of a queue resumed after restart. */
   onDetachedApplyRunFinished?: () => void;
+  /**
+   * Called when the person deliberately starts work (Search now, Apply, Run
+   * now). The desktop host lifts a browser pause the person caused there
+   * (closing the browser mid-run), so the start is not refused.
+   */
+  onExplicitUserStart?: () => void | Promise<void>;
 }

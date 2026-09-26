@@ -1,4 +1,5 @@
 import type {
+  CandidateProfile,
   ProfileReviewItem,
   ProfileReviewTargetDomain,
   ResumeDocumentBundle,
@@ -162,6 +163,8 @@ function mapTargetDomain(
       return "identity";
     case "search_preferences":
       return "search_preferences";
+    case "work_eligibility":
+      return "work_eligibility";
     default:
       return null;
   }
@@ -185,6 +188,7 @@ function mapCandidateToStep(
     case "language":
       return "background";
     case "search_preferences":
+    case "work_eligibility":
       return "targeting";
     // Story, proof, reusable answers, and application identity all live on
     // the merged optional Extras step.
@@ -200,12 +204,21 @@ function mapCandidateToStep(
 
 function mapCandidateToSeverity(
   candidate: ResumeImportFieldCandidate,
+  profile: CandidateProfile | null,
 ): ProfileReviewItem["severity"] {
-  if (
-    candidate.target.section === "experience" ||
-    candidate.target.section === "education"
-  ) {
-    return "critical";
+  // A role or school is required only while the profile has none. Once the
+  // person has cards there, a role the import reads differently (after they
+  // split, merged or retitled one) is a suggestion; it never blocks Finish or
+  // reopens a finished setup.
+  if (candidate.target.section === "experience") {
+    return profile && profile.experiences.length > 0
+      ? "recommended"
+      : "critical";
+  }
+  if (candidate.target.section === "education") {
+    return profile && profile.education.length > 0
+      ? "recommended"
+      : "critical";
   }
 
   if (
@@ -213,7 +226,8 @@ function mapCandidateToSeverity(
     candidate.target.section === "contact" ||
     candidate.target.section === "location" ||
     candidate.target.section === "search_preferences" ||
-    candidate.target.section === "application_identity"
+    candidate.target.section === "application_identity" ||
+    candidate.target.section === "work_eligibility"
   ) {
     return "recommended";
   }
@@ -233,6 +247,8 @@ function buildCandidateReason(candidate: ResumeImportFieldCandidate): string {
       return "Education records stay review-first until the imported school and degree details are confirmed.";
     case "search_preferences":
       return "Targeting details need review so discovery avoids generic or mismatched searches.";
+    case "work_eligibility":
+      return "Your resume says this about where you can work. It differs from what you saved, so confirm which one application forms should use.";
     case "narrative":
     case "proof_point":
       return "Narrative suggestions should be reviewed before they shape resume summaries or proof selection.";
@@ -261,6 +277,8 @@ export function shouldIncludeCandidateInSetupReview(
       return candidate.target.key === "currentLocation";
     case "search_preferences":
       return ["targetRoles", "locations"].includes(candidate.target.key);
+    case "work_eligibility":
+      return true;
     case "experience":
     case "education":
     case "certification":
@@ -280,6 +298,7 @@ export function shouldIncludeCandidateInSetupReview(
 export function toReviewDraft(
   candidate: ResumeImportFieldCandidate,
   documentBundle: ResumeDocumentBundle | null,
+  profile: CandidateProfile | null = null,
 ): DerivedReviewDraft | null {
   const step = mapCandidateToStep(candidate);
   const domain = mapTargetDomain(candidate);
@@ -297,7 +316,7 @@ export function toReviewDraft(
     },
     label: candidate.label,
     reason: buildCandidateReason(candidate),
-    severity: mapCandidateToSeverity(candidate),
+    severity: mapCandidateToSeverity(candidate, profile),
     proposedValue: summarizeValue(
       isSearchLocationCandidateTarget(candidate.target)
         ? sanitizeSearchLocationCandidateValue(candidate.value)

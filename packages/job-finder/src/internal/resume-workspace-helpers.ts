@@ -2327,6 +2327,11 @@ export type ResumeExportBlocker = {
   bulletId: string | null;
   flaggedText: string | null;
   message: string;
+  /**
+   * `needs_confirmation` when the line is a stretch the person keeps or
+   * removes under Lines to confirm; `unsupported` for everything else.
+   */
+  kind?: "needs_confirmation" | "unsupported";
 };
 
 function buildResumeExportBlockerKey(blocker: ResumeExportBlocker): string {
@@ -2362,6 +2367,12 @@ export function collectResumeExportBlockers(input: {
     blockers.push(blocker);
   };
 
+  const confirmNeededIssueIds = new Set(
+    input.validation.claimAssessments
+      .filter((assessment) => assessment.status === "confirm_needed")
+      .map((assessment) => `issue_claim_grounding_${assessment.id}`),
+  );
+
   for (const issue of input.validation.issues) {
     if (!isBlockingResumeValidationIssue(issue)) {
       continue;
@@ -2373,6 +2384,9 @@ export function collectResumeExportBlockers(input: {
       bulletId: issue.bulletId,
       flaggedText: issue.flaggedText ?? null,
       message: issue.message,
+      kind: confirmNeededIssueIds.has(issue.id)
+        ? "needs_confirmation"
+        : "unsupported",
     });
   }
 
@@ -2382,6 +2396,10 @@ export function collectResumeExportBlockers(input: {
     }
 
     push({
+      kind:
+        assessment.status === "confirm_needed"
+          ? "needs_confirmation"
+          : "unsupported",
       sectionId: assessment.sectionId,
       entryId: assessment.entryId,
       bulletId: assessment.bulletId,
@@ -2443,6 +2461,46 @@ export function evaluateResumeProposalExportGate(input: {
 }
 
 /**
+ * Which proposed change a flagged line belongs to. An inserted bullet gets
+ * its id only when applied, so it matched no patch by target and fell to the
+ * first change in the same section: a skill move was blamed for the new
+ * "Performance" skill while the insert itself read as clean. Matching the
+ * flagged text to the change that wrote it comes before that fallback.
+ */
+export function findResumeProposalPatchForBlocker(
+  patches: readonly ResumeDraftPatch[],
+  blocker: {
+    sectionId: string | null;
+    entryId: string | null;
+    bulletId: string | null;
+    flaggedText?: string | null;
+  },
+): string | null {
+  const sameTarget = patches.find(
+    (patch) =>
+      patch.targetSectionId === blocker.sectionId &&
+      (patch.targetEntryId ?? null) === blocker.entryId &&
+      (patch.targetBulletId ?? null) === blocker.bulletId,
+  );
+  if (sameTarget) {
+    return sameTarget.id;
+  }
+  const flagged = normalizeText(blocker.flaggedText ?? "");
+  const wroteFlaggedText = flagged
+    ? patches.find(
+        (patch) =>
+          patch.targetSectionId === blocker.sectionId &&
+          normalizeText(patch.newText ?? "") === flagged,
+      )
+    : undefined;
+  return (
+    wroteFlaggedText?.id ??
+    patches.find((patch) => patch.targetSectionId === blocker.sectionId)?.id ??
+    null
+  );
+}
+
+/**
  * Applies a pending proposal to a throwaway copy of the current draft and runs
  * the export gate over the result. This is the one call every proposal
  * producer uses to decide whether it may describe its own edits as grounded:
@@ -2490,22 +2548,16 @@ export function evaluateResumeProposalGrounding(input: {
 
   const approvalBlockers = gate.blockers.map((blocker) =>
     ResumeProposalApprovalBlockerSchema.parse({
-      patchId:
-        input.patches.find(
-          (patch) =>
-            patch.targetSectionId === blocker.sectionId &&
-            (patch.targetEntryId ?? null) === blocker.entryId &&
-            (patch.targetBulletId ?? null) === blocker.bulletId,
-        )?.id ??
-        input.patches.find(
-          (patch) => patch.targetSectionId === blocker.sectionId,
-        )?.id ??
-        null,
+      patchId: findResumeProposalPatchForBlocker(input.patches, blocker),
       sectionId: blocker.sectionId,
       entryId: blocker.entryId,
       bulletId: blocker.bulletId,
       flaggedText: blocker.flaggedText,
-      message: blocker.message,
+      message:
+        blocker.kind === "needs_confirmation"
+          ? "This wording stretches past your saved evidence. After you accept, it is listed under Lines to confirm, where you keep it or remove it."
+          : blocker.message,
+      kind: blocker.kind ?? "unsupported",
     }),
   );
 
@@ -2536,10 +2588,39 @@ export function buildResumeProposalReplyContent(input: {
   const plural = input.changeCount === 1 ? "" : "s";
   const note = selectAssistantNote(input.assistantNote);
 
-  if (input.approvalBlockers.length > 0) {
-    // A blocked proposal carries only the blocker: the model's own note could
-    // call the edit grounded or done, which the gate has just said it is not.
-    return `I prepared ${input.changeCount} resume edit${plural}${scope}, but ${input.approvalBlockers.length === 1 ? "1 of them would block approval" : `${input.approvalBlockers.length} of them would block approval`}: the new wording is not supported by your saved evidence. Nothing changed yet; rewrite the flagged text or reject this proposal.`;
+  // A blocker tied to no change and no section is about the whole draft, not
+  // the proposed wording; saying "the new wording is not supported" for it
+  // blamed an edit the card itself called clean.
+  const draftLevelBlocker = input.approvalBlockers.find(
+    (blocker) => blocker.patchId === null && blocker.sectionId === null,
+  );
+  const wordingBlockers = input.approvalBlockers.filter(
+    (blocker) => blocker !== draftLevelBlocker,
+  );
+  const confirmCount = wordingBlockers.filter(
+    (blocker) => blocker.kind === "needs_confirmation",
+  ).length;
+  const unsupportedCount = wordingBlockers.length - confirmCount;
+
+  if (unsupportedCount > 0) {
+    // The model saw this same verdict before it finished (the approval check
+    // is one of its tools), so its note usually says why it kept the wording:
+    // the person stated the fact themselves. A note that still calls the edit
+    // grounded contradicts the gate and is left out.
+    const blockedNote = /\bgrounded\b|\b(?:is|are|fully) (?:supported|backed)\b/iu.test(
+      note,
+    )
+      ? ""
+      : note;
+    return `I prepared ${input.changeCount} resume edit${plural}${scope}, but ${unsupportedCount === 1 ? "1 of them would block approval" : `${unsupportedCount} of them would block approval`}: your saved evidence does not back the new wording. Nothing changed yet. If it is true, accept it and approve it as accurate in the resume checks; otherwise ask me to reword it from your saved evidence.${blockedNote}`;
+  }
+
+  if (confirmCount > 0) {
+    return `I prepared ${input.changeCount} resume edit${plural}${scope} for your review. ${confirmCount === 1 ? "1 of them stretches" : `${confirmCount} of them stretch`} past your saved evidence, so after you accept, ${confirmCount === 1 ? "it is" : "they are"} listed under Lines to confirm for you to keep or remove. Nothing changed yet.${note}`;
+  }
+
+  if (draftLevelBlocker) {
+    return `I prepared ${input.changeCount} resume edit${plural}${scope} for your review. The edit${plural} add${input.changeCount === 1 ? "s" : ""} nothing that blocks approval, but the resume as a whole still does: ${draftLevelBlocker.message} Nothing changed yet; select the changes you want and accept them explicitly.`;
   }
 
   return `I prepared ${input.changeCount} grounded resume edit${plural}${scope} for your review. Nothing changed yet; select the changes you want and accept them explicitly.${note}`;

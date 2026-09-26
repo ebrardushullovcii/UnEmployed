@@ -70,6 +70,16 @@ export async function sendPreparedApplicationIfAllowed(input: {
   if (input.handoff?.status !== "send_now" || !input.envelope) {
     return null;
   }
+  // The mode is read again right before each send, not only when the batch
+  // started: switching Settings away from Send for me mid-batch must stop
+  // the jobs not sent yet. They stay filled in and wait, as the new mode
+  // says. A send the person confirmed themselves is theirs to make.
+  if (!input.handoff.confirmedByPerson) {
+    const settings = await input.ctx.repository.getSettings();
+    if (settings.applicationAutomationMode !== "autonomous_submit") {
+      return null;
+    }
+  }
 
   // The runtime keeps its own page; these stay bound to it.
   const runtime = input.ctx.browserRuntime;
@@ -112,6 +122,13 @@ export async function sendPreparedApplicationIfAllowed(input: {
     result,
     siteLabel: input.siteLabel,
   });
+  if (result.status === "submitted") {
+    // A sent application no longer needs its page kept; holding it would
+    // count against the browser's tab limit for the rest of the session.
+    await runtime
+      .releaseApplicationPageBinding?.(input.source, input.lineage.resultId)
+      .catch(() => undefined);
+  }
   return {
     sent:
       result.status === "submitted" || result.status === "outcome_uncertain",

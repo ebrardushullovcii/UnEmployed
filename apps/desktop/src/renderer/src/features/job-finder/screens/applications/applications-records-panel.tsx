@@ -10,6 +10,7 @@ import {
 import type { ApplicationRecord, ApplyJobResult } from "@unemployed/contracts";
 import type { ApplyMode } from "../../lib/apply-mode-contracts-stub";
 import { resolveApplyStatePresentation } from "./apply-state";
+import type { ApplyRunContext } from "./applications-recovery-state";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import {
@@ -77,6 +78,10 @@ interface ApplicationsRecordsPanelProps {
    * "Needs recovery" / "Waiting on consent" vocabulary.
    */
   latestApplyResultByRecordId?: ReadonlyMap<string, ApplyJobResult>;
+  /** What each result's run is doing, so a planned job is never "Filling in". */
+  readApplyRunContext?: (
+    result: ApplyJobResult | null,
+  ) => ApplyRunContext | null;
   /** The mode chosen in Settings; decides what a finished fill means. */
   applyMode?: ApplyMode;
   onFilterChange: (filter: ApplicationsViewFilter) => void;
@@ -92,6 +97,7 @@ export function ApplicationsRecordsPanel({
   hasAnyApplications,
   liveRunLinesByJobId,
   latestApplyResultByRecordId,
+  readApplyRunContext,
   onFilterChange,
   onSelectRecord,
   selectedRecord,
@@ -290,6 +296,7 @@ export function ApplicationsRecordsPanel({
                       ? "apply_for_me"
                       : "fill_only",
                   result: latestResult,
+                  run: readApplyRunContext?.(latestResult) ?? null,
                   pendingQuestionCount:
                     record.questionSummary.total -
                     record.questionSummary.answered,
@@ -323,7 +330,12 @@ export function ApplicationsRecordsPanel({
             const attemptLabel =
               applyState?.title ?? getAttemptLabel(record.lastAttemptState);
             const liveLine = liveRunLinesByJobId?.get(record.jobId) ?? null;
+            // A job its batch never reached has one next step; the record's
+            // own label still named the approval that batch started from.
             const nextStepLabel =
+              (applyState?.plannedStanding === "not_started"
+                ? applyState.actionLabel
+                : null) ??
               applyState?.questionsLeftLabel ??
               getApplicationReadableNextStepLabel(
                 getApplicationNextStepLabel(record),
@@ -374,8 +386,16 @@ export function ApplicationsRecordsPanel({
                         {record.title}
                       </strong>
                       <div className={jobFinderListRowBadgeSlotClassName}>
-                        <StatusBadge tone={liveLine ? "active" : stage.tone}>
-                          {liveLine ? "Filling in" : stage.label}
+                        <StatusBadge
+                          tone={
+                            liveLine && !applyState?.plannedStanding
+                              ? "active"
+                              : stage.tone
+                          }
+                        >
+                          {liveLine && !applyState?.plannedStanding
+                            ? "Filling in"
+                            : stage.label}
                         </StatusBadge>
                       </div>
                     </div>

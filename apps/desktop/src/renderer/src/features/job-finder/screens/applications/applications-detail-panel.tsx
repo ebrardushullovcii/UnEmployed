@@ -22,6 +22,7 @@ import { StatusBadge } from "../../components/status-badge";
 import { ApplicationsDetailPanelActivitySections } from "./applications-detail-panel-activity-sections";
 import { getApplicationApplyPresentation } from "./applications-apply-state";
 import { resolveApplyStatePresentation } from "./apply-state";
+import type { ApplyRunContext } from "./applications-recovery-state";
 import type { ApplyMode } from "../../lib/apply-mode-contracts-stub";
 import { ApplicationsApplicationDocuments } from "./applications-application-documents";
 import { ApplicationsDetailPanelEmptyState } from "./applications-detail-panel-empty-state";
@@ -87,6 +88,10 @@ function buildInterviewHelperApplicationHref(input: {
 
 interface ApplicationsDetailPanelProps {
   activeFilter: ApplicationsViewFilter;
+  /** What each result's run is doing, so a planned job is never "Filling in". */
+  readApplyRunContext?: (
+    result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
+  ) => ApplyRunContext | null;
   applyRunDetails: ApplyRunDetails | null;
   applyRunDetailsTarget: {
     applicationRecordId: string;
@@ -158,6 +163,7 @@ interface ApplicationsDetailPanelProps {
   onFinishInBrowser?: FinishInBrowserHandler;
   onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
   canConfirmFinishedInBrowser?: boolean;
+  browserStepContinuesOnItsOwn?: boolean;
   confirmFinishedInBrowserStatus?: ConfirmFinishedInBrowserStatus;
   confirmFinishedInBrowserBlockerText?: string | null;
   selectedApplyRunId: string | null;
@@ -168,6 +174,7 @@ interface ApplicationsDetailPanelProps {
 
 export function ApplicationsDetailPanel({
   activeFilter,
+  readApplyRunContext,
   applyRunDetails,
   applyRunDetailsTarget,
   applyRunDetailsError,
@@ -203,6 +210,7 @@ export function ApplicationsDetailPanel({
   onFinishInBrowser,
   onConfirmFinishedInBrowser,
   canConfirmFinishedInBrowser,
+  browserStepContinuesOnItsOwn,
   confirmFinishedInBrowserStatus,
   confirmFinishedInBrowserBlockerText,
   selectedApplyRunId,
@@ -317,6 +325,7 @@ export function ApplicationsDetailPanel({
               ? "apply_for_me"
               : "fill_only",
           result: visibleApplyResult,
+          run: readApplyRunContext?.(visibleApplyResult) ?? null,
           pendingQuestionCount:
             selectedRecord.questionSummary.total -
             selectedRecord.questionSummary.answered,
@@ -409,6 +418,7 @@ export function ApplicationsDetailPanel({
       {...(onFinishInBrowser ? { onFinishInBrowser } : {})}
       {...(onConfirmFinishedInBrowser ? { onConfirmFinishedInBrowser } : {})}
       canConfirmFinishedInBrowser={canConfirmFinishedInBrowser ?? false}
+      browserStepContinuesOnItsOwn={browserStepContinuesOnItsOwn ?? false}
       confirmFinishedInBrowserStatus={confirmFinishedInBrowserStatus ?? "idle"}
       confirmFinishedInBrowserBlockerText={
         confirmFinishedInBrowserBlockerText ?? null
@@ -425,6 +435,7 @@ export function ApplicationsDetailPanel({
         selectedRecord.latestBlocker?.code ?? null
       }
       selectedRun={selectedRun}
+      visibleApplyRunContext={readApplyRunContext?.(visibleApplyResult) ?? null}
       visibleApplyResult={visibleApplyResult}
     />
   ) : null;
@@ -567,6 +578,7 @@ export function ApplicationsDetailPanel({
             selectedRecord={selectedRecord}
             visibleApplyResult={visibleApplyResult}
             visibleApplyRunId={visibleApplyRunId}
+            plannedStanding={selectedApplyState?.plannedStanding ?? null}
             showFactStrip={!needsPrimaryRecovery}
             waitingOnSafetyLimitReview={
               selectedRun?.state === "paused_for_user_review" &&
@@ -600,13 +612,18 @@ export function ApplicationsDetailPanel({
               selectedRecord={selectedRecord}
               visibleApplyResult={visibleApplyResult}
               visibleApplyRunId={visibleApplyRunId}
+              plannedStanding={selectedApplyState?.plannedStanding ?? null}
               waitingOnSafetyLimitReview={
                 selectedRun?.state === "paused_for_user_review" &&
                 visibleApplyResult?.state === "planned"
               }
             />
           ) : null}
-          {documentsSection}
+          {/* Under Ask before sending, the send card (inside the activity
+              sections) is the decision; the optional documents follow it. */}
+          {applyPresentation?.state === "awaiting_your_review"
+            ? null
+            : documentsSection}
           <ApplicationsDetailPanelActivitySections
             applyRunDetailsError={applyRunDetailsError}
             applyRunDetailsStatus={applyRunDetailsStatus}
@@ -638,6 +655,9 @@ export function ApplicationsDetailPanel({
             selectedRecord={selectedRecord}
             visibleApplyResult={visibleApplyResult}
           />
+          {applyPresentation?.state === "awaiting_your_review"
+            ? documentsSection
+            : null}
         </div>
       ) : (
         <ApplicationsDetailPanelEmptyState

@@ -2,11 +2,16 @@ import {
   type ApplicationAttemptState,
   type ApplicationStatus,
   type BrowserSessionState,
+  type ResumeApplicationMode,
   type ReviewQueueItem,
   type TailoredAsset,
+  type TailoringMode,
 } from "@unemployed/contracts";
 import type { BadgeTone } from "../../lib/job-finder-types";
-import { describeUntailorableListing } from "./resume-workspace-utils";
+import {
+  describeAiUnavailableResume,
+  describeUntailorableListing,
+} from "./resume-workspace-utils";
 
 export const APPLICATION_PREPARATION_BATCH_LIMIT = 10;
 export const TAILORED_DRAFT_PREPARATION_LIMIT = 10;
@@ -124,7 +129,7 @@ export function getReviewQueueWorkflowStatus(
 
   // An Aggressive draft is read by the person before it is used (ADR 0018),
   // so the row says so instead of promising Apply.
-  if (needsPersonResumeReview(item)) {
+  if (needsPersonResumeReview(item, asset)) {
     return {
       label: "Review resume",
       tone: "active",
@@ -166,7 +171,24 @@ export function getReviewQueueWorkflowStatus(
  * Aggressive draft that is not yet approved (ADR 0018). Light and Tailored
  * keep every fact, so pressing Apply is their approval.
  */
-export function needsPersonResumeReview(item: ReviewQueueItem | null): boolean {
+export function needsPersonResumeReview(
+  item: ReviewQueueItem | null,
+  /**
+   * The job's written resume, when the caller has it. A resume written
+   * without the listing text kept the person's own wording: nothing was
+   * stretched, so there are no flagged lines to read, whatever the level.
+   */
+  asset?: Pick<TailoredAsset, "id" | "generationMethod" | "generationReason"> | null,
+): boolean {
+  if (
+    asset &&
+    item?.resumeAssetId === asset.id &&
+    asset.generationMethod === "deterministic" &&
+    (asset.generationReason === "listing_text_missing" ||
+      asset.generationReason === "listing_text_not_distinguishing")
+  ) {
+    return false;
+  }
   return (
     item !== null &&
     item.resumeApplicationMode !== "original_resume" &&
@@ -180,6 +202,38 @@ export function isResumeGenerationInProgress(
   item: ReviewQueueItem | null,
 ): boolean {
   return item?.assetStatus === "generating" || item?.assetStatus === "queued";
+}
+
+/**
+ * Picking another level for a job whose resume is already written rewrites
+ * it at that level. Changing Light to Tailored used to leave the Light text
+ * in place, still "ready", and Apply approved and sent it; the only rewrite
+ * sat inside the guided-edits popup. Original sends the imported file, so
+ * moving to it rewrites nothing, and a job with no resume yet keeps its
+ * "Create the resume" step.
+ */
+export function shouldRewriteResumeAfterLevelChange(input: {
+  item: Pick<
+    ReviewQueueItem,
+    "assetStatus" | "resumeApplicationMode" | "resumeTailoringMode"
+  >;
+  /** The saved strength a job without its own level is written at. */
+  defaultTailoringMode: TailoringMode;
+  nextApplicationMode: ResumeApplicationMode;
+  nextTailoringMode?: TailoringMode | null;
+}): boolean {
+  if (
+    input.nextApplicationMode === "original_resume" ||
+    input.item.assetStatus !== "ready"
+  ) {
+    return false;
+  }
+  const currentLevel =
+    input.item.resumeApplicationMode === "original_resume"
+      ? "original_resume"
+      : (input.item.resumeTailoringMode ?? input.defaultTailoringMode);
+  const nextLevel = input.nextTailoringMode ?? input.defaultTailoringMode;
+  return currentLevel !== nextLevel;
 }
 
 export function needsResumeGeneration(item: ReviewQueueItem | null): boolean {
@@ -307,7 +361,13 @@ export function getReviewQueueResumePolicyCaption(
     return "Resume approved";
   }
 
-  if (needsPersonResumeReview(item)) {
+  // The built-in generator wrote it because AI was unavailable. It is usable,
+  // but the row must not read like an AI-written resume.
+  if (item.assetStatus === "ready" && describeAiUnavailableResume(asset)) {
+    return "Your saved wording — AI was unavailable";
+  }
+
+  if (needsPersonResumeReview(item, asset)) {
     return "Resume ready — review it before applying";
   }
 
@@ -671,4 +731,35 @@ export function getApplyReadinessStatus(params: {
     label: "Browser blocked",
     tone: "critical",
   };
+}
+
+/** The Shortlisted level name for a saved tailoring strength. */
+export function describeSavedResumeLevel(level: TailoringMode): string {
+  return level === "aggressive"
+    ? "Aggressive"
+    : level === "conservative"
+      ? "Light"
+      : "Tailored";
+}
+
+/** What the action line says after a resume run for one job finished. */
+export const AI_UNAVAILABLE_RESUME_RESULT_MESSAGE =
+  "AI was unavailable, so this resume keeps your saved wording. Press Try again with AI when you are ready.";
+
+/**
+ * A resume run can end with the built-in resume when AI was unavailable. The
+ * action line must say so instead of "Resume created", which reads as an AI
+ * resume that is ready.
+ */
+export function describeResumeRunResult(
+  snapshot: { tailoredAssets?: readonly TailoredAsset[] } | null | undefined,
+  jobId: string,
+  successMessage: string,
+): string {
+  const asset = snapshot?.tailoredAssets?.find(
+    (candidate) => candidate.jobId === jobId,
+  );
+  return describeAiUnavailableResume(asset)
+    ? AI_UNAVAILABLE_RESUME_RESULT_MESSAGE
+    : successMessage;
 }

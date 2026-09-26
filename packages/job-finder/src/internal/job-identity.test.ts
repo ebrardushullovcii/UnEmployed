@@ -71,6 +71,74 @@ describe("job identity", () => {
     });
   });
 
+  test("matches one job across hosts by title, employer, place and the same form path", () => {
+    const existing = identity({
+      sourceJobId: "2",
+      canonicalUrl: "http://127.0.0.1:47963/board/jobs/2",
+      applicationUrl: "http://127.0.0.1:47963/employer-a/apply/2",
+      postedAt: null,
+      postedAtText: null,
+      matchAcrossSources: true,
+    });
+    const index = createJobIdentityIndex([existing], (value) => value);
+
+    expect(
+      index.find(
+        identity({
+          matchAcrossSources: true,
+          sourceJobId: "lantern",
+          canonicalUrl: "http://localhost:47963/authboard/jobs/2",
+          applicationUrl: "http://localhost:47963/employer-a/apply/2",
+          postedAt: null,
+          postedAtText: null,
+        }),
+      ),
+    ).toBe(existing);
+    // A card that has not named its form yet matches too.
+    expect(
+      index.find(
+        identity({
+          matchAcrossSources: true,
+          sourceJobId: "lantern",
+          canonicalUrl: "http://localhost:47963/authboard/jobs/2",
+          applicationUrl: null,
+          postedAt: null,
+          postedAtText: null,
+        }),
+      ),
+    ).toBe(existing);
+    // Indexes that did not ask for it (the ledger, company duplicates)
+    // keep to link and content identity.
+    expect(
+      createJobIdentityIndex(
+        [{ ...existing, matchAcrossSources: false }],
+        (value) => value,
+      ).find(
+        identity({
+          sourceJobId: "lantern",
+          canonicalUrl: "http://localhost:47963/authboard/jobs/2",
+          applicationUrl: null,
+          postedAt: null,
+          postedAtText: null,
+        }),
+      ),
+    ).toBeNull();
+    // Another site's listing with a different place is another job.
+    expect(
+      index.find(
+        identity({
+          matchAcrossSources: true,
+          sourceJobId: "lantern",
+          canonicalUrl: "http://localhost:47963/authboard/jobs/2",
+          applicationUrl: null,
+          location: "Berlin",
+          postedAt: null,
+          postedAtText: null,
+        }),
+      ),
+    ).toBeNull();
+  });
+
   test("does not merge a colliding generic source ID across companies and hosts", () => {
     const existing = identity({
       sourceJobId: "123",

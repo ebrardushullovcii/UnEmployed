@@ -15,7 +15,6 @@ import {
   type ApplySubmissionHandoff,
 } from "./apply-submission-handoff";
 import { sendPreparedApplicationIfAllowed } from "./apply-submission-run-step";
-import { resumePausedActivityForUserAction } from "./workspace-user-action-methods";
 import {
   ApplyJobResultSchema,
   ApplyRecoveryContextSchema,
@@ -69,6 +68,7 @@ import {
 import { isSafelyParkedApplyQueue } from "./workspace-apply-run-recovery";
 import { sanitizeTailoredAssetFailureMessage } from "./tailored-asset-failure";
 import { projectDiscoveryJobViews } from "./listing-activity";
+import { selectApplicationSighting } from "./listing-sightings";
 import { isApprovedTailoredResumeReadyForApply } from "./matching-review-queue";
 import {
   buildApplyCopilotArtifacts,
@@ -105,7 +105,10 @@ import {
   DEFAULT_RESUME_APPLICATION_MODE,
   resolveJobResumeApplicationMode,
 } from "./job-resume-application-mode";
-import { evaluateCampaignApplyStopRules } from "./campaign-apply-stop-rules";
+import {
+  evaluateCampaignApplyStopRules,
+  isQuestionHandoffPauseReason,
+} from "./campaign-apply-stop-rules";
 import {
   deriveRecoveredApplyRunCounters,
   describeUnstartedBatchReason,
@@ -153,7 +156,12 @@ import {
   renderDraftToPdf,
   resolveEffectiveResumeTailoringStrengthForJob,
   assertResumeProfileRevisionCurrent,
+  buildOriginalResumeAssistantReply,
 } from "./workspace-application-resume-support";
+import {
+  buildDraftWithoutAssistantEdit,
+  findDraftAfterRevision,
+} from "./resume-assistant-edit-undo";
 import {
   buildResumeGenerationStrategyPolicy,
   buildResumeStrategyContext,
@@ -161,6 +169,14 @@ import {
 } from "./resume-strategy-application";
 import { createApplicationUserActionResumer } from "./workspace-application-user-action-resumption";
 import {
+  buildRecentResumeAssistantConversation,
+  checkResumeAssistantProposal,
+  findResumeAssistantPatchesDroppedOnSave,
+  listResumeLinesToConfirm,
+} from "./resume-assistant-conversation";
+import {
+  PERSON_TOOK_OVER_SUMMARY,
+  handApplicationPageToPersonForAccessStep,
   persistApplicationUserAction,
   terminalizeApplicationAfterPreparedPageLost,
 } from "./workspace-application-user-action";
@@ -191,6 +207,7 @@ import {
   jobNeedsListingDetail,
 } from "./listing-detail-enrichment";
 import { createMatchAssessmentSession } from "./match-assessment-session";
+import { withSavedJobSearchBehavior } from "./job-search-behavior";
 import { enrichSearchPreferencesFromProfile } from "./workspace-helpers";
 import { createMatchAssessment } from "./matching";
 
@@ -295,6 +312,7 @@ type WorkspaceApplicationMethods = Omit<
     | "previewResumeDraft"
     | "saveResumeDraft"
     | "restoreResumeDraftRevision"
+    | "undoResumeAssistantEdit"
     | "regenerateResumeDraft"
     | "regenerateResumeSection"
     | "exportResumePdf"
@@ -389,10 +407,59 @@ function assertCoherentResumeIdentity(profile: CandidateProfile): void {
   }
 }
 
+/**
+ * True when the only change between two profiles is answers the person saved
+ * for next time. Saving an answer while a batch runs (the default now) must
+ * not fail the application being filled in meanwhile: the resume it attached
+ * does not read the saved answers.
+ */
+export function onlySavedAnswersWereAdded(
+  before: CandidateProfile,
+  after: CandidateProfile,
+): boolean {
+  const beforeAnswers = before.answerBank.customAnswers;
+  const afterAnswers = after.answerBank.customAnswers;
+  const kept = new Set(beforeAnswers.map((answer) => JSON.stringify(answer)));
+  if (
+    afterAnswers.length < beforeAnswers.length ||
+    afterAnswers.filter((answer) => kept.has(JSON.stringify(answer))).length !==
+      beforeAnswers.length
+  ) {
+    return false;
+  }
+  const withoutCustomAnswers = (profile: CandidateProfile) =>
+    JSON.stringify({
+      ...profile,
+      answerBank: { ...profile.answerBank, customAnswers: [] },
+    });
+  return withoutCustomAnswers(before) === withoutCustomAnswers(after);
+}
+
+/** Recording a finished preparation, tolerant of answers saved meanwhile. */
+async function assertPreparationProfileCurrent(
+  ctx: WorkspaceServiceContext,
+  prerequisites: { profile: CandidateProfile; profileRevision: number },
+): Promise<void> {
+  const current = await ctx.repository.getProfileWithRevision();
+  if (
+    current.revision !== prerequisites.profileRevision &&
+    onlySavedAnswersWereAdded(prerequisites.profile, current.profile)
+  ) {
+    assertCoherentResumeIdentity(current.profile);
+    return;
+  }
+  await assertCurrentResumeProfile(
+    ctx,
+    prerequisites.profileRevision,
+    "recording this application preparation",
+  );
+}
+
 async function assertCurrentResumeProfile(
   ctx: WorkspaceServiceContext,
   expectedRevision: number,
   operation: string,
+  snapshotProfile?: CandidateProfile,
 ): Promise<
   Awaited<
     ReturnType<WorkspaceServiceContext["repository"]["getProfileWithRevision"]>
@@ -402,6 +469,7 @@ async function assertCurrentResumeProfile(
     ctx,
     expectedRevision,
     operation,
+    snapshotProfile,
   );
   assertCoherentResumeIdentity(current.profile);
   return current;
@@ -443,15 +511,18 @@ export function createWorkspaceApplicationMethods(
       if (alreadyRead || (!options.force && !jobNeedsListingDetail(job))) {
         return;
       }
-      const [profile, searchPreferences] = await Promise.all([
+      const [profile, searchPreferences, settings] = await Promise.all([
         ctx.repository.getProfile(),
         ctx.repository.getSearchPreferences(),
+        ctx.repository.getSettings(),
       ]);
       const session = createMatchAssessmentSession({
         profile,
-        searchPreferences: enrichSearchPreferencesFromProfile(
-          searchPreferences,
-          profile,
+        // Scored with the same remote setting a search uses, so reading the
+        // listing on shortlist does not flip the job's location verdict.
+        searchPreferences: withSavedJobSearchBehavior(
+          enrichSearchPreferencesFromProfile(searchPreferences, profile),
+          settings,
         ),
         calculate: createMatchAssessment,
       });
@@ -484,6 +555,9 @@ export function createWorkspaceApplicationMethods(
                 screeningHints: next.screeningHints,
                 detailQuality: next.detailQuality,
                 listingDetailFetch: next.listingDetailFetch,
+                // The capture state goes with the read: leaving the old one
+                // kept a job read on shortlist counted as "gave nothing".
+                listingDetailCapture: next.listingDetailCapture,
                 matchAssessment: next.matchAssessment,
               })
             : current,
@@ -562,7 +636,7 @@ export function createWorkspaceApplicationMethods(
   async function requireApplyActivityEnabled(): Promise<void> {
     // Preparing an application is an explicit click; it resumes paused
     // background work rather than failing with "press Resume on Home first".
-    await resumePausedActivityForUserAction(ctx.repository);
+    await ctx.resumeActivityForExplicitStart();
   }
 
   async function assertDirectApplyExecutionCanContinue(
@@ -763,12 +837,15 @@ export function createWorkspaceApplicationMethods(
       error instanceof Error
         ? error.message
         : "The direct application preparation flow failed before review.";
+    const handedToPerson = isBrowserHandedToPersonError(error);
     const failedRun = ApplyRunSchema.parse({
       ...latestRun,
       state: "failed",
       updatedAt: completedAt,
       completedAt,
-      summary: "Apply copilot preparation failed.",
+      summary: handedToPerson
+        ? "Stopped because you took over the browser."
+        : "Apply copilot preparation failed.",
       detail: `${detail} No final submit action was taken; the run can be restarted after the failure is reviewed.`,
       pendingJobs: 0,
       failedJobs: Math.max(1, latestRun.failedJobs),
@@ -786,7 +863,9 @@ export function createWorkspaceApplicationMethods(
             state: "failed",
             updatedAt: completedAt,
             completedAt,
-            summary: "Application preparation failed.",
+            summary: handedToPerson
+              ? PERSON_TOOK_OVER_SUMMARY
+              : "Application preparation failed.",
             detail: `${detail} No final submit action was taken.`,
           })
         : null;
@@ -941,6 +1020,10 @@ export function createWorkspaceApplicationMethods(
   }
 
   const resumeDraftTransitionTails = new Map<string, Promise<void>>();
+  const inFlightResumeGenerations = new Map<
+    string,
+    Promise<JobFinderWorkspaceSnapshot>
+  >();
 
   async function withResumeDraftTransition<T>(
     jobId: string,
@@ -2044,650 +2127,747 @@ export function createWorkspaceApplicationMethods(
           return;
         }
 
-        const prerequisites = await resolveJobApplyPrerequisites(
-          jobId,
-          savedJobsById.get(jobId) ? [savedJobsById.get(jobId)!] : [],
-        );
-        if (await stopIfRunWasCancelled(true)) {
-          return;
-        }
-        // The prerequisite read verifies the selected export/file, but it is
-        // not itself a lock. Recheck the shared profile epoch immediately
-        // before marking preparation started or opening the browser so an
-        // intervening profile edit cannot execute stale identity input.
-        await assertCurrentResumeProfile(
-          ctx,
-          prerequisites.profileRevision,
-          "starting automatic application preparation",
-        );
-        const { job, resumeApplicationMode, resumeArtifact } = prerequisites;
-        const recoverySeed = await buildApplyRecoveryContext(
-          jobId,
-          exactApplicationRecordId,
-        );
-        await assertCurrentResumeProfile(
-          ctx,
-          prerequisites.profileRevision,
-          "marking this application preparation started",
-        );
-        currentRunState = ApplyRunSchema.parse({
-          ...currentRunState,
-          currentJobId: jobId,
-          updatedAt: new Date().toISOString(),
-        });
-        if (!(await persistRunUnlessCancelled(currentRunState))) return;
-        jobResult = await ctx.markApplicationPreparationStarted(
-          {
-            resultId: jobResult.id,
-            runId: run.id,
+        const queuedResultId = jobResult.id;
+        try {
+          const prerequisites = await resolveJobApplyPrerequisites(
             jobId,
-          },
-          capacityToken,
-        );
-        const activeResultIdRun = jobResult.id;
-        if (activeSource !== job.source) {
-          if (activeSource && !keepSessionAlive) {
-            await ctx.closeRunBrowserSession(activeSource);
-          }
-          await ctx.openRunBrowserSession(job.source, {
-            purpose: "automation",
-          });
-          activeSource = job.source;
-          shouldCloseActiveSessionOnExit = false;
+            savedJobsById.get(jobId) ? [savedJobsById.get(jobId)!] : [],
+          );
           if (await stopIfRunWasCancelled(true)) {
             return;
           }
-        }
-        const provenanceTargetId =
-          job.provenance[job.provenance.length - 1]?.targetId ??
-          job.provenance[0]?.targetId ??
-          null;
-        const provenanceTarget = provenanceTargetId
-          ? (searchPreferences.discovery.targets.find(
-              (target) => target.id === provenanceTargetId,
-            ) ?? null)
-          : null;
-        const activeInstruction = provenanceTarget
-          ? resolveActiveSourceInstructionArtifact(
-              provenanceTarget,
-              sourceInstructionArtifacts,
-            )
-          : null;
-        const applyInstructions = uniqueStrings([
-          ...buildInstructionGuidance(activeInstruction),
-          ...recoverySeed.recoveryInstructions,
-        ]);
-        const intermediateMutationAuthority =
-          await buildIntermediateMutationExecutionOptions({
+          // The prerequisite read verifies the selected export/file, but it is
+          // not itself a lock. Recheck the shared profile epoch immediately
+          // before marking preparation started or opening the browser so an
+          // intervening profile edit cannot execute stale identity input.
+          await assertCurrentResumeProfile(
+            ctx,
+            prerequisites.profileRevision,
+            "starting automatic application preparation",
+          );
+          const { job, resumeApplicationMode, resumeArtifact } = prerequisites;
+          const recoverySeed = await buildApplyRecoveryContext(
+            jobId,
+            exactApplicationRecordId,
+          );
+          await assertCurrentResumeProfile(
+            ctx,
+            prerequisites.profileRevision,
+            "marking this application preparation started",
+          );
+          currentRunState = ApplyRunSchema.parse({
+            ...currentRunState,
+            currentJobId: jobId,
+            updatedAt: new Date().toISOString(),
+          });
+          if (!(await persistRunUnlessCancelled(currentRunState))) return;
+          jobResult = await ctx.markApplicationPreparationStarted(
+            {
+              resultId: jobResult.id,
+              runId: run.id,
+              jobId,
+            },
+            capacityToken,
+          );
+          const activeResultIdRun = jobResult.id;
+          if (activeSource !== job.source) {
+            if (activeSource && !keepSessionAlive) {
+              await ctx.closeRunBrowserSession(activeSource);
+            }
+            await ctx.openRunBrowserSession(job.source, {
+              purpose: "automation",
+            });
+            activeSource = job.source;
+            shouldCloseActiveSessionOnExit = false;
+            if (await stopIfRunWasCancelled(true)) {
+              return;
+            }
+          }
+          const provenanceTargetId =
+            selectApplicationSighting(job)?.targetId ??
+            job.provenance[job.provenance.length - 1]?.targetId ??
+            job.provenance[0]?.targetId ??
+            null;
+          const provenanceTarget = provenanceTargetId
+            ? (searchPreferences.discovery.targets.find(
+                (target) => target.id === provenanceTargetId,
+              ) ?? null)
+            : null;
+          const activeInstruction = provenanceTarget
+            ? resolveActiveSourceInstructionArtifact(
+                provenanceTarget,
+                sourceInstructionArtifacts,
+              )
+            : null;
+          const applyInstructions = uniqueStrings([
+            ...buildInstructionGuidance(activeInstruction),
+            ...recoverySeed.recoveryInstructions,
+          ]);
+          const intermediateMutationAuthority =
+            await buildIntermediateMutationExecutionOptions({
+              job,
+              resumeArtifact,
+            });
+          const browserProfile = await assertCurrentResumeProfile(
+            ctx,
+            prerequisites.profileRevision,
+            "executing this application preparation",
+          );
+
+          // What the person's saved permission allows for this exact
+          // application. Anything it does not cover fills the form in and stops.
+          const applyAuthorityRun = await resolveApplyAuthorityForJob({
+            repository: ctx.repository,
+            job: job,
+            resumeSha256: resumeArtifact.sha256,
+            applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+            now: new Date().toISOString(),
+          });
+          let activeEnvelopeRun = applyAuthorityRun.envelope;
+          // Set while the form is being filled in, so the loop can hand a
+          // finished application to the submission path without re-deriving it.
+          let preparedHandoffRun: ApplySubmissionHandoff | null = null;
+          let preparedReviewCardRun: ApplicationReviewCard | null = null;
+          const applicationAttachmentsRun =
+            await resolveApplicationAttachmentsForExecution({
+              resolver: ctx.candidateAssetResolver,
+              questionRecords: [],
+              answerRecords: [],
+            });
+          // The browser layer opens the page; Job Finder decides what goes in
+          // the form and whether anything may be sent.
+          const applyFlowFactsRun = {
+            applicationPageBindingKey: activeResultIdRun,
             job,
             resumeArtifact,
-          });
-        const browserProfile = await assertCurrentResumeProfile(
-          ctx,
-          prerequisites.profileRevision,
-          "executing this application preparation",
-        );
-
-        // What the person's saved permission allows for this exact
-        // application. Anything it does not cover fills the form in and stops.
-        const applyAuthorityRun = await resolveApplyAuthorityForJob({
-          repository: ctx.repository,
-          job: job,
-          resumeSha256: resumeArtifact.sha256,
-          applicationUrl: job.applicationUrl ?? job.canonicalUrl,
-          now: new Date().toISOString(),
-        });
-        let activeEnvelopeRun = applyAuthorityRun.envelope;
-        // Set while the form is being filled in, so the loop can hand a
-        // finished application to the submission path without re-deriving it.
-        let preparedHandoffRun: ApplySubmissionHandoff | null = null;
-        let preparedReviewCardRun: ApplicationReviewCard | null = null;
-        const applicationAttachmentsRun =
-          await resolveApplicationAttachmentsForExecution({
-            resolver: ctx.candidateAssetResolver,
-            questionRecords: [],
-            answerRecords: [],
-          });
-        // The browser layer opens the page; Job Finder decides what goes in
-        // the form and whether anything may be sent.
-        const applyFlowFactsRun = {
-          applicationPageBindingKey: activeResultIdRun,
-          job,
-          resumeArtifact,
-          profile: browserProfile.profile,
-          ...(applicationAttachmentsRun.length > 0
-            ? { applicationAttachments: applicationAttachmentsRun }
-            : {}),
-          settings: { ...settings, resumeApplicationMode },
-          mode:
-            applyAuthorityRun.authority.mode === "autonomous_submit"
-              ? ("submit_when_ready" as const)
-              : ("prepare_only" as const),
-          ...intermediateMutationAuthority,
-          accountCreationAuthorized: false as const,
-          applyAutomationMode: applyAuthorityRun.authority.mode,
-          submitAuthorized: applyAuthorityRun.authority.submitAuthorized,
-          preApprovedAttestationKinds:
-            applyAuthorityRun.authority.preApprovedAttestationKinds,
-          salaryDisclosure: applyAuthorityRun.authority.salaryDisclosure,
-          applyAllowedOrigins: [...applyAuthorityRun.authority.allowedOrigins],
-          authorizeReviewedApplicationOrigin: async (origin: string) => {
-            if (!activeEnvelopeRun) return null;
-            activeEnvelopeRun = await authorizeReviewedApplicationOrigin({
-              repository: ctx.repository,
-              envelope: activeEnvelopeRun,
-              jobId: job.id,
-              origin,
-              now: new Date().toISOString(),
-            });
-            return activeEnvelopeRun;
-          },
-          ...(recoverySeed.recoveryContext
-            ? { recoveryContext: recoverySeed.recoveryContext }
-            : {}),
-          ...(applyInstructions.length > 0
-            ? { instructions: applyInstructions }
-            : {}),
-          ...buildApplyVisualExecutionOptions({
-            enabled: currentRunState.visualCheckpointsEnabled,
-            source: job.source,
-          }),
-        };
-        const applyFlowInputRun = {
-          ...applyFlowFactsRun,
-          prepareApplicationForm: createApplyFormPreparer({
-            executionInput: applyFlowFactsRun,
-            aiClient: ctx.aiClient,
-            onProgress: (progress) =>
-              persistApplicationPreparationProgress({
-                repository: ctx.repository,
-                resultId: activeResultIdRun,
-                runId: run.id,
-                jobId,
-                progress,
-              }),
-            ...(applyAuthorityRun.envelope
-              ? { envelope: applyAuthorityRun.envelope }
+            profile: browserProfile.profile,
+            ...(applicationAttachmentsRun.length > 0
+              ? { applicationAttachments: applicationAttachmentsRun }
               : {}),
-            onPrepared: ({ handoff, reviewCard }) => {
-              preparedHandoffRun = handoff;
-              // Kept with the attempt so the review shows what this run wrote,
-              // not a later reconstruction of it.
-              preparedReviewCardRun = reviewCard;
+            settings: { ...settings, resumeApplicationMode },
+            mode:
+              applyAuthorityRun.authority.mode === "autonomous_submit"
+                ? ("submit_when_ready" as const)
+                : ("prepare_only" as const),
+            ...intermediateMutationAuthority,
+            accountCreationAuthorized: false as const,
+            applyAutomationMode: applyAuthorityRun.authority.mode,
+            submitAuthorized: applyAuthorityRun.authority.submitAuthorized,
+            preApprovedAttestationKinds:
+              applyAuthorityRun.authority.preApprovedAttestationKinds,
+            salaryDisclosure: applyAuthorityRun.authority.salaryDisclosure,
+            applyAllowedOrigins: [
+              ...applyAuthorityRun.authority.allowedOrigins,
+            ],
+            authorizeReviewedApplicationOrigin: async (origin: string) => {
+              if (!activeEnvelopeRun) return null;
+              activeEnvelopeRun = await authorizeReviewedApplicationOrigin({
+                repository: ctx.repository,
+                envelope: activeEnvelopeRun,
+                jobId: job.id,
+                origin,
+                now: new Date().toISOString(),
+              });
+              return activeEnvelopeRun;
             },
-            letters: buildApplyLetterDependencies({
-              aiClient: ctx.aiClient,
-              documentManager: ctx.documentManager,
-              job: applyFlowFactsRun.job,
-              profile: applyFlowFactsRun.profile,
-              settings: applyFlowFactsRun.settings,
-            }),
-            siteLabel: resolveApplySiteLabel({
-              targetLabel: provenanceTarget?.label ?? null,
-              applicationUrl: job.applicationUrl ?? job.canonicalUrl,
-            }),
-          }),
-        };
-        const executionResult = enforceResolvedApplyAuthorityResult(
-          applyAuthorityRun.authority,
-          await ctx.browserRuntime.executeApplicationFlow(
-            job.source,
-            applyFlowInputRun,
-            { signal: executionSignal },
-          ),
-        );
-        await assertCurrentResumeProfile(
-          ctx,
-          prerequisites.profileRevision,
-          "recording this application preparation",
-        );
-        if (await stopIfRunWasCancelled()) {
-          return;
-        }
-        const detectedAt = new Date().toISOString();
-        const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
-          activeInstruction,
-          sourceDebugAttempts,
-        });
-        const blocker = mergeAttemptBlocker({
-          blocker: executionResult.blocker,
-          sourceDebugEvidenceRefIds,
-          defaultUrl: job.applicationUrl ?? job.canonicalUrl,
-        });
-        const replay = mergeAttemptReplay({
-          replay: executionResult.replay,
-          activeInstruction,
-          sourceDebugEvidenceRefIds,
-          fallbackUrl: job.applicationUrl ?? job.canonicalUrl,
-        });
-        const normalizedExecutionResult: ApplyExecutionResult = {
-          ...executionResult,
-          blocker,
-          replay,
-        };
-        const runArtifacts = buildApplyCopilotArtifacts({
-          applicationRecordId: exactApplicationRecordId,
-          job,
-          resumeArtifact,
-          executionResult: normalizedExecutionResult,
-          runId: run.id,
-          ...(jobResult ? { resultId: jobResult.id } : {}),
-          detectedAt,
-          visualCheckpointsEnabled: currentRunState.visualCheckpointsEnabled,
-        });
-        const existingQuestionIds = new Set(
-          questionRecords
-            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-            .filter(
-              (entry) => entry.applicationRecordId === exactApplicationRecordId,
-            )
-            .map((entry) => entry.id),
-        );
-        const existingAnswerIds = new Set(
-          answerRecords
-            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-            .filter(
-              (entry) => entry.applicationRecordId === exactApplicationRecordId,
-            )
-            .map((entry) => entry.id),
-        );
-        const existingArtifactIds = new Set(
-          artifactRefs
-            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-            .filter(
-              (entry) => entry.applicationRecordId === exactApplicationRecordId,
-            )
-            .map((entry) => entry.id),
-        );
-        const existingCheckpointIds = new Set(
-          checkpoints
-            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-            .filter(
-              (entry) => entry.applicationRecordId === exactApplicationRecordId,
-            )
-            .map((entry) => entry.id),
-        );
-        const existingConsentIds = new Set(
-          consentRequests
-            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-            .filter(
-              (entry) => entry.applicationRecordId === exactApplicationRecordId,
-            )
-            .map((entry) => entry.id),
-        );
-        const updatedResult = ApplyJobResultSchema.parse({
-          ...(jobResult ?? runArtifacts.result),
-          id: jobResult?.id ?? runArtifacts.result.id,
-          runId: run.id,
-          jobId,
-          reviewCard: preparedReviewCardRun,
-          queuePosition: index,
-          state: mapExecutionResultToApplyJobState({
-            consentRequests: runArtifacts.consentRequests,
-            executionResult: normalizedExecutionResult,
-          }),
-          summary: normalizedExecutionResult.summary,
-          detail: normalizedExecutionResult.detail,
-          startedAt: jobResult?.startedAt ?? detectedAt,
-          updatedAt: detectedAt,
-          completedAt:
-            normalizedExecutionResult.state === "submitted"
-              ? detectedAt
-              : runArtifacts.consentRequests.length > 0 ||
-                  normalizedExecutionResult.state === "paused"
-                ? null
-                : normalizedExecutionResult.state === "failed" ||
-                    normalizedExecutionResult.state === "unsupported"
-                  ? detectedAt
-                  : null,
-          blockerReason: mapExecutionResultToApplyBlockerReason(
-            normalizedExecutionResult.blocker,
-          ),
-          blockerSummary: normalizedExecutionResult.blocker?.summary ?? null,
-          listingSignalEvidence:
-            normalizedExecutionResult.listingSignalEvidence,
-          visualObservationSets:
-            normalizedExecutionResult.visualObservationSets,
-          visualCheckpoints: normalizedExecutionResult.visualCheckpoints,
-          latestQuestionCount: runArtifacts.questionRecords.length,
-          latestAnswerCount: runArtifacts.answerRecords.length,
-          pendingConsentRequestCount: runArtifacts.consentRequests.length,
-          artifactCount: runArtifacts.artifactRefs.length,
-          latestCheckpointId: runArtifacts.checkpoints.at(-1)?.id ?? null,
-          privacyReceipt: runArtifacts.result.privacyReceipt,
-        });
-        let committedJobResult = updatedResult;
-
-        let campaignPauseReason: string | null = null;
-        const committedJobCompletion = await withApplyRunTransition(
-          run.id,
-          async () => {
-            const latestRun = (await ctx.repository.listApplyRuns()).find(
-              (entry) => entry.id === run.id,
-            );
-            const activityControl = await ctx.repository.getActivityControl();
-            if (
-              executionSignal.aborted ||
-              (activityControl.paused &&
-                activityControl.pauseBehavior !== "finish_current") ||
-              latestRun?.state !== "running"
-            ) {
-              executionController.abort();
-              return false;
-            }
-
-            await Promise.all([
-              ctx.repository.upsertApplyJobResult(updatedResult),
-              ...runArtifacts.questionRecords
-                .filter((record) => !existingQuestionIds.has(record.id))
-                .map((record) =>
-                  ctx.repository.upsertApplicationQuestionRecord({
-                    ...record,
-                    runId: run.id,
-                    resultId: updatedResult.id,
-                  }),
-                ),
-              ...runArtifacts.answerRecords
-                .filter((record) => !existingAnswerIds.has(record.id))
-                .map((record) =>
-                  ctx.repository.upsertApplicationAnswerRecord({
-                    ...record,
-                    runId: run.id,
-                    resultId: updatedResult.id,
-                  }),
-                ),
-              ...runArtifacts.artifactRefs
-                .filter((record) => !existingArtifactIds.has(record.id))
-                .map((record) =>
-                  ctx.repository.upsertApplicationArtifactRef({
-                    ...record,
-                    runId: run.id,
-                    resultId: updatedResult.id,
-                  }),
-                ),
-              ...runArtifacts.checkpoints
-                .filter((record) => !existingCheckpointIds.has(record.id))
-                .map((record) =>
-                  ctx.repository.upsertApplicationReplayCheckpoint({
-                    ...record,
-                    runId: run.id,
-                    resultId: updatedResult.id,
-                  }),
-                ),
-              ...runArtifacts.consentRequests
-                .filter((record) => !existingConsentIds.has(record.id))
-                .map((record) =>
-                  ctx.repository.upsertApplicationConsentRequest({
-                    ...record,
-                    runId: run.id,
-                    resultId: updatedResult.id,
-                  }),
-                ),
-            ]);
-
-            await persistApplicationUserAction({
-              repository: ctx.repository,
-              applicationRecordId: exactApplicationRecordId,
-              job,
-              runId: run.id,
-              resultId: updatedResult.id,
-              resultState: updatedResult.state,
-              resultStartedAt: updatedResult.startedAt,
-              replayCheckpointId: runArtifacts.checkpoints.at(-1)?.id ?? null,
-              blocker,
-              occurredAt: detectedAt,
-            });
-
-            const attempt = ApplicationAttemptSchema.parse({
-              id: `attempt_${jobId}_${Date.now()}`,
-              jobId,
-              applicationRecordId: exactApplicationRecordId,
-              state: normalizedExecutionResult.state,
-              summary: normalizedExecutionResult.summary,
-              detail: normalizedExecutionResult.detail,
-              startedAt:
-                normalizedExecutionResult.checkpoints[0]?.at ?? detectedAt,
-              updatedAt: detectedAt,
-              completedAt:
-                normalizedExecutionResult.state === "in_progress"
-                  ? null
-                  : detectedAt,
-              outcome: normalizedExecutionResult.outcome,
-              checkpoints: normalizedExecutionResult.checkpoints,
-              questions: normalizedExecutionResult.questions.map((question) =>
-                ApplicationAttemptQuestionSchema.parse(question),
-              ),
-              blocker,
-              consentDecisions: normalizedExecutionResult.consentDecisions.map(
-                (decision) =>
-                  ApplicationAttemptConsentDecisionSchema.parse(decision),
-              ),
-              replay,
-              visualEvidence: normalizedExecutionResult.visualEvidence,
-              visualObservationSets:
-                normalizedExecutionResult.visualObservationSets,
-              visualCheckpoints: normalizedExecutionResult.visualCheckpoints,
-              nextActionLabel: normalizedExecutionResult.nextActionLabel,
-              executionTimings: normalizedExecutionResult.executionTimings,
-            });
-            await ctx.repository.upsertApplicationAttempt(attempt);
-
-            const jobState = updatedResult.state;
-            if (jobState === "submitted") {
-              submittedJobs += 1;
-            } else if (jobState === "awaiting_review") {
-              awaitingReviewJobs += 1;
-            } else if (jobState === "blocked") {
-              blockedJobs += 1;
-            } else if (jobState === "failed") {
-              failedJobs += 1;
-            } else if (jobState === "skipped") {
-              skippedJobs += 1;
-            }
-            pendingConsentRequests += runArtifacts.consentRequests.length;
-
-            await syncRunApplicationRecord({
-              applicationRecordId: exactApplicationRecordId,
-              consentSummary: buildConsentSummary(attempt.consentDecisions),
-              eventDetail:
-                jobState === "blocked" &&
-                runArtifacts.consentRequests.length > 0
-                  ? input.mode === "queue_auto"
-                    ? "This job needs an explicit consent decision. The queue continued preparing unrelated jobs safely."
-                    : "This run paused on a consent-gated step for this job. Resolve or decline the consent request to continue."
-                  : normalizedExecutionResult.detail,
-              eventEmphasis:
-                jobState === "submitted"
-                  ? "positive"
-                  : jobState === "failed"
-                    ? "critical"
-                    : jobState === "blocked"
-                      ? "warning"
-                      : "neutral",
-              eventId: `event_${run.id}_${jobId}_${Date.now()}`,
-              eventTitle:
-                jobState === "blocked" &&
-                runArtifacts.consentRequests.length > 0
-                  ? "Consent needed"
-                  : normalizedExecutionResult.summary,
-              jobId,
-              lastActionLabel: normalizedExecutionResult.summary,
-              lastAttemptState: normalizedExecutionResult.state,
-              latestBlocker: buildLatestBlockerSummary(attempt.blocker),
-              nextActionLabel:
-                jobState === "blocked" &&
-                runArtifacts.consentRequests.length > 0
-                  ? input.mode === "queue_auto"
-                    ? "Resolve this job's consent request; other queued jobs continue independently."
-                    : "Resolve the consent request in Applications to continue."
-                  : normalizedExecutionResult.nextActionLabel,
-              questionSummary: buildQuestionSummary(attempt.questions),
-              replaySummary: buildReplaySummary(
-                attempt.replay,
-                attempt.visualEvidence,
-              ),
-              automationMode: applyAuthorityRun.authority.mode,
-              updatedAt: detectedAt,
-            });
-
-            // Sending happens after the preparation is on record, so the
-            // submission's own projection is the last word on this attempt.
-            await sendPreparedApplicationIfAllowed({
-              ctx,
-              handoff: preparedHandoffRun,
-              envelope: activeEnvelopeRun,
+            ...(recoverySeed.recoveryContext
+              ? { recoveryContext: recoverySeed.recoveryContext }
+              : {}),
+            ...(applyInstructions.length > 0
+              ? { instructions: applyInstructions }
+              : {}),
+            ...buildApplyVisualExecutionOptions({
+              enabled: currentRunState.visualCheckpointsEnabled,
               source: job.source,
-              lineage: {
-                runId: run.id,
-                jobId,
-                resultId: updatedResult.id,
-                applicationRecordId: exactApplicationRecordId,
-                campaignId: run.campaignId ?? null,
+            }),
+          };
+          const applyFlowInputRun = {
+            ...applyFlowFactsRun,
+            prepareApplicationForm: createApplyFormPreparer({
+              executionInput: applyFlowFactsRun,
+              aiClient: ctx.aiClient,
+              onProgress: (progress) =>
+                persistApplicationPreparationProgress({
+                  repository: ctx.repository,
+                  resultId: activeResultIdRun,
+                  runId: run.id,
+                  jobId,
+                  progress,
+                }),
+              ...(applyAuthorityRun.envelope
+                ? { envelope: applyAuthorityRun.envelope }
+                : {}),
+              onPrepared: ({ handoff, reviewCard }) => {
+                preparedHandoffRun = handoff;
+                // Kept with the attempt so the review shows what this run wrote,
+                // not a later reconstruction of it.
+                preparedReviewCardRun = reviewCard;
               },
-              resumeArtifact,
+              letters: buildApplyLetterDependencies({
+                aiClient: ctx.aiClient,
+                documentManager: ctx.documentManager,
+                job: applyFlowFactsRun.job,
+                profile: applyFlowFactsRun.profile,
+                settings: applyFlowFactsRun.settings,
+              }),
               siteLabel: resolveApplySiteLabel({
                 targetLabel: provenanceTarget?.label ?? null,
                 applicationUrl: job.applicationUrl ?? job.canonicalUrl,
               }),
-              signal: executionSignal,
-            });
-
-            // Sending may replace the prepared result with a submitted or
-            // uncertain result. Re-read the durable rows before projecting
-            // counters, stop rules, and safeguards; the prepared snapshot is
-            // stale as soon as the final action finishes.
-            const committedRunResults =
-              await ctx.repository.listApplyJobResults({ runId: run.id });
-            committedJobResult =
-              committedRunResults.find(
-                (candidate) => candidate.id === updatedResult.id,
-              ) ?? updatedResult;
-            ({
-              submittedJobs,
-              awaitingReviewJobs,
-              blockedJobs,
-              failedJobs,
-              skippedJobs,
-            } = summarizeApplyJobResultStates(committedRunResults));
-
-            const remainingJobs = run.jobIds.length - (index + 1);
-            // A job that reached review, consent, a blocker, failure, or skip
-            // has finished this batch's attempt. Only jobs the loop has not
-            // reached are pending; otherwise a fully processed prepare-only
-            // batch remains stuck at "0 of N finished" forever.
-            const pendingJobs = remainingJobs;
-            const nextRunState =
-              committedJobResult.state === "submitted"
-                ? "completed"
-                : mapExecutionResultToApplyRunState({
-                    consentRequests: runArtifacts.consentRequests,
-                    executionResult: normalizedExecutionResult,
-                  });
-            const currentCampaignPauseReason = campaignStopRules
-              ? evaluateCampaignApplyStopRules({
-                  blockerReason: committedJobResult.blockerReason,
-                  blockedCount: blockedJobs,
-                  failedCount: failedJobs,
-                  processedCount:
-                    submittedJobs +
-                    awaitingReviewJobs +
-                    blockedJobs +
-                    failedJobs +
-                    skippedJobs,
-                  stopRules: campaignStopRules,
-                })
-              : null;
-            queuedCampaignPauseReason ??= currentCampaignPauseReason;
-            campaignPauseReason =
-              input.mode === "queue_auto"
-                ? remainingJobs === 0
-                  ? queuedCampaignPauseReason
-                  : null
-                : currentCampaignPauseReason;
-            currentRunState = ApplyRunSchema.parse({
-              ...currentRunState,
-              currentJobId: jobId,
-              updatedAt: committedJobResult.updatedAt,
-              state: campaignPauseReason
-                ? "paused_for_user_review"
-                : input.mode === "queue_auto"
-                  ? remainingJobs > 0
-                    ? "running"
-                    : pendingConsentRequests > 0
-                      ? "paused_for_consent"
-                      : pendingJobs > 0 || blockedJobs > 0
-                        ? "paused_for_user_review"
-                        : "completed"
-                  : nextRunState,
-              summary: campaignPauseReason
-                ? "Automatic apply paused by this search plan's safety rules."
-                : input.mode === "queue_auto"
-                  ? remainingJobs === 0 && pendingConsentRequests > 0
-                    ? `Automatic apply prepared every unblocked job; ${pendingConsentRequests} consent ${pendingConsentRequests === 1 ? "decision needs" : "decisions need"} you.`
-                    : `Automatic apply queue processed ${index + 1} of ${run.jobIds.length} jobs using the chosen application mode.`
-                  : runArtifacts.consentRequests.length > 0
-                    ? `Automatic apply paused for consent on '${job.title}'.`
-                    : `Automatic apply run processed '${job.title}' using the chosen application mode.`,
-              detail:
-                campaignPauseReason ??
-                (input.mode === "queue_auto" && pendingConsentRequests > 0
-                  ? "Consent-blocked jobs remain explicit user actions, while every unrelated ready job was allowed to reach its safe review checkpoint."
-                  : runArtifacts.consentRequests.length > 0
-                    ? "The run stopped because a consent-gated step needs an explicit user decision."
-                    : "Job Finder finished working through the application."),
-              completedAt: campaignPauseReason
-                ? null
-                : input.mode === "queue_auto"
-                  ? pendingConsentRequests > 0 ||
-                    pendingJobs > 0 ||
-                    blockedJobs > 0
-                    ? null
-                    : committedJobResult.updatedAt
-                  : nextRunState === "completed" || nextRunState === "failed"
-                    ? committedJobResult.updatedAt
-                    : null,
-              pendingJobs,
-              submittedJobs,
-              skippedJobs,
-              blockedJobs,
-              failedJobs,
-            });
-            await ctx.repository.upsertApplyRun(currentRunState);
-            return true;
-          },
-        );
-        if (!committedJobCompletion) {
-          return;
-        }
-
-        if (
-          committedJobResult.completedAt !== null ||
-          committedJobResult.state === "awaiting_review"
-        ) {
-          if (input.mode === "queue_auto") {
-            // Safeguards produced by this approved batch must describe its
-            // waiting jobs, not prevent later named jobs in the same batch
-            // from being prepared. External/job-specific safeguards are still
-            // rechecked before every browser launch above.
-            deferredQueueSafeguards.push({
-              result: committedJobResult,
-              job,
-              now: detectedAt,
-            });
-          } else {
-            await persistAutomaticApplicationSafeguards({
-              ctx,
-              run: currentRunState,
-              result: committedJobResult,
-              job,
-              now: detectedAt,
-            }).catch((safeguardError: unknown) => {
-              console.error(
-                "Failed to persist automatic application safeguards.",
-                safeguardError,
-              );
-            });
+            }),
+          };
+          const executionResult = enforceResolvedApplyAuthorityResult(
+            applyAuthorityRun.authority,
+            await ctx.browserRuntime.executeApplicationFlow(
+              job.source,
+              applyFlowInputRun,
+              { signal: executionSignal },
+            ),
+          );
+          await assertPreparationProfileCurrent(ctx, prerequisites);
+          if (await stopIfRunWasCancelled()) {
+            return;
           }
+          const detectedAt = new Date().toISOString();
+          const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
+            activeInstruction,
+            sourceDebugAttempts,
+          });
+          const blocker = mergeAttemptBlocker({
+            blocker: executionResult.blocker,
+            sourceDebugEvidenceRefIds,
+            defaultUrl: job.applicationUrl ?? job.canonicalUrl,
+          });
+          const replay = mergeAttemptReplay({
+            replay: executionResult.replay,
+            activeInstruction,
+            sourceDebugEvidenceRefIds,
+            fallbackUrl: job.applicationUrl ?? job.canonicalUrl,
+          });
+          const normalizedExecutionResult: ApplyExecutionResult = {
+            ...executionResult,
+            blocker,
+            replay,
+          };
+          const runArtifacts = buildApplyCopilotArtifacts({
+            applicationRecordId: exactApplicationRecordId,
+            job,
+            resumeArtifact,
+            executionResult: normalizedExecutionResult,
+            runId: run.id,
+            ...(jobResult ? { resultId: jobResult.id } : {}),
+            detectedAt,
+            visualCheckpointsEnabled: currentRunState.visualCheckpointsEnabled,
+          });
+          const existingQuestionIds = new Set(
+            questionRecords
+              .filter(
+                (entry) => entry.runId === run.id && entry.jobId === jobId,
+              )
+              .filter(
+                (entry) =>
+                  entry.applicationRecordId === exactApplicationRecordId,
+              )
+              .map((entry) => entry.id),
+          );
+          const existingAnswerIds = new Set(
+            answerRecords
+              .filter(
+                (entry) => entry.runId === run.id && entry.jobId === jobId,
+              )
+              .filter(
+                (entry) =>
+                  entry.applicationRecordId === exactApplicationRecordId,
+              )
+              .map((entry) => entry.id),
+          );
+          const existingArtifactIds = new Set(
+            artifactRefs
+              .filter(
+                (entry) => entry.runId === run.id && entry.jobId === jobId,
+              )
+              .filter(
+                (entry) =>
+                  entry.applicationRecordId === exactApplicationRecordId,
+              )
+              .map((entry) => entry.id),
+          );
+          const existingCheckpointIds = new Set(
+            checkpoints
+              .filter(
+                (entry) => entry.runId === run.id && entry.jobId === jobId,
+              )
+              .filter(
+                (entry) =>
+                  entry.applicationRecordId === exactApplicationRecordId,
+              )
+              .map((entry) => entry.id),
+          );
+          const existingConsentIds = new Set(
+            consentRequests
+              .filter(
+                (entry) => entry.runId === run.id && entry.jobId === jobId,
+              )
+              .filter(
+                (entry) =>
+                  entry.applicationRecordId === exactApplicationRecordId,
+              )
+              .map((entry) => entry.id),
+          );
+          const updatedResult = ApplyJobResultSchema.parse({
+            ...(jobResult ?? runArtifacts.result),
+            id: jobResult?.id ?? runArtifacts.result.id,
+            runId: run.id,
+            jobId,
+            reviewCard: preparedReviewCardRun,
+            queuePosition: index,
+            state: mapExecutionResultToApplyJobState({
+              consentRequests: runArtifacts.consentRequests,
+              executionResult: normalizedExecutionResult,
+            }),
+            summary: normalizedExecutionResult.summary,
+            detail: normalizedExecutionResult.detail,
+            startedAt: jobResult?.startedAt ?? detectedAt,
+            updatedAt: detectedAt,
+            completedAt:
+              normalizedExecutionResult.state === "submitted"
+                ? detectedAt
+                : runArtifacts.consentRequests.length > 0 ||
+                    normalizedExecutionResult.state === "paused"
+                  ? null
+                  : normalizedExecutionResult.state === "failed" ||
+                      normalizedExecutionResult.state === "unsupported"
+                    ? detectedAt
+                    : null,
+            blockerReason: mapExecutionResultToApplyBlockerReason(
+              normalizedExecutionResult.blocker,
+            ),
+            blockerSummary: normalizedExecutionResult.blocker?.summary ?? null,
+            listingSignalEvidence:
+              normalizedExecutionResult.listingSignalEvidence,
+            visualObservationSets:
+              normalizedExecutionResult.visualObservationSets,
+            visualCheckpoints: normalizedExecutionResult.visualCheckpoints,
+            latestQuestionCount: runArtifacts.questionRecords.length,
+            latestAnswerCount: runArtifacts.answerRecords.length,
+            pendingConsentRequestCount: runArtifacts.consentRequests.length,
+            artifactCount: runArtifacts.artifactRefs.length,
+            latestCheckpointId: runArtifacts.checkpoints.at(-1)?.id ?? null,
+            privacyReceipt: runArtifacts.result.privacyReceipt,
+          });
+          let committedJobResult = updatedResult;
+
+          let campaignPauseReason: string | null = null;
+          const committedJobCompletion = await withApplyRunTransition(
+            run.id,
+            async () => {
+              const latestRun = (await ctx.repository.listApplyRuns()).find(
+                (entry) => entry.id === run.id,
+              );
+              const activityControl = await ctx.repository.getActivityControl();
+              if (
+                executionSignal.aborted ||
+                (activityControl.paused &&
+                  activityControl.pauseBehavior !== "finish_current") ||
+                latestRun?.state !== "running"
+              ) {
+                executionController.abort();
+                return false;
+              }
+
+              await Promise.all([
+                ctx.repository.upsertApplyJobResult(updatedResult),
+                ...runArtifacts.questionRecords
+                  .filter((record) => !existingQuestionIds.has(record.id))
+                  .map((record) =>
+                    ctx.repository.upsertApplicationQuestionRecord({
+                      ...record,
+                      runId: run.id,
+                      resultId: updatedResult.id,
+                    }),
+                  ),
+                ...runArtifacts.answerRecords
+                  .filter((record) => !existingAnswerIds.has(record.id))
+                  .map((record) =>
+                    ctx.repository.upsertApplicationAnswerRecord({
+                      ...record,
+                      runId: run.id,
+                      resultId: updatedResult.id,
+                    }),
+                  ),
+                ...runArtifacts.artifactRefs
+                  .filter((record) => !existingArtifactIds.has(record.id))
+                  .map((record) =>
+                    ctx.repository.upsertApplicationArtifactRef({
+                      ...record,
+                      runId: run.id,
+                      resultId: updatedResult.id,
+                    }),
+                  ),
+                ...runArtifacts.checkpoints
+                  .filter((record) => !existingCheckpointIds.has(record.id))
+                  .map((record) =>
+                    ctx.repository.upsertApplicationReplayCheckpoint({
+                      ...record,
+                      runId: run.id,
+                      resultId: updatedResult.id,
+                    }),
+                  ),
+                ...runArtifacts.consentRequests
+                  .filter((record) => !existingConsentIds.has(record.id))
+                  .map((record) =>
+                    ctx.repository.upsertApplicationConsentRequest({
+                      ...record,
+                      runId: run.id,
+                      resultId: updatedResult.id,
+                    }),
+                  ),
+              ]);
+
+              await persistApplicationUserAction({
+                repository: ctx.repository,
+                applicationRecordId: exactApplicationRecordId,
+                job,
+                runId: run.id,
+                resultId: updatedResult.id,
+                resultState: updatedResult.state,
+                resultStartedAt: updatedResult.startedAt,
+                replayCheckpointId: runArtifacts.checkpoints.at(-1)?.id ?? null,
+                blocker,
+                occurredAt: detectedAt,
+              });
+              await handApplicationPageToPersonForAccessStep({
+                browserRuntime: ctx.browserRuntime,
+                source: job.source,
+                resultId: updatedResult.id,
+                blocker,
+              });
+
+              const attempt = ApplicationAttemptSchema.parse({
+                id: `attempt_${jobId}_${Date.now()}`,
+                jobId,
+                applicationRecordId: exactApplicationRecordId,
+                state: normalizedExecutionResult.state,
+                summary: normalizedExecutionResult.summary,
+                detail: normalizedExecutionResult.detail,
+                startedAt:
+                  normalizedExecutionResult.checkpoints[0]?.at ?? detectedAt,
+                updatedAt: detectedAt,
+                completedAt:
+                  normalizedExecutionResult.state === "in_progress"
+                    ? null
+                    : detectedAt,
+                outcome: normalizedExecutionResult.outcome,
+                checkpoints: normalizedExecutionResult.checkpoints,
+                questions: normalizedExecutionResult.questions.map((question) =>
+                  ApplicationAttemptQuestionSchema.parse(question),
+                ),
+                blocker,
+                consentDecisions:
+                  normalizedExecutionResult.consentDecisions.map((decision) =>
+                    ApplicationAttemptConsentDecisionSchema.parse(decision),
+                  ),
+                replay,
+                visualEvidence: normalizedExecutionResult.visualEvidence,
+                visualObservationSets:
+                  normalizedExecutionResult.visualObservationSets,
+                visualCheckpoints: normalizedExecutionResult.visualCheckpoints,
+                nextActionLabel: normalizedExecutionResult.nextActionLabel,
+                executionTimings: normalizedExecutionResult.executionTimings,
+              });
+              await ctx.repository.upsertApplicationAttempt(attempt);
+
+              const jobState = updatedResult.state;
+              if (jobState === "submitted") {
+                submittedJobs += 1;
+              } else if (jobState === "awaiting_review") {
+                awaitingReviewJobs += 1;
+              } else if (jobState === "blocked") {
+                blockedJobs += 1;
+              } else if (jobState === "failed") {
+                failedJobs += 1;
+              } else if (jobState === "skipped") {
+                skippedJobs += 1;
+              }
+              pendingConsentRequests += runArtifacts.consentRequests.length;
+
+              await syncRunApplicationRecord({
+                applicationRecordId: exactApplicationRecordId,
+                consentSummary: buildConsentSummary(attempt.consentDecisions),
+                eventDetail:
+                  jobState === "blocked" &&
+                  runArtifacts.consentRequests.length > 0
+                    ? input.mode === "queue_auto"
+                      ? "This job needs an explicit consent decision. The queue continued preparing unrelated jobs safely."
+                      : "This run paused on a consent-gated step for this job. Resolve or decline the consent request to continue."
+                    : normalizedExecutionResult.detail,
+                eventEmphasis:
+                  jobState === "submitted"
+                    ? "positive"
+                    : jobState === "failed"
+                      ? "critical"
+                      : jobState === "blocked"
+                        ? "warning"
+                        : "neutral",
+                eventId: `event_${run.id}_${jobId}_${Date.now()}`,
+                eventTitle:
+                  jobState === "blocked" &&
+                  runArtifacts.consentRequests.length > 0
+                    ? "Consent needed"
+                    : normalizedExecutionResult.summary,
+                jobId,
+                lastActionLabel: normalizedExecutionResult.summary,
+                lastAttemptState: normalizedExecutionResult.state,
+                latestBlocker: buildLatestBlockerSummary(attempt.blocker),
+                nextActionLabel:
+                  jobState === "blocked" &&
+                  runArtifacts.consentRequests.length > 0
+                    ? input.mode === "queue_auto"
+                      ? "Resolve this job's consent request; other queued jobs continue independently."
+                      : "Resolve the consent request in Applications to continue."
+                    : normalizedExecutionResult.nextActionLabel,
+                questionSummary: buildQuestionSummary(attempt.questions),
+                replaySummary: buildReplaySummary(
+                  attempt.replay,
+                  attempt.visualEvidence,
+                ),
+                automationMode: applyAuthorityRun.authority.mode,
+                updatedAt: detectedAt,
+              });
+
+              // Sending happens after the preparation is on record, so the
+              // submission's own projection is the last word on this attempt.
+              await sendPreparedApplicationIfAllowed({
+                ctx,
+                handoff: preparedHandoffRun,
+                envelope: activeEnvelopeRun,
+                source: job.source,
+                lineage: {
+                  runId: run.id,
+                  jobId,
+                  resultId: updatedResult.id,
+                  applicationRecordId: exactApplicationRecordId,
+                  campaignId: run.campaignId ?? null,
+                },
+                resumeArtifact,
+                siteLabel: resolveApplySiteLabel({
+                  targetLabel: provenanceTarget?.label ?? null,
+                  applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+                }),
+                signal: executionSignal,
+              }).catch((sendError: unknown) => {
+                // The prepared application is on record; a send that threw
+                // leaves it for the person instead of ending the whole batch.
+                console.error(
+                  "Failed to send the prepared application.",
+                  sendError,
+                );
+                return null;
+              });
+
+              // Sending may replace the prepared result with a submitted or
+              // uncertain result. Re-read the durable rows before projecting
+              // counters, stop rules, and safeguards; the prepared snapshot is
+              // stale as soon as the final action finishes.
+              const committedRunResults =
+                await ctx.repository.listApplyJobResults({ runId: run.id });
+              committedJobResult =
+                committedRunResults.find(
+                  (candidate) => candidate.id === updatedResult.id,
+                ) ?? updatedResult;
+              ({
+                submittedJobs,
+                awaitingReviewJobs,
+                blockedJobs,
+                failedJobs,
+                skippedJobs,
+              } = summarizeApplyJobResultStates(committedRunResults));
+
+              const remainingJobs = run.jobIds.length - (index + 1);
+              // A job that reached review, consent, a blocker, failure, or skip
+              // has finished this batch's attempt. Only jobs the loop has not
+              // reached are pending; otherwise a fully processed prepare-only
+              // batch remains stuck at "0 of N finished" forever.
+              const pendingJobs = remainingJobs;
+              const nextRunState =
+                committedJobResult.state === "submitted"
+                  ? "completed"
+                  : mapExecutionResultToApplyRunState({
+                      consentRequests: runArtifacts.consentRequests,
+                      executionResult: normalizedExecutionResult,
+                    });
+              const currentCampaignPauseReason = campaignStopRules
+                ? evaluateCampaignApplyStopRules({
+                    blockerReason: committedJobResult.blockerReason,
+                    blockedCount: blockedJobs,
+                    failedCount: failedJobs,
+                    processedCount:
+                      submittedJobs +
+                      awaitingReviewJobs +
+                      blockedJobs +
+                      failedJobs +
+                      skippedJobs,
+                    stopRules: campaignStopRules,
+                  })
+                : null;
+              queuedCampaignPauseReason ??= currentCampaignPauseReason;
+              campaignPauseReason =
+                input.mode === "queue_auto"
+                  ? remainingJobs === 0
+                    ? queuedCampaignPauseReason
+                    : null
+                  : currentCampaignPauseReason;
+              currentRunState = ApplyRunSchema.parse({
+                ...currentRunState,
+                currentJobId: jobId,
+                updatedAt: committedJobResult.updatedAt,
+                state: campaignPauseReason
+                  ? "paused_for_user_review"
+                  : input.mode === "queue_auto"
+                    ? remainingJobs > 0
+                      ? "running"
+                      : pendingConsentRequests > 0
+                        ? "paused_for_consent"
+                        : pendingJobs > 0 || blockedJobs > 0
+                          ? "paused_for_user_review"
+                          : "completed"
+                    : nextRunState,
+                summary: campaignPauseReason
+                  ? isQuestionHandoffPauseReason(campaignPauseReason)
+                    ? `Automatic apply did what it could; ${blockedJobs <= 1 ? "1 application waits" : `${blockedJobs} applications wait`} on your answers in Needs you.`
+                    : "Automatic apply paused by this search plan's safety rules."
+                  : input.mode === "queue_auto"
+                    ? remainingJobs === 0 && pendingConsentRequests > 0
+                      ? `Automatic apply prepared every unblocked job; ${pendingConsentRequests} consent ${pendingConsentRequests === 1 ? "decision needs" : "decisions need"} you.`
+                      : `Automatic apply queue processed ${index + 1} of ${run.jobIds.length} jobs using the chosen application mode.`
+                    : runArtifacts.consentRequests.length > 0
+                      ? `Automatic apply paused for consent on '${job.title}'.`
+                      : `Automatic apply run processed '${job.title}' using the chosen application mode.`,
+                detail:
+                  campaignPauseReason ??
+                  (input.mode === "queue_auto" && pendingConsentRequests > 0
+                    ? "Consent-blocked jobs remain explicit user actions, while every unrelated ready job was allowed to reach its safe review checkpoint."
+                    : runArtifacts.consentRequests.length > 0
+                      ? "The run stopped because a consent-gated step needs an explicit user decision."
+                      : "Job Finder finished working through the application."),
+                completedAt: campaignPauseReason
+                  ? null
+                  : input.mode === "queue_auto"
+                    ? pendingConsentRequests > 0 ||
+                      pendingJobs > 0 ||
+                      blockedJobs > 0
+                      ? null
+                      : committedJobResult.updatedAt
+                    : nextRunState === "completed" || nextRunState === "failed"
+                      ? committedJobResult.updatedAt
+                      : null,
+                pendingJobs,
+                submittedJobs,
+                skippedJobs,
+                blockedJobs,
+                failedJobs,
+              });
+              await ctx.repository.upsertApplyRun(currentRunState);
+              return true;
+            },
+          );
+          if (!committedJobCompletion) {
+            return;
+          }
+
+          if (
+            committedJobResult.completedAt !== null ||
+            committedJobResult.state === "awaiting_review"
+          ) {
+            if (input.mode === "queue_auto") {
+              // Safeguards produced by this approved batch must describe its
+              // waiting jobs, not prevent later named jobs in the same batch
+              // from being prepared. External/job-specific safeguards are still
+              // rechecked before every browser launch above.
+              deferredQueueSafeguards.push({
+                result: committedJobResult,
+                job,
+                now: detectedAt,
+              });
+            } else {
+              await persistAutomaticApplicationSafeguards({
+                ctx,
+                run: currentRunState,
+                result: committedJobResult,
+                job,
+                now: detectedAt,
+              }).catch((safeguardError: unknown) => {
+                console.error(
+                  "Failed to persist automatic application safeguards.",
+                  safeguardError,
+                );
+              });
+            }
+          }
+        } catch (jobError) {
+          // One job's error must not end the batch. A cancelled or paused
+          // run, a single-job run, and a browser the person took over still
+          // end here as before; anything else is written down on that job and
+          // the batch goes on to the next one.
+          if (
+            input.mode !== "queue_auto" ||
+            executionSignal.aborted ||
+            (isBrowserHandedToPersonError(jobError) &&
+              !isOneTabTakeoverError(jobError)) ||
+            (await stopIfRunWasCancelled())
+          ) {
+            throw jobError;
+          }
+          console.error(
+            "[apply] one queued application failed; the batch continues",
+            jobError instanceof Error
+              ? (jobError.stack ?? jobError.message)
+              : jobError,
+          );
+          await markQueuedJobFailed({
+            runId: run.id,
+            resultId: queuedResultId,
+            error: jobError,
+          });
+          ({
+            submittedJobs,
+            awaitingReviewJobs,
+            blockedJobs,
+            failedJobs,
+            skippedJobs,
+          } = summarizeApplyJobResultStates(
+            await ctx.repository.listApplyJobResults({ runId: run.id }),
+          ));
+          const remainingJobs = run.jobIds.length - (index + 1);
+          currentRunState = ApplyRunSchema.parse({
+            ...currentRunState,
+            currentJobId: jobId,
+            updatedAt: new Date().toISOString(),
+            state:
+              remainingJobs > 0
+                ? "running"
+                : pendingConsentRequests > 0
+                  ? "paused_for_consent"
+                  : blockedJobs > 0 || awaitingReviewJobs > 0
+                    ? "paused_for_user_review"
+                    : "completed",
+            completedAt:
+              remainingJobs > 0 ||
+              pendingConsentRequests > 0 ||
+              blockedJobs > 0 ||
+              awaitingReviewJobs > 0
+                ? null
+                : new Date().toISOString(),
+            summary: `Automatic apply queue processed ${index + 1} of ${run.jobIds.length} jobs using the chosen application mode.`,
+            detail: "Job Finder finished working through the application.",
+            pendingJobs: remainingJobs,
+            submittedJobs,
+            skippedJobs,
+            blockedJobs,
+            failedJobs,
+          });
+          if (!(await persistRunUnlessCancelled(currentRunState))) return;
+          continue;
         }
 
         if (input.mode === "single_job_auto") {
@@ -2713,6 +2893,21 @@ export function createWorkspaceApplicationMethods(
       }
       shouldCloseActiveSessionOnExit = Boolean(activeSource);
       const failedAt = new Date().toISOString();
+      const handedToPerson = isBrowserHandedToPersonError(error);
+      if (input.mode === "queue_auto") {
+        // The job that was open when the batch stopped, and every job it had
+        // not reached, end with a sentence and a Try again instead of reading
+        // "Filling in" under a run that is over.
+        await closeUnfinishedQueuedJobs({
+          runId: run.id,
+          at: failedAt,
+          reason: handedToPerson
+            ? "You closed or paused the browser, so Job Finder stopped this batch here. Nothing more was sent. Try again when you are ready."
+            : `The batch stopped before this job: ${error instanceof Error ? error.message : "an unknown error"}. Nothing was sent for it.`,
+        }).catch((closeError: unknown) => {
+          console.error("[apply] could not close unfinished jobs", closeError);
+        });
+      }
       // The failed run is terminal, so its queue counters are recomputed
       // from the exact committed result states with the canonical recovery
       // semantics instead of retaining stale running-time pending work.
@@ -2725,9 +2920,12 @@ export function createWorkspaceApplicationMethods(
         updatedAt: failedAt,
         completedAt: failedAt,
         ...deriveRecoveredApplyRunCounters(committedFailureResults, failedAt),
-        summary: "Automatic apply run failed before safe review completed.",
-        detail:
-          error instanceof Error
+        summary: handedToPerson
+          ? "Stopped because you took over the browser."
+          : "Automatic apply run failed before safe review completed.",
+        detail: handedToPerson
+          ? "Jobs this batch had not finished can be tried again once the browser is resumed."
+          : error instanceof Error
             ? error.message
             : "Unknown automatic apply failure.",
       });
@@ -2760,6 +2958,135 @@ export function createWorkspaceApplicationMethods(
         }
       }
     }
+  }
+
+  /**
+   * A new attempt for a job replaces an older one-job run that was only
+   * waiting on the person for that job: its hand-off is superseded, so left
+   * paused it read as a safety pause that could never carry on.
+   */
+  async function closeReplacedSingleJobRuns(
+    jobId: string,
+    newRunId: string,
+  ): Promise<void> {
+    const replaced = (await ctx.repository.listApplyRuns()).filter(
+      (run) =>
+        run.id !== newRunId &&
+        run.mode !== "queue_auto" &&
+        run.jobIds.length === 1 &&
+        run.jobIds[0] === jobId &&
+        (run.state === "paused_for_user_review" ||
+          run.state === "paused_for_consent"),
+    );
+    const at = new Date().toISOString();
+    for (const run of replaced) {
+      await ctx.repository.upsertApplyRun(
+        ApplyRunSchema.parse({
+          ...run,
+          state: "cancelled",
+          updatedAt: at,
+          completedAt: at,
+          summary: "Replaced by a newer attempt for this job.",
+          detail:
+            "A later attempt for this application took over; nothing more happens on this one.",
+        }),
+      );
+    }
+  }
+
+  /**
+   * The person stepped into or paused the browser. Every later job would
+   * meet the same paused browser, so the batch stops instead of writing a
+   * failure on each remaining job.
+   */
+  function isBrowserHandedToPersonError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : "";
+    return /stepped into the browser|Browser activity is paused|Browser activity was stopped|You closed the Job Finder browser/i.test(
+      message,
+    );
+  }
+
+  /**
+   * The person stepped into the one tab this job was using (ADR 0024). Only
+   * this job stopped: the rest of a batch carries on in other tabs, and this
+   * job carries on when the person hands the tab back.
+   */
+  function isOneTabTakeoverError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : "";
+    return /hand it back with Resume agent/i.test(message);
+  }
+
+  const UNFINISHED_QUEUED_RESULT_STATES = new Set([
+    "planned",
+    "filling",
+    "question_capture",
+    "submitting",
+  ]);
+
+  /** One queued job's own failure, written on that job only. */
+  async function markQueuedJobFailed(input: {
+    runId: string;
+    resultId: string;
+    error: unknown;
+  }): Promise<void> {
+    const latest = (
+      await ctx.repository.listApplyJobResults({ runId: input.runId })
+    ).find((result) => result.id === input.resultId);
+    if (!latest || !UNFINISHED_QUEUED_RESULT_STATES.has(latest.state)) {
+      return;
+    }
+    const failedAt = new Date().toISOString();
+    const message =
+      input.error instanceof Error && input.error.message.trim()
+        ? input.error.message.trim()
+        : "Job Finder stopped working on this application.";
+    await ctx.repository.upsertApplyJobResult(
+      ApplyJobResultSchema.parse({
+        ...latest,
+        state: "failed",
+        updatedAt: failedAt,
+        completedAt: failedAt,
+        summary: isOneTabTakeoverError(input.error)
+          ? PERSON_TOOK_OVER_SUMMARY
+          : "Could not apply.",
+        detail: `${message} Nothing was sent for this job; the rest of the batch carried on.`,
+      }),
+    );
+  }
+
+  /**
+   * Ends every job a stopped batch left unfinished: the one it was working
+   * on and the ones it had not reached.
+   */
+  async function closeUnfinishedQueuedJobs(input: {
+    runId: string;
+    at: string;
+    reason: string;
+  }): Promise<void> {
+    const results = await ctx.repository.listApplyJobResults({
+      runId: input.runId,
+    });
+    await Promise.all(
+      results
+        .filter((result) => UNFINISHED_QUEUED_RESULT_STATES.has(result.state))
+        .map((result) =>
+          ctx.repository.upsertApplyJobResult(
+            // Skipped, not failed: the batch stopped around these jobs, so
+            // they must not count toward a failure-streak safeguard that
+            // would then refuse the Try again.
+            ApplyJobResultSchema.parse({
+              ...result,
+              state: "skipped",
+              updatedAt: input.at,
+              completedAt: input.at,
+              summary: result.applicationPreparationStartedAt
+                ? "Could not apply."
+                : "Not started.",
+              detail: input.reason,
+            }),
+          ),
+        ),
+    );
   }
 
   /**
@@ -3038,7 +3365,12 @@ export function createWorkspaceApplicationMethods(
     // queue truth behind: record the failed tailored asset before
     // propagating the original error to callers.
     try {
-      const research = await fetchAndPersistResearch(ctx, job, profileRevision);
+      const research = await fetchAndPersistResearch(
+        ctx,
+        job,
+        profileRevision,
+        profile,
+      );
       const evidence = collectResumeWorkspaceEvidence({
         profile,
         job,
@@ -3214,6 +3546,7 @@ export function createWorkspaceApplicationMethods(
         ctx,
         profileRevision,
         "rendering this generated resume",
+        profile,
       );
       const renderedArtifact = await ctx.documentManager.renderResumeArtifact({
         job,
@@ -3230,6 +3563,7 @@ export function createWorkspaceApplicationMethods(
         ctx,
         profileRevision,
         "completing this generated resume",
+        profile,
       );
 
       if (!renderedArtifact.storagePath) {
@@ -3350,6 +3684,7 @@ export function createWorkspaceApplicationMethods(
         ctx,
         profileRevision,
         "saving this generated resume",
+        profile,
       );
 
       if (
@@ -3373,6 +3708,7 @@ export function createWorkspaceApplicationMethods(
           ctx,
           profileRevision,
           "committing this generated resume",
+          profile,
         );
         await ctx.repository.applyResumePatchWithRevision({
           expectedDraftUpdatedAt: existingDraft.updatedAt,
@@ -3399,10 +3735,11 @@ export function createWorkspaceApplicationMethods(
       // this draft: persisting a failed asset here would overwrite that newer
       // canonical state with false failure truth. Only when the snapshotted
       // draft is still the persisted one is this a genuine provider/render/
-      // persistence failure worth recording.
+      // persistence failure worth recording. A profile change during the run
+      // is recorded too, so the job shows a retryable failure instead of
+      // silently dropping back to "No resume yet".
       try {
         const latestDraft = await ctx.repository.getResumeDraftByJobId(jobId);
-        const latestProfile = await ctx.repository.getProfileWithRevision();
         const supersededByNewerEdit =
           existingDraft === null
             ? latestDraft !== null
@@ -3410,10 +3747,7 @@ export function createWorkspaceApplicationMethods(
               (latestDraft.updatedAt !== existingDraft.updatedAt ||
                 buildResumeDraftStateHash(latestDraft) !==
                   buildResumeDraftStateHash(existingDraft));
-        if (
-          !supersededByNewerEdit &&
-          latestProfile.revision === profileRevision
-        ) {
+        if (!supersededByNewerEdit) {
           await ctx.repository.upsertTailoredAsset(
             buildFailedTailoredAsset({
               jobId,
@@ -3489,6 +3823,13 @@ export function createWorkspaceApplicationMethods(
         )[0]?.issues.map((issue) => issue.message) ?? [],
       tailoringStrength,
       researchContext: collectResearchContext(research),
+      checkProposal: (patches) =>
+        checkResumeAssistantProposal({
+          baselineDraft: draft,
+          patches,
+          job: state.job,
+          profile: state.profile,
+        }),
     });
     // Section regeneration is review-first like Guided Edits: normalized
     // model output for the requested section is stored as a pending
@@ -4124,11 +4465,26 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async generateResume(jobId) {
+      // A second "Create the resume" / "Try again" press while this job's
+      // resume is still being written joins that run instead of queueing a
+      // second full AI generation behind it.
+      const inFlight = inFlightResumeGenerations.get(jobId);
+      if (inFlight) {
+        return inFlight;
+      }
       // Full regeneration snapshots state up front and persists only after
       // the long AI/render pipeline; holding this job's transition tail
       // serializes those writes against saves, exports, approvals, and other
       // generation runs so neither side can race or clobber the other.
-      return withResumeDraftTransition(jobId, () => runGenerateResume(jobId));
+      const run = withResumeDraftTransition(jobId, () =>
+        runGenerateResume(jobId),
+      ).finally(() => {
+        if (inFlightResumeGenerations.get(jobId) === run) {
+          inFlightResumeGenerations.delete(jobId);
+        }
+      });
+      inFlightResumeGenerations.set(jobId, run);
+      return run;
     },
     async getResumeWorkspace(jobId) {
       return buildResumeWorkspace(ctx, jobId);
@@ -4341,6 +4697,104 @@ export function createWorkspaceApplicationMethods(
 
       return ctx.getWorkspaceSnapshot();
     },
+    async undoResumeAssistantEdit(jobId, revisionId) {
+      const state = await ensureResumeDraft(ctx, jobId);
+      const revisions = await ctx.repository.listResumeDraftRevisions(
+        state.draft.id,
+      );
+      const targetRevision = revisions.find(
+        (revision) => revision.id === revisionId,
+      );
+      if (!targetRevision || targetRevision.mutationKind !== "assistant_patch") {
+        throw new Error("That AI edit is no longer in this resume's history.");
+      }
+      if (
+        targetRevision.draftId !== state.draft.id ||
+        !targetRevision.snapshotDraft ||
+        targetRevision.snapshotDraft.id !== state.draft.id ||
+        targetRevision.snapshotDraft.jobId !== jobId
+      ) {
+        throw new Error("That AI edit does not belong to this resume.");
+      }
+      const draftAfterEdit = findDraftAfterRevision({
+        revision: targetRevision,
+        revisions,
+        currentDraft: state.draft,
+      });
+      if (!draftAfterEdit) {
+        throw new Error(
+          "This AI edit cannot be undone on its own because a later history entry is incomplete. Use Version history to restore an earlier draft.",
+        );
+      }
+
+      const undoneAt = createMonotonicTimestamp(state.draft.updatedAt);
+      const undoneDraft = sanitizeResumeDraft({
+        draft: ResumeDraftSchema.parse({
+          ...buildDraftWithoutAssistantEdit({
+            before: targetRevision.snapshotDraft,
+            after: draftAfterEdit,
+            current: state.draft,
+          }),
+          status: "needs_review",
+          approvedAt: null,
+          approvedExportId: null,
+          staleReason:
+            "An AI edit was undone and the resume needs a fresh review.",
+          updatedAt: undoneAt,
+        }),
+        job: state.job,
+        profile: state.profile,
+      });
+      if (
+        buildResumeDraftStateHash(undoneDraft) ===
+        buildResumeDraftStateHash(state.draft)
+      ) {
+        return ctx.getWorkspaceSnapshot();
+      }
+
+      const validation = validateResumeDraft({
+        draft: undoneDraft,
+        job: state.job,
+        profile: state.profile,
+        validatedAt: undoneAt,
+      });
+      const previousValidation =
+        (await ctx.repository.listResumeValidationResults(state.draft.id))[0] ??
+        null;
+      const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
+        validation,
+        previousValidation,
+        draft: undoneDraft,
+      });
+      const nextAsset = buildTailoredAssetBridge({
+        draft: undoneDraft,
+        job: state.job,
+        profile: state.profile,
+        existingAsset: state.tailoredAsset,
+        clearStoragePath: true,
+        templates: state.templates,
+      });
+      const undoRevision = buildResumeDraftRevision({
+        draft: state.draft,
+        resultingDraft: undoneDraft,
+        createdAt: undoneAt,
+        parentRevisionId: revisions[0]?.id ?? null,
+        actor: "restore",
+        mutationKind: "restore",
+        restoredFromRevisionId: targetRevision.id,
+        reason: "Undid AI edit; later edits kept",
+      });
+
+      await ctx.repository.applyResumePatchWithRevision({
+        expectedDraftUpdatedAt: state.draft.updatedAt,
+        draft: undoneDraft,
+        revision: undoRevision,
+        validation: validationWithReviewGuidance,
+        tailoredAsset: nextAsset,
+      });
+
+      return ctx.getWorkspaceSnapshot();
+    },
     async regenerateResumeDraft(jobId) {
       // The locked-content gate reads persisted state, so it must share the
       // same per-job transition as the generation it guards; otherwise a
@@ -4483,12 +4937,21 @@ export function createWorkspaceApplicationMethods(
           previousValidation,
           draft: exportDraft,
         });
+        // Any export of an approved draft (Download PDF) is the same content
+        // in another file. The job's resume stays the approved file;
+        // re-pointing it at the new export made Shortlisted say the approved
+        // resume no longer matched and ask for a review of an unchanged resume.
+        const keepsApprovedFile = Boolean(
+          exportDraft.approvedExportId && tailoredAsset?.storagePath,
+        );
         const nextAsset = buildTailoredAssetBridge({
           draft: exportDraft,
           job,
           profile,
           existingAsset: tailoredAsset,
-          storagePath: renderedArtifact.storagePath,
+          storagePath: keepsApprovedFile
+            ? (tailoredAsset?.storagePath ?? null)
+            : renderedArtifact.storagePath,
           pageCount: renderedArtifact.pageCount ?? null,
           templates,
           notes: uniqueStrings([
@@ -5216,12 +5679,37 @@ export function createWorkspaceApplicationMethods(
         patches: [],
         createdAt: messageTimestamp,
       });
+      // An Original job sends the imported file, so an edit to this draft
+      // would never reach the employer. Say so instead of proposing an edit
+      // the job cannot use; the studio offers the one-press switch to an
+      // editable draft at the saved level and sends this request again.
+      if (
+        resolveJobResumeApplicationMode(
+          workspaceState.job,
+          workspaceState.settings,
+        ) === "original_resume"
+      ) {
+        const savedLevel = (await ctx.repository.getSearchPreferences())
+          .tailoringMode;
+        await ctx.repository.upsertResumeAssistantMessage(userMessage);
+        await ctx.repository.upsertResumeAssistantMessage(
+          buildAssistantReplyMessage({
+            jobId,
+            content: buildOriginalResumeAssistantReply(savedLevel),
+            patches: [],
+            createdAt: assistantMessageTimestamp,
+          }),
+        );
+        return ctx.repository.listResumeAssistantMessages(jobId);
+      }
       const validations = await ctx.repository.listResumeValidationResults(
         workspaceState.draft.id,
       );
       const research = await fetchAndPersistResearch(ctx, workspaceState.job);
       const tailoringStrength =
         await resolveEffectiveResumeTailoringStrengthForJob(ctx, jobId);
+      const previousMessages =
+        await ctx.repository.listResumeAssistantMessages(jobId);
       const assistantReply = await ctx.aiClient.reviseResumeDraft({
         draft: workspaceState.draft,
         job: workspaceState.job,
@@ -5230,6 +5718,66 @@ export function createWorkspaceApplicationMethods(
           validations[0]?.issues.map((issue) => issue.message) ?? [],
         tailoringStrength,
         researchContext: collectResearchContext(research),
+        recentConversation:
+          buildRecentResumeAssistantConversation(previousMessages),
+        linesToConfirm: listResumeLinesToConfirm({
+          draft: workspaceState.draft,
+          claimAssessments: validations[0]?.claimAssessments ?? [],
+        }),
+        // The same gate the reply below is judged by, run inside the agent so
+        // it repairs a flagged change before it finishes instead of handing
+        // the person a proposal that blocks approval.
+        checkProposal: (patches) =>
+          checkResumeAssistantProposal({
+            baselineDraft: workspaceState.draft,
+            patches,
+            job: workspaceState.job,
+            profile: workspaceState.profile,
+          }),
+        currentPageCount:
+          validations[0]?.pageCount ??
+          validations[0]?.coverageComparison?.pageCount ??
+          null,
+        measurePages: async (patches) => {
+          let candidateDraft = workspaceState.draft;
+          for (const patch of patches) {
+            candidateDraft = applyPatchToResumeDraft({
+              draft: candidateDraft,
+              patch: {
+                ...patch,
+                draftId: workspaceState.draft.id,
+                origin: "assistant",
+              },
+              updatedAt: createMonotonicTimestamp(candidateDraft.updatedAt),
+            });
+          }
+          const measuredDraft = sanitizeResumeDraft({
+            draft: candidateDraft,
+            job: workspaceState.job,
+            profile: workspaceState.profile,
+          });
+          const rendered = await ctx.documentManager.renderResumeArtifact({
+            job: workspaceState.job,
+            profile: workspaceState.profile,
+            renderDocument: buildResumeRenderDocument(
+              workspaceState.profile,
+              measuredDraft,
+            ),
+            templateId: measuredDraft.templateId,
+            settings: workspaceState.settings,
+          });
+          return {
+            pageCount: rendered.pageCount ?? null,
+            targetPageCount: measuredDraft.targetPageCount,
+          };
+        },
+        availableTemplates: workspaceState.templates
+          .filter(isResumeTemplateApplyEligible)
+          .map((template) => ({
+            id: template.id,
+            label: template.label,
+            density: template.density,
+          })),
       });
       const normalizedPatches = assistantReply.patches.map((patch) =>
         ResumeDraftPatchSchema.parse({
@@ -5254,13 +5802,29 @@ export function createWorkspaceApplicationMethods(
             "update_bullet",
           ].includes(patch.operation) &&
             !patch.newText?.trim()) ||
-          (patch.operation === "update_bullet" &&
-            (!patch.targetEntryId || !patch.targetBulletId)) ||
+          (patch.operation === "update_bullet" && !patch.targetBulletId) ||
           (patch.operation === "replace_entry_summary" && !patch.targetEntryId),
       );
+      const droppedOnSave = invalidReplacementPatch
+        ? []
+        : findResumeAssistantPatchesDroppedOnSave({
+            baselineDraft: workspaceState.draft,
+            patches: normalizedPatches,
+            job: workspaceState.job,
+            profile: workspaceState.profile,
+          });
+      // A change the save cleanup would remove is not offered: accepting it
+      // reported "Applied" while the preview stayed the same.
       const reviewablePatches = invalidReplacementPatch
         ? []
-        : normalizedPatches;
+        : normalizedPatches.filter(
+            (patch) =>
+              !droppedOnSave.some((drop) => drop.patchId === patch.id),
+          );
+      const droppedNote =
+        droppedOnSave.length > 0
+          ? ` I left out ${droppedOnSave.length === 1 ? "1 change" : `${droppedOnSave.length} changes`} that would not survive saving: ${droppedOnSave[0]!.message}`
+          : "";
       // The proposal is only described as grounded when the exact classifier
       // that gates export and approval accepts the draft that accepting it
       // would produce. Applying the patches also proves they are appliable, so
@@ -5301,13 +5865,15 @@ export function createWorkspaceApplicationMethods(
           ? buildResumeProposalReplyContent({
               approvalBlockers: proposalGate.approvalBlockers,
               changeCount: reviewablePatches.length,
-              assistantNote: assistantReply.content,
+              assistantNote: `${assistantReply.content}${droppedNote}`,
             })
           : invalidReplacementPatch
             ? invalidReplacementPatch.operation === "update_bullet"
               ? "I could not tell which bullet to change, so no resume change was proposed. Name the bullet by its first few words and the role it belongs to."
               : "I could not produce a usable replacement for that request, so no resume change was proposed. Try asking for the exact section and outcome you want."
-            : assistantReply.content;
+            : droppedOnSave.length > 0
+              ? `No resume change was proposed. ${droppedOnSave[0]!.message} ${assistantReply.content}`
+              : assistantReply.content;
       const assistantMessage = buildAssistantReplyMessage({
         jobId,
         content: assistantContent,
@@ -5544,6 +6110,7 @@ export function createWorkspaceApplicationMethods(
         });
         await assertDirectApplyExecutionCanContinue(claim);
         const provenanceTargetId =
+          selectApplicationSighting(job)?.targetId ??
           job.provenance[job.provenance.length - 1]?.targetId ??
           job.provenance[0]?.targetId ??
           null;
@@ -5684,11 +6251,7 @@ export function createWorkspaceApplicationMethods(
             { signal: claim.controller.signal },
           ),
         );
-        await assertCurrentResumeProfile(
-          ctx,
-          prerequisites.profileRevision,
-          "recording this application preparation",
-        );
+        await assertPreparationProfileCurrent(ctx, prerequisites);
         await assertDirectApplyExecutionCanContinue(claim);
         const now = new Date().toISOString();
         const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
@@ -5939,6 +6502,7 @@ export function createWorkspaceApplicationMethods(
         // record blocked artifacts for a job that another apply run is already
         // actively preparing.
         await assertNoOtherRunningApplyForJob(claim);
+        await closeReplacedSingleJobRuns(jobId, claim.runId);
 
         const asset =
           tailoredAssets.find((entry) => entry.jobId === jobId) ?? null;
@@ -6144,6 +6708,7 @@ export function createWorkspaceApplicationMethods(
         });
         await assertDirectApplyExecutionCanContinue(claim);
         const provenanceTargetId =
+          selectApplicationSighting(job)?.targetId ??
           job.provenance[job.provenance.length - 1]?.targetId ??
           job.provenance[0]?.targetId ??
           null;
@@ -6295,11 +6860,7 @@ export function createWorkspaceApplicationMethods(
             { signal: claim.controller.signal },
           ),
         );
-        await assertCurrentResumeProfile(
-          ctx,
-          prerequisites.profileRevision,
-          "recording this application preparation",
-        );
+        await assertPreparationProfileCurrent(ctx, prerequisites);
         await assertDirectApplyExecutionCanContinue(claim);
         const detectedAt = new Date().toISOString();
         const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
@@ -6471,6 +7032,12 @@ export function createWorkspaceApplicationMethods(
             blocker,
             occurredAt: detectedAt,
           });
+        });
+        await handApplicationPageToPersonForAccessStep({
+          browserRuntime: ctx.browserRuntime,
+          source: job.source,
+          resultId: runArtifacts.result.id,
+          blocker,
         });
 
         await persistAutomaticApplicationSafeguards({
@@ -7660,6 +8227,13 @@ export function createWorkspaceApplicationMethods(
           job.source,
           result.id,
         )) === true;
+      if (focused && result.state === "awaiting_review") {
+        // The person opened a filled-in form to read it over and send it
+        // themselves; the prepare-only guard must not cancel their own press.
+        await ctx.browserRuntime
+          .handApplicationPageToPerson?.(job.source, result.id)
+          .catch(() => undefined);
+      }
       if (!focused) {
         const occurredAt = new Date().toISOString();
         await terminalizeApplicationAfterPreparedPageLost({

@@ -11,6 +11,7 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReviewQueueItem, TailoredAsset } from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReviewQueueListPanel } from "./review-queue-list-panel";
+import { describeApplyAllOutcome } from "./review-queue-mission-panel-helpers";
 import { getReviewQueueWorkflowStatus } from "./review-queue-status";
 
 afterEach(() => {
@@ -91,6 +92,20 @@ describe("ReviewQueueListPanel", () => {
     expect(status.className).toContain("whitespace-nowrap");
   });
 
+  it("says the resume is being written while a level change rewrites it, not that the old one is ready", () => {
+    const item = {
+      ...createReadyItem("job_rewrite"),
+      resumeReview: { status: "needs_review" },
+    } as unknown as ReviewQueueItem;
+    renderPanel({
+      isJobPending: (jobId) => jobId === "job_rewrite",
+      queue: [item],
+    });
+
+    expect(screen.getByText("Writing the resume…")).toBeTruthy();
+    expect(screen.queryByText("Resume ready — Apply approves it")).toBeNull();
+  });
+
   it("keeps the empty shortlist focused on finding jobs with one recovery action", () => {
     renderPanel({ queue: [] });
 
@@ -139,6 +154,18 @@ describe("ReviewQueueListPanel", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByText(/selected for/)).toBeNull();
     expect(screen.queryByText("Apply mode for this batch")).toBeNull();
+  });
+
+  it("says under Apply to all which saved mode the batch runs in", () => {
+    renderPanel({
+      applyAllOutcome: describeApplyAllOutcome("autonomous_submit"),
+      onApplyToAllReady: vi.fn(),
+      queue: [createReadyItem("job_a"), createReadyItem("job_b")],
+    });
+
+    expect(screen.getByTestId("apply-all-outcome").textContent).toBe(
+      "Apply to all fills in and sends each application, and stops only for one that needs you.",
+    );
   });
 
   it("leaves a job already in Applications out of the ready count", () => {

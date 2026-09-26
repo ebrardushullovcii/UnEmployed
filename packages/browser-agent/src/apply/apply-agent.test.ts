@@ -1123,6 +1123,48 @@ describe("apply agent run endings", () => {
     expect(result.pauses[0]?.blocker?.requiresPerson).toBe(true);
   });
 
+  test("a security check the person already ticked is not reported as waiting on them", async () => {
+    const result = await runApplyAgent(
+      config(
+        page({
+          bodyText: "Apply for the role. I am not a robot. Local fake CAPTCHA.",
+          controls: [
+            nameControl(),
+            {
+              ...nameControl(),
+              index: 1,
+              id: "human",
+              name: "human",
+              inputType: "checkbox",
+              role: "checkbox",
+              label: "I am not a robot",
+              required: false,
+              checked: true,
+              value: "yes",
+            },
+          ],
+        }),
+        {
+          authority: {
+            mode: "confirm_before_submit",
+            submitAuthorized: true,
+            preApprovedAttestationKinds: [],
+            salaryDisclosure: "pause_for_user",
+            allowedOrigins: [],
+          },
+        },
+      ),
+      repeatingModel("finish", {
+        reason:
+          "Form filled, but Submit is blocked by the 'I am not a robot' CAPTCHA which only you can tick.",
+        needsPerson: true,
+      }),
+    );
+
+    expect(result.pauses).toEqual([]);
+    expect(result.outcome).toBe("awaiting_your_review");
+  });
+
   test("a run set to confirm first ends waiting for the person", async () => {
     const result = await runApplyAgent(
       config(page(), {

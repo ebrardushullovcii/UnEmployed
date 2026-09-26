@@ -37,14 +37,24 @@ import {
   summarizeProgressAction,
   updateTargetExecution,
 } from "./discovery-state";
-import { persistDiscoveryRunBlockerUserAction } from "./workspace-source-user-action";
+import {
+  persistDiscoveryRunBlockerUserAction,
+  resolveSourceAccessRequestsAfterCompletedRun,
+} from "./workspace-source-user-action";
 import {
   createMatchAssessment,
   enrichDiscoveredPosting,
+  applySightingRoute,
   mergeDiscoveredPostings,
   toSavedJobId,
+  toSightingIdentityInput,
 } from "./matching";
+import {
+  canSwitchCanonicalSighting,
+  selectCanonicalSighting,
+} from "./listing-sightings";
 import { createMatchAssessmentSession } from "./match-assessment-session";
+import { withSavedJobSearchBehavior } from "./job-search-behavior";
 import {
   compareMatchRecommendationPriority,
   compareMatchRoleSuitabilityPriority,
@@ -95,7 +105,6 @@ import {
   buildDiscoveryStartingUrls,
   collectPublicProviderJobs,
   inferSourceIntelligenceFromTarget,
-  selectLowYieldTechnicalFallbackPostings,
   selectDiscoveryCollectionMethod,
   selectDiscoveryMethod,
 } from "./workspace-source-intelligence";
@@ -107,6 +116,7 @@ import {
   describeListingDetailEnrichment,
   enrichSavedJobListingDetails,
   jobNeedsListingDetail,
+  readSightingApplyRoutes,
 } from "./listing-detail-enrichment";
 import {
   countDiscoveryListingCapture,
@@ -198,7 +208,6 @@ export function resolveListingLocation(
 }
 
 const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
-const LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR = 6;
 const PUBLIC_API_PREFETCH_CONCURRENCY = 8;
 const MIN_DISCOVERY_TARGET_TIME_BUDGET_MS = 120_000;
 /**
@@ -1375,9 +1384,12 @@ export function createWorkspaceDiscoveryMethods(
       clearActiveController();
       throw error;
     });
-    const enrichedPreferences = enrichSearchPreferencesFromProfile(
-      options.campaign?.searchPreferences ?? searchPreferences,
-      profile,
+    const enrichedPreferences = withSavedJobSearchBehavior(
+      enrichSearchPreferencesFromProfile(
+        options.campaign?.searchPreferences ?? searchPreferences,
+        profile,
+      ),
+      settings,
     );
     const searchGuidance = AiBehaviorPreferenceSchema.parse(
       settings.aiBehavior ?? {},
@@ -1848,7 +1860,6 @@ export function createWorkspaceDiscoveryMethods(
             getDiscoveryCheckpointFingerprintKey(posting),
           );
         };
-        const triageSkippedPostings: JobPosting[] = [];
         const titleTriageSkipSamples: Array<{
           title: string;
           company: string;
@@ -1882,7 +1893,7 @@ export function createWorkspaceDiscoveryMethods(
             settings.discoveryOnly
               ? [...workingSavedJobs, ...workingPendingJobs]
               : workingSavedJobs,
-            (job) => job,
+            toSightingIdentityInput,
           );
           // Repeat identities inside one pass must keep flowing through
           // triage/budget/merge so duplicate merges stay counted exactly like
@@ -1921,7 +1932,6 @@ export function createWorkspaceDiscoveryMethods(
 
             if (triagedPosting.titleTriageOutcome !== "pass") {
               phaseSkippedByTitleTriage += 1;
-              triageSkippedPostings.push(triagedPosting);
               if (
                 titleTriageSkipSamples.length < DISCOVERY_ACTIVITY_SAMPLE_LIMIT
               ) {
@@ -2070,6 +2080,10 @@ export function createWorkspaceDiscoveryMethods(
                 providerKey: posting.providerKey,
                 providerBoardToken: posting.providerBoardToken,
                 titleTriageOutcome: posting.titleTriageOutcome,
+                listingUrl: posting.canonicalUrl,
+                applicationUrl: posting.applicationUrl,
+                sourceJobId: posting.sourceJobId,
+                applyPath: posting.applyPath,
               }),
             executionSignal,
             assessDiscoveryPosting,
@@ -2271,7 +2285,6 @@ export function createWorkspaceDiscoveryMethods(
             duplicatesMerged: checkpointState.duplicatesMerged,
             invalidSkipped: checkpointState.invalidSkipped,
           };
-          const triagePoolSnapshot = triageSkippedPostings.length;
           const samplePoolSnapshot = titleTriageSkipSamples.length;
           const resumeChangeIdsSnapshot = resumeAffectingChangedJobIds.length;
           // Snapshot of the processed-key map before the attempt; restoring
@@ -2382,7 +2395,6 @@ export function createWorkspaceDiscoveryMethods(
             checkpointState.disabled = true;
             checkpointState.processedKeys = processedKeysBeforeAttempt;
             Object.assign(checkpointState, totalsBeforeAttempt);
-            triageSkippedPostings.length = triagePoolSnapshot;
             titleTriageSkipSamples.length = samplePoolSnapshot;
             resumeAffectingChangedJobIds.length = resumeChangeIdsSnapshot;
             workingSavedJobs = stateBeforeAttempt.workingSavedJobs;
@@ -2608,56 +2620,10 @@ export function createWorkspaceDiscoveryMethods(
         const knownJobIndex = triageOutcome.knownJobIndex;
         const triagedPostings = [...triageOutcome.keptPostings];
 
-        const technicalFallbackLimit = Math.max(
-          0,
-          LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR - triagedPostings.length,
-        );
-        const rescuedPostings =
-          technicalFallbackLimit > 0
-            ? selectLowYieldTechnicalFallbackPostings({
-                skippedPostings: triageSkippedPostings,
-                searchPreferences: enrichedPreferences,
-                profile,
-                limit: technicalFallbackLimit,
-              })
-            : [];
-
-        if (rescuedPostings.length > 0) {
-          for (const posting of rescuedPostings) {
-            workingLedger = recordDiscoveredPostingInLedger({
-              ledger: workingLedger,
-              index: knownJobIndex,
-              posting,
-              targetId: target.id,
-              seenAt: posting.discoveredAt,
-              status: "seen",
-            });
-            triagedPostings.push(enrichDiscoveredPosting(posting, undefined));
-          }
-
-          checkpointState.skippedByTitleTriage = Math.max(
-            0,
-            checkpointState.skippedByTitleTriage - rescuedPostings.length,
-          );
-          for (
-            let index = titleTriageSkipSamples.length - 1;
-            index >= 0;
-            index -= 1
-          ) {
-            const sample = titleTriageSkipSamples[index];
-            const rescuedPosting = sample
-              ? rescuedPostings.find(
-                  (posting) =>
-                    posting.title === sample.title &&
-                    posting.company === sample.company,
-                )
-              : null;
-            if (rescuedPosting) {
-              titleTriageSkipSamples.splice(index, 1);
-            }
-          }
-        }
-
+        // No low-yield rescue: a job the triage skipped stays skipped. Under
+        // Best matches only the person asked for exactly that drop, and in the
+        // other two modes the triage skips only closed listings, talent pools,
+        // sign-in pages and excluded places.
         const { budgetedPostings, mergeResult, jobsPersisted, jobsStaged } =
           mergeAndAccountPostings(
             triagedPostings,
@@ -2683,7 +2649,7 @@ export function createWorkspaceDiscoveryMethods(
             sourceIntelligenceProvider: collectedProviderKey,
             message:
               budgetedPostings.length > 0
-                ? `Reviewing ${budgetedPostings.length} promising jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(budgetedPostings) ?? "none"}${fairShareSuffix}${rescuedPostings.length > 0 ? ` Technical low-yield fallback kept ${rescuedPostings.length} additional job${rescuedPostings.length === 1 ? "" : "s"}.` : ""}`
+                ? `Reviewing ${budgetedPostings.length} promising jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(budgetedPostings) ?? "none"}${fairShareSuffix}`
                 : `Reviewing 0 promising jobs from ${target.label}. Title triage skipped ${checkpointState.skippedByTitleTriage}. Sample skips: ${formatDiscoverySkipSamples(titleTriageSkipSamples) ?? "none"}`,
             url: target.startingUrl,
             jobsFound: budgetedPostings.length,
@@ -2871,13 +2837,27 @@ export function createWorkspaceDiscoveryMethods(
           (execution) => execution.targetId === target.id,
         );
         if (completedExecution) {
-          await persistDiscoveryRunBlockerUserAction({
+          const replacedTabs = await persistDiscoveryRunBlockerUserAction({
             repository: ctx.repository,
             runId,
             target,
             execution: completedExecution,
             occurredAt: targetCompletedAt,
           });
+          const doneTabs = await resolveSourceAccessRequestsAfterCompletedRun(
+            {
+              repository: ctx.repository,
+              runId,
+              target,
+              execution: completedExecution,
+              occurredAt: targetCompletedAt,
+            },
+          );
+          for (const tab of [...replacedTabs, ...doneTabs]) {
+            await ctx
+              .closeParkedBrowserTab(resolveAdapterKind(target), tab)
+              .catch(() => undefined);
+          }
         }
         publishActivity(targetCompletedEvent);
 
@@ -3047,6 +3027,86 @@ export function createWorkspaceDiscoveryMethods(
           emitActivity(
             readEvent(
               `Listing details could not be read this time: ${describeUnknownThrowable(error)}`,
+            ),
+          );
+        }
+      }
+
+      // A job this run saw on more than one source shows the listing whose
+      // application is the employer's own form, else the first one found
+      // (ADR 0030). Merges already keep the first one; here the other
+      // listings are read once for their apply link, and the choice is
+      // settled on what the pages actually say.
+      if (!executionSignal.aborted) {
+        const multiSourceJobs = mergeSavedJobs(
+          workingSavedJobs,
+          workingPendingJobs,
+        ).filter(
+          (job) =>
+            runRetainedJobIds.has(job.id) &&
+            canSwitchCanonicalSighting(job) &&
+            job.provenance.filter((entry) => entry.listingUrl).length > 1,
+        );
+        let routedJobs = multiSourceJobs;
+        if (ctx.fetchListingHtml && multiSourceJobs.length > 0) {
+          try {
+            const routeRead = await readSightingApplyRoutes({
+              jobs: multiSourceJobs,
+              fetchHtml: ctx.fetchListingHtml,
+              signal: executionSignal,
+            });
+            routedJobs = routeRead.jobs;
+          } catch (error) {
+            if (executionSignal.aborted) throw error;
+          }
+        }
+        const originalById = new Map(
+          multiSourceJobs.map((job) => [job.id, job]),
+        );
+        const reroutedById = new Map<string, SavedJob>();
+        let switchedCount = 0;
+        for (const job of routedJobs) {
+          const winner = selectCanonicalSighting(job.provenance);
+          let next = job;
+          if (winner?.listingUrl && winner.listingUrl !== job.canonicalUrl) {
+            const routed = SavedJobSchema.parse(
+              applySightingRoute(job, winner),
+            );
+            next = SavedJobSchema.parse({
+              ...routed,
+              matchAssessment: assessDiscoveryPosting(routed),
+            });
+            switchedCount += 1;
+          }
+          if (next !== originalById.get(job.id)) {
+            reroutedById.set(job.id, next);
+          }
+        }
+        if (reroutedById.size > 0) {
+          workingSavedJobs = workingSavedJobs.map(
+            (job) => reroutedById.get(job.id) ?? job,
+          );
+          workingPendingJobs = workingPendingJobs.map(
+            (job) => reroutedById.get(job.id) ?? job,
+          );
+          const pendingJobIds = new Set(
+            workingPendingJobs.map((job) => job.id),
+          );
+          for (const jobId of reroutedById.keys()) {
+            if (pendingJobIds.has(jobId)) {
+              touchedPendingJobIds.add(jobId);
+            } else {
+              touchedSavedJobIds.add(jobId);
+            }
+          }
+          await persistWorkingSavedJobs();
+        }
+        if (switchedCount > 0) {
+          emitActivity(
+            readEvent(
+              `Using the employer's own application page for ${switchedCount} ${
+                switchedCount === 1 ? "job" : "jobs"
+              } found on more than one source.`,
             ),
           );
         }

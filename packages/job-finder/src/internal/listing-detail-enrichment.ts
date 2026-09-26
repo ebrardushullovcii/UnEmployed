@@ -11,6 +11,7 @@ import {
 } from "@unemployed/contracts";
 import {
   extractListingDetailFromHtml,
+  findApplyLinkInHtml,
   normalizeListingText,
   stripPictographGlyphs,
   type ExtractedListingDetail,
@@ -21,6 +22,7 @@ import {
   looksLikePlaceValue,
 } from "./listing-field-shapes";
 import { enrichDiscoveredPosting } from "./matching";
+import { listUnreadSightings } from "./listing-sightings";
 import { reconcileSalaryTextWithListingBody } from "./matching-compensation";
 
 /**
@@ -96,6 +98,12 @@ const DEFAULT_PER_REQUEST_TIMEOUT_MS = 8_000;
 const DEFAULT_RATE_LIMIT_PAUSE_MS = 1_000;
 const MAX_RATE_LIMIT_PAUSE_MS = 30_000;
 const MAX_DEFERRED_RATE_LIMIT_MS = 24 * 60 * 60 * 1_000;
+/** Each rate-limited page is asked again this many times after the pause. */
+const RATE_LIMIT_RETRIES_PER_JOB = 2;
+/** And the whole pass never asks again more often than this. */
+const RATE_LIMIT_RETRIES_PER_PASS = 40;
+/** Nor waits on rate limits for longer than this in total. */
+const RATE_LIMIT_WAIT_BUDGET_MS = 90_000;
 /** Exported so the run log can say how many of the candidates this pass reads. */
 export const LISTING_DETAIL_READS_PER_RUN = 60;
 const DEFAULT_MAX_JOBS = LISTING_DETAIL_READS_PER_RUN;
@@ -218,11 +226,11 @@ export function jobNeedsListingDetail(
   if (attempt.outcome === "unsupported_url") {
     return false;
   }
-  if (
-    attempt.retryAfterAt &&
-    Date.parse(nowIso) < Date.parse(attempt.retryAfterAt)
-  ) {
-    return false;
+  if (attempt.retryAfterAt) {
+    // A rate limit names its own wait. Once it has passed the page is due
+    // again; the hour-long back-off below is for pages that failed without
+    // saying when to come back.
+    return Date.parse(nowIso) >= Date.parse(attempt.retryAfterAt);
   }
   const since = Date.parse(nowIso) - Date.parse(attempt.attemptedAt);
   if (!Number.isFinite(since)) {
@@ -385,6 +393,15 @@ export function applyListingDetailToJob(input: {
   const nextJob = SavedJobSchema.parse({
     ...job,
     ...enrichedPosting,
+    // The page just read is this sighting's own listing: keep the apply link
+    // it shows, so a job seen on several sources can be pointed at the
+    // employer's own form (ADR 0030).
+    provenance: recordSightingApplyLink(
+      job.provenance,
+      job.canonicalUrl,
+      detail.directApplyUrl,
+      input.attemptedAt,
+    ),
     detailQuality: quality,
     listingDetailFetch: fetchRecord,
     listingDetailCapture: deriveListingDetailCapture({
@@ -400,6 +417,98 @@ export function applyListingDetailToJob(input: {
     }),
     outcome,
   };
+}
+
+function recordSightingApplyLink(
+  provenance: SavedJob["provenance"],
+  listingUrl: string,
+  pageApplyUrl: string | null,
+  readAt: string,
+): SavedJob["provenance"] {
+  return provenance.map((entry) =>
+    entry.listingUrl === listingUrl
+      ? { ...entry, pageApplyUrl: pageApplyUrl ?? null, routeReadAt: readAt }
+      : entry,
+  );
+}
+
+export interface SightingRouteReadSummary {
+  read: number;
+  rateLimited: boolean;
+}
+
+/**
+ * Reads the other listings of jobs seen on several sources, once each, for
+ * the apply link each page shows. Nothing else from those pages is used; the
+ * job's content still comes from its own listing. Bounded like the body read
+ * and polite about rate limits: the first 429 ends the pass, and the rest are
+ * read on the next search.
+ */
+export async function readSightingApplyRoutes(input: {
+  jobs: readonly SavedJob[];
+  fetchHtml: ListingHtmlFetcher;
+  now?: () => string;
+  signal?: AbortSignal;
+  perRequestTimeoutMs?: number;
+  maxReads?: number;
+}): Promise<{
+  jobs: SavedJob[];
+  changedJobIds: string[];
+  summary: SightingRouteReadSummary;
+}> {
+  const now = input.now ?? (() => new Date().toISOString());
+  const perRequestTimeoutMs =
+    input.perRequestTimeoutMs ?? DEFAULT_PER_REQUEST_TIMEOUT_MS;
+  let budget = input.maxReads ?? LISTING_DETAIL_READS_PER_RUN;
+  const summary: SightingRouteReadSummary = { read: 0, rateLimited: false };
+  const changed = new Set<string>();
+  const nextJobs: SavedJob[] = [];
+
+  for (const job of input.jobs) {
+    let current = job;
+    for (const sighting of listUnreadSightings(job.provenance)) {
+      if (budget <= 0 || summary.rateLimited || input.signal?.aborted) break;
+      const listingUrl = sighting.listingUrl;
+      if (!listingUrl || !isHttpUrl(listingUrl)) continue;
+      budget -= 1;
+      let response: ListingHtmlFetchResult;
+      try {
+        response = await input.fetchHtml(listingUrl, {
+          signal: combineSignals(input.signal, perRequestTimeoutMs),
+        });
+      } catch {
+        // Unreachable this time; it stays unread and is tried next search.
+        continue;
+      }
+      if (response.status === 429) {
+        summary.rateLimited = true;
+        break;
+      }
+      const pageApplyUrl =
+        response.status < 400
+          ? (extractListingDetailFromHtml({
+              html: response.html,
+              url: response.finalUrl,
+              expectedTitle: job.title,
+            })?.directApplyUrl ??
+            findApplyLinkInHtml(response.html, response.finalUrl))
+          : null;
+      summary.read += 1;
+      current = SavedJobSchema.parse({
+        ...current,
+        provenance: recordSightingApplyLink(
+          current.provenance,
+          listingUrl,
+          pageApplyUrl,
+          now(),
+        ),
+      });
+      changed.add(job.id);
+    }
+    nextJobs.push(current);
+  }
+
+  return { jobs: nextJobs, changedJobIds: [...changed], summary };
 }
 
 function recordFailedAttempt(
@@ -481,7 +590,8 @@ export async function enrichSavedJobListingDetails(
   const updated = new Map<string, SavedJob>();
   let rateLimitPauseUntilMs = 0;
   let rateLimitRetryAfterAtMs = 0;
-  let rateLimitRetryAvailable = true;
+  let rateLimitRetriesLeft = RATE_LIMIT_RETRIES_PER_PASS;
+  let firstRateLimitAtMs: number | null = null;
   let deferRemainingForRateLimit = false;
   const registerRateLimit = (response: ListingHtmlFetchResult): number => {
     const pauseMs = Math.min(
@@ -545,19 +655,29 @@ export async function enrichSavedJobListingDetails(
         let response = await input.fetchHtml(job.canonicalUrl, {
           signal: combineSignals(input.signal, perRequestTimeoutMs),
         });
-        if (response.status === 429) {
+        // A short rate limit is waited out and the page asked again, a
+        // bounded number of times per page and per pass, all sharing one
+        // pause so the site sees one polite reader. A long one defers the
+        // rest of the queue to the next search.
+        let retriesForJob = 0;
+        while (response.status === 429) {
           const pauseMs = registerRateLimit(response);
-          if (pauseMs <= MAX_RATE_LIMIT_PAUSE_MS && rateLimitRetryAvailable) {
-            rateLimitRetryAvailable = false;
-            if (await waitForSharedRateLimit()) {
-              response = await input.fetchHtml(job.canonicalUrl, {
-                signal: combineSignals(input.signal, perRequestTimeoutMs),
-              });
-              if (response.status === 429) {
-                registerRateLimit(response);
-              }
-            }
+          firstRateLimitAtMs ??= Date.now();
+          if (
+            pauseMs > MAX_RATE_LIMIT_PAUSE_MS ||
+            Date.now() + pauseMs - firstRateLimitAtMs >
+              RATE_LIMIT_WAIT_BUDGET_MS ||
+            retriesForJob >= RATE_LIMIT_RETRIES_PER_JOB ||
+            rateLimitRetriesLeft <= 0 ||
+            !(await waitForSharedRateLimit())
+          ) {
+            break;
           }
+          retriesForJob += 1;
+          rateLimitRetriesLeft -= 1;
+          response = await input.fetchHtml(job.canonicalUrl, {
+            signal: combineSignals(input.signal, perRequestTimeoutMs),
+          });
         }
         if (
           response.status === 401 ||
@@ -572,7 +692,7 @@ export async function enrichSavedJobListingDetails(
               attemptedAt,
               "blocked",
               response.status === 429
-                ? "The page answered 429 because it rate-limited listing reads. Job Finder will try again later."
+                ? "The site asked Job Finder to slow down (HTTP 429). The listing is read again on the next search."
                 : `The page answered ${response.status}; it may require access or a signed-in visitor.`,
               response.status === 429
                 ? new Date(rateLimitRetryAfterAtMs).toISOString()

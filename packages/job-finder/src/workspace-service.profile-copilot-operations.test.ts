@@ -361,6 +361,19 @@ const operationCases = {
     ],
     expectedAfterApply: [["Platform Design"], ["Relocation-required onsite"]],
   },
+  set_resume_approach: {
+    operation: "set_resume_approach",
+    request: "Use Light resumes for new jobs from now on",
+    context: { surface: "profile", section: "preferences" },
+    buildOperation: () => ({
+      operation: "set_resume_approach",
+      value: "conservative",
+    }),
+    // The strength half; the Original half is Settings and has its own
+    // round-trip test in workspace-service.profile-copilot-resume-level.
+    observe: (state) => state.searchPreferences.tailoringMode,
+    expectedAfterApply: "conservative",
+  },
   replace_compensation_preferences_fields: {
     operation: "replace_compensation_preferences_fields",
     request: "My compensation range is now 185k to 230k USD per year",

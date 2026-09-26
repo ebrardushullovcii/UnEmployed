@@ -175,7 +175,9 @@ export interface JobFinderShellActions {
     targetId: string,
     instructionId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
-  importResume: () => Promise<JobFinderWorkspaceSnapshot>;
+  importResume: (options?: {
+    retryInterrupted?: boolean;
+  }) => Promise<JobFinderWorkspaceSnapshot>;
   saveProfile: (
     profile: CandidateProfile,
   ) => Promise<JobFinderWorkspaceSnapshot>;
@@ -335,6 +337,10 @@ export interface JobFinderShellActions {
     jobId: string,
     revisionId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
+  undoResumeAssistantEdit: (
+    jobId: string,
+    revisionId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   exportResumePdf: (
     jobId: string,
     intent?: ResumePdfExportIntent,
@@ -402,6 +408,10 @@ export interface JobFinderShellActions {
   /** Sends one application the person has already looked over. */
   submitPreparedApplication: (input: {
     jobId: string;
+  }) => Promise<JobFinderWorkspaceSnapshot>;
+  /** Send for me: sends each filled-in form under one permission. */
+  sendPreparedApplications: (input: {
+    jobIds: string[];
   }) => Promise<JobFinderWorkspaceSnapshot>;
   approveApply: (
     input: JobFinderApplicationStartTarget,

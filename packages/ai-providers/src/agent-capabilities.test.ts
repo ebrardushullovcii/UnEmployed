@@ -1,5 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import { ResumeDraftSchema } from "@unemployed/contracts";
+import {
+  ResumeDraftSchema,
+  type ResumeDraftPatch,
+} from "@unemployed/contracts";
 
 import {
   runProfileCopilotAgentTask,
@@ -436,6 +439,246 @@ describe("tool-using AI capabilities", () => {
         validationIssues: [],
       }),
     ]);
+  });
+
+  test("resume generation keeps the last cleanly rendered AI draft when a run keeps revising until its budget ends", async () => {
+    let turn = 0;
+    const deterministic = createDeterministicJobFinderAiClient();
+    const client: AgentCapableJobFinderAiClient = {
+      ...deterministic,
+      chatWithTools() {
+        turn += 1;
+        return Promise.resolve({
+          toolCalls: [
+            {
+              id: `compose_${turn}`,
+              type: "function" as const,
+              function: {
+                name: "compose_resume_proposal",
+                arguments: JSON.stringify({
+                  proposal: {
+                    summary: {
+                      text: "Builds reliable automation.",
+                      evidenceRefs: ["profile:summary"],
+                    },
+                    revision: turn,
+                  },
+                }),
+              },
+            },
+            {
+              id: `render_${turn}`,
+              type: "function" as const,
+              function: { name: "render_resume_preview", arguments: "{}" },
+            },
+          ],
+        });
+      },
+    };
+
+    const result = await runResumeGenerationAgentTask({
+      client,
+      substantivePrompt: "Aggressive mode substantive resume instructions.",
+      request: {
+        profile: createProfile(),
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive",
+        },
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Saved base resume text",
+      },
+    });
+
+    expect(result.summary).toContain("Builds reliable automation");
+    expect(result.notes.join(" ")).toContain(
+      "this is its last draft that rendered cleanly",
+    );
+  });
+
+  test("resume generation warns the model to drop flagged lines once it keeps rendering flagged drafts", async () => {
+    let turn = 0;
+    const toolResults: string[] = [];
+    const deterministic = createDeterministicJobFinderAiClient();
+    const client: AgentCapableJobFinderAiClient = {
+      ...deterministic,
+      chatWithTools(messages) {
+        turn += 1;
+        for (const message of messages) {
+          if (message.role === "tool") toolResults.push(message.content);
+        }
+        if (turn > 4) {
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: `finish_${turn}`,
+                type: "function" as const,
+                function: { name: "finish_task", arguments: "{}" },
+              },
+            ],
+          });
+        }
+        return Promise.resolve({
+          toolCalls: [
+            {
+              id: `compose_${turn}`,
+              type: "function" as const,
+              function: {
+                name: "compose_resume_proposal",
+                arguments: JSON.stringify({
+                  proposal: {
+                    summary: {
+                      text: `Builds reliable automation ${turn}.`,
+                      evidenceRefs: ["profile:summary"],
+                    },
+                  },
+                }),
+              },
+            },
+            {
+              id: `render_${turn}`,
+              type: "function" as const,
+              function: { name: "render_resume_preview", arguments: "{}" },
+            },
+          ],
+        });
+      },
+    };
+
+    await runResumeGenerationAgentTask({
+      client,
+      substantivePrompt: "Balanced mode substantive resume instructions.",
+      request: {
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Saved base resume text",
+        renderPreview: () =>
+          Promise.resolve({
+            templateId: "classic_ats",
+            pageCount: 1,
+            warnings: [],
+            fileName: "preview.pdf",
+            requiredModelRepairs: [
+              {
+                id: "issue_claim_grounding_summary",
+                severity: "error" as const,
+                category: "unsupported_claim" as const,
+                sectionId: "summary",
+                entryId: null,
+                bulletId: null,
+                message: "Saved evidence does not back this wording.",
+                flaggedText: "Unsupported summary wording.",
+              },
+            ],
+          }),
+      },
+    }).catch(() => null);
+
+    const warned = toolResults.filter((content) =>
+      content.includes("Stop rewording: remove each line named in requiredModelRepairs"),
+    );
+    expect(warned.length).toBeGreaterThan(0);
+    // Not on the first or second flagged render.
+    expect(
+      toolResults.some(
+        (content) =>
+          content.includes("flagged render 1 ") ||
+          content.includes("flagged render 2 "),
+      ),
+    ).toBe(false);
+  });
+
+  test("resume generation tells the model to finish once it keeps rewriting clean drafts", async () => {
+    let turn = 0;
+    const toolResults: string[] = [];
+    const deterministic = createDeterministicJobFinderAiClient();
+    const client: AgentCapableJobFinderAiClient = {
+      ...deterministic,
+      chatWithTools(messages) {
+        turn += 1;
+        for (const message of messages) {
+          if (message.role === "tool") toolResults.push(message.content);
+        }
+        if (turn > 4) {
+          return Promise.resolve({
+            toolCalls: [
+              {
+                id: `finish_${turn}`,
+                type: "function" as const,
+                function: { name: "finish_task", arguments: "{}" },
+              },
+            ],
+          });
+        }
+        return Promise.resolve({
+          toolCalls: [
+            {
+              id: `compose_${turn}`,
+              type: "function" as const,
+              function: {
+                name: "compose_resume_proposal",
+                arguments: JSON.stringify({
+                  proposal: {
+                    summary: {
+                      text: `Builds reliable automation ${turn}.`,
+                      evidenceRefs: ["profile:summary"],
+                    },
+                  },
+                }),
+              },
+            },
+            {
+              id: `render_${turn}`,
+              type: "function" as const,
+              function: { name: "render_resume_preview", arguments: "{}" },
+            },
+          ],
+        });
+      },
+    };
+
+    await runResumeGenerationAgentTask({
+      client,
+      substantivePrompt: "Balanced mode substantive resume instructions.",
+      request: {
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Saved base resume text",
+        renderPreview: () =>
+          Promise.resolve({
+            templateId: "classic_ats",
+            pageCount: 1,
+            warnings: [],
+            fileName: "preview.pdf",
+            requiredModelRepairs: [],
+          }),
+      },
+    }).catch(() => null);
+
+    expect(
+      toolResults.some((content) =>
+        content.includes(
+          "This render is clean. Call inspect_completed_resume, then finish_task",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      toolResults.some((content) =>
+        content.includes("This is clean render 3 in this run."),
+      ),
+    ).toBe(true);
+    expect(
+      toolResults.some(
+        (content) =>
+          content.includes("clean render 1 ") ||
+          content.includes("clean render 2 "),
+      ),
+    ).toBe(false);
   });
 
   test("resume generation rejects an incomplete agent task instead of grading an empty draft", async () => {
@@ -1415,7 +1658,458 @@ describe("tool-using AI capabilities", () => {
       },
     });
 
+    // A locked or unknown target is refused without a patch, and the run
+    // continues so the model can say so instead of ending with nothing.
     expect(reply.patches).toEqual([]);
-    expect(reply.executionReceipt?.stopReason).toBe("permanent_failure");
+    expect(reply.content).toBe(
+      "I could not change the locked or missing items.",
+    );
+    expect(reply.executionReceipt?.stopReason).toBe("completed");
+    expect(
+      reply.executionReceipt?.toolReceipts
+        .filter((receipt) => receipt.toolName === "set_resume_bullet_included")
+        .map((receipt) => receipt.failureKind),
+    ).toEqual(["validation", "validation"]);
+  });
+
+  function createSummaryDraft() {
+    return ResumeDraftSchema.parse({
+      id: "draft_1",
+      jobId: "job_1",
+      templateId: "classic_ats",
+      status: "draft",
+      identity: null,
+      sections: [
+        {
+          id: "summary",
+          kind: "summary",
+          label: "Summary",
+          text: "Frontend engineer building React design systems.",
+          origin: "user_edited",
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          updatedAt: "2026-08-12T12:00:00.000Z",
+        },
+      ],
+      targetPageCount: 1,
+      generationMethod: null,
+      createdAt: "2026-08-12T12:00:00.000Z",
+      updatedAt: "2026-08-12T12:00:00.000Z",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+    });
+  }
+
+  function toolCall(id: string, name: string, args: unknown = {}) {
+    return {
+      id,
+      type: "function" as const,
+      function: { name, arguments: JSON.stringify(args) },
+    };
+  }
+
+  test("Guided Edits refuses to finish on a change the approval check flags until the model has seen the verdict", async () => {
+    const client = createToolClient([
+      {
+        toolCalls: [
+          toolCall("summary", "replace_resume_section_text", {
+            sectionId: "summary",
+            newText: "Frontend engineer who cut costs by 60% with AWS.",
+          }),
+          toolCall("finish", "finish_task"),
+        ],
+      },
+      {
+        toolCalls: [
+          toolCall("reword", "replace_resume_section_text", {
+            sectionId: "summary",
+            newText: "Frontend engineer who builds React design systems.",
+          }),
+          toolCall("content", "set_response_content", {
+            content:
+              "I tightened the summary. Your saved evidence has no AWS cost saving, so I left that out.",
+          }),
+          toolCall("finish-again", "finish_task"),
+        ],
+      },
+    ]);
+    const checked: string[][] = [];
+
+    const reply = await runResumeEditAgentTask({
+      client,
+      request: {
+        draft: createSummaryDraft(),
+        job: createJobPosting(),
+        request: "Say I cut costs by 60% with AWS.",
+        tailoringStrength: "conservative",
+        checkProposal(patches) {
+          checked.push(patches.map((patch) => patch.newText ?? ""));
+          const flagged = patches.find((patch) =>
+            patch.newText?.includes("60%"),
+          );
+          return {
+            applyError: null,
+            findings: flagged
+              ? [
+                  {
+                    patchId: flagged.id,
+                    sectionId: "summary",
+                    entryId: null,
+                    bulletId: null,
+                    flaggedText: flagged.newText,
+                    message: "Your saved evidence does not back this claim.",
+                    kind: "unsupported" as const,
+                  },
+                ]
+              : [],
+          };
+        },
+      },
+    });
+
+    expect(checked[0]).toEqual([
+      "Frontend engineer who cut costs by 60% with AWS.",
+    ]);
+    const finishReceipts = reply.executionReceipt?.toolReceipts.filter(
+      (receipt) => receipt.toolName === "finish_task",
+    );
+    expect(finishReceipts?.[0]?.validationIssues[0]?.code).toBe(
+      "unsupported_by_saved_evidence",
+    );
+    // The second change to the same section replaced the flagged one.
+    expect(reply.patches).toHaveLength(1);
+    expect(reply.patches[0]?.newText).toBe(
+      "Frontend engineer who builds React design systems.",
+    );
+    expect(reply.executionReceipt?.stopReason).toBe("completed");
+  });
+
+  function flagSixtyPercent(patches: readonly ResumeDraftPatch[]) {
+    const flagged = patches.find((patch) => patch.newText?.includes("60%"));
+    return {
+      applyError: null,
+      findings: flagged
+        ? [
+            {
+              patchId: flagged.id,
+              sectionId: "summary",
+              entryId: null,
+              bulletId: null,
+              flaggedText: flagged.newText,
+              message: "Your saved evidence does not back this claim.",
+              kind: "unsupported" as const,
+            },
+          ]
+        : [],
+    };
+  }
+
+  test("Guided Edits tells the model to stop rewording from the third flagged check", async () => {
+    const rewordTurns = [1, 2, 3, 4].map((turn) => ({
+      toolCalls: [
+        toolCall(`summary_${turn}`, "replace_resume_section_text", {
+          sectionId: "summary",
+          newText: `Frontend engineer who cut costs by 60% with AWS (${turn}).`,
+        }),
+        toolCall(`check_${turn}`, "validate_resume_draft"),
+      ],
+    }));
+    const client = createToolClient([
+      ...rewordTurns,
+      {
+        toolCalls: [
+          toolCall("content", "set_response_content", {
+            content: "Your saved evidence has no AWS cost saving.",
+          }),
+          toolCall("finish", "finish_task"),
+        ],
+      },
+    ]);
+
+    const reply = await runResumeEditAgentTask({
+      client,
+      request: {
+        draft: createSummaryDraft(),
+        job: createJobPosting(),
+        request: "Say I cut costs by 60% with AWS.",
+        tailoringStrength: "balanced",
+        checkProposal: flagSixtyPercent,
+      },
+    });
+
+    const checks =
+      reply.executionReceipt?.toolReceipts.filter(
+        (receipt) => receipt.toolName === "validate_resume_draft",
+      ) ?? [];
+    const warned = checks.map((receipt) =>
+      receipt.validationIssues.some((issue) => issue.code === "stop_rewording"),
+    );
+    expect(warned).toEqual([false, false, true, true]);
+    expect(
+      checks[2]?.validationIssues.find(
+        (issue) => issue.code === "stop_rewording",
+      )?.message,
+    ).toContain("This is flagged check 3");
+  });
+
+  test("Guided Edits does not report an empty check as a clean verdict on existing lines", async () => {
+    let turn = 0;
+    const toolResults: string[] = [];
+    const deterministic = createDeterministicJobFinderAiClient();
+    const client: AgentCapableJobFinderAiClient = {
+      ...deterministic,
+      chatWithTools(messages) {
+        turn += 1;
+        for (const message of messages) {
+          if (message.role === "tool") toolResults.push(message.content);
+        }
+        return Promise.resolve({
+          toolCalls:
+            turn === 1
+              ? [toolCall("check", "validate_resume_draft")]
+              : [
+                  toolCall("content", "set_response_content", {
+                    content: "All four changes were already accepted.",
+                  }),
+                  toolCall("finish", "finish_task"),
+                ],
+        });
+      },
+    };
+
+    await runResumeEditAgentTask({
+      client,
+      request: {
+        draft: createSummaryDraft(),
+        job: createJobPosting(),
+        request: "the second one",
+        tailoringStrength: "aggressive",
+        checkProposal: () => ({ applyError: null, findings: [] }),
+      },
+    });
+
+    expect(
+      toolResults.some((content) =>
+        content.includes("No proposed changes, so nothing was checked."),
+      ),
+    ).toBe(true);
+    expect(
+      toolResults.some((content) =>
+        content.includes("passes the approval check"),
+      ),
+    ).toBe(false);
+  });
+
+  test("Guided Edits keeps the newest changes that passed when a run stops mid-rewording", async () => {
+    const client = createToolClient([
+      {
+        toolCalls: [
+          toolCall("clean", "replace_resume_section_text", {
+            sectionId: "summary",
+            newText: "Frontend engineer who builds React design systems.",
+          }),
+          toolCall("check_clean", "validate_resume_draft"),
+        ],
+      },
+      {
+        toolCalls: [
+          toolCall("flagged", "replace_resume_section_text", {
+            sectionId: "summary",
+            newText: "Frontend engineer who cut costs by 60% with AWS.",
+          }),
+          toolCall("check_flagged", "validate_resume_draft"),
+        ],
+      },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        toolCalls: [toolCall(`read_${index}`, "read_resume_context")],
+      })),
+    ]);
+
+    const reply = await runResumeEditAgentTask({
+      client,
+      request: {
+        draft: createSummaryDraft(),
+        job: createJobPosting(),
+        request: "Make the summary fit this job better.",
+        tailoringStrength: "balanced",
+        checkProposal: flagSixtyPercent,
+      },
+    });
+
+    expect(reply.executionReceipt?.stopReason).not.toBe("completed");
+    expect(reply.patches.map((patch) => patch.newText)).toEqual([
+      "Frontend engineer who builds React design systems.",
+    ]);
+    expect(reply.content).toContain("passed the approval check");
+  });
+
+  test("Guided Edits keeps a flagged change the model finishes on after seeing the verdict", async () => {
+    const client = createToolClient([
+      {
+        toolCalls: [
+          toolCall("summary", "replace_resume_section_text", {
+            sectionId: "summary",
+            newText:
+              "Frontend engineer building React design systems with an accessibility focus.",
+          }),
+          toolCall("check", "validate_resume_draft"),
+        ],
+      },
+      {
+        toolCalls: [
+          toolCall("content", "set_response_content", {
+            content:
+              "Accessibility is not in your saved profile; you said it is your focus, so you confirm it after accepting.",
+          }),
+          toolCall("finish", "finish_task"),
+        ],
+      },
+    ]);
+
+    const reply = await runResumeEditAgentTask({
+      client,
+      request: {
+        draft: createSummaryDraft(),
+        job: createJobPosting(),
+        request: "End the summary with my accessibility focus.",
+        tailoringStrength: "conservative",
+        checkProposal: (patches) => ({
+          applyError: null,
+          findings: patches.map((patch) => ({
+            patchId: patch.id,
+            sectionId: "summary",
+            entryId: null,
+            bulletId: null,
+            flaggedText: patch.newText,
+            message: "Your saved evidence does not back this claim.",
+            kind: "unsupported" as const,
+          })),
+        }),
+      },
+    });
+
+    expect(reply.patches).toHaveLength(1);
+    expect(reply.executionReceipt?.stopReason).toBe("completed");
+    expect(
+      reply.executionReceipt?.toolReceipts.find(
+        (receipt) => receipt.toolName === "finish_task",
+      )?.validationIssues,
+    ).toEqual([]);
+  });
+
+  test("Guided Edits on Aggressive finishes on a stretch that goes to Lines to confirm", async () => {
+    const client = createToolClient([
+      {
+        toolCalls: [
+          toolCall("summary", "replace_resume_section_text", {
+            sectionId: "summary",
+            newText: "Frontend engineer building React and GraphQL systems.",
+          }),
+          toolCall("finish", "finish_task"),
+        ],
+      },
+    ]);
+
+    const reply = await runResumeEditAgentTask({
+      client,
+      request: {
+        draft: createSummaryDraft(),
+        job: createJobPosting(),
+        request: "Mention GraphQL from the posting.",
+        tailoringStrength: "aggressive",
+        checkProposal: (patches) => ({
+          applyError: null,
+          findings: patches.map((patch) => ({
+            patchId: patch.id,
+            sectionId: "summary",
+            entryId: null,
+            bulletId: null,
+            flaggedText: patch.newText,
+            message: "This wording stretches past your saved evidence.",
+            kind: "needs_confirmation" as const,
+          })),
+        }),
+      },
+    });
+
+    expect(reply.patches).toHaveLength(1);
+    expect(reply.executionReceipt?.stopReason).toBe("completed");
+    expect(reply.executionReceipt?.providerCalls).toBe(1);
+  });
+
+  test("Guided Edits shows the model the recent conversation with each proposal's status", async () => {
+    const deterministic = createDeterministicJobFinderAiClient();
+    const captured: { payload: Record<string, unknown> | null } = {
+      payload: null,
+    };
+    const client: AgentCapableJobFinderAiClient = {
+      ...deterministic,
+      chatWithTools(messages) {
+        captured.payload = JSON.parse(
+          messages.find((message) => message.role === "user")?.content ?? "{}",
+        ) as Record<string, unknown>;
+        return Promise.resolve({
+          toolCalls: [
+            toolCall("content", "set_response_content", {
+              content: "Nothing to change.",
+            }),
+            toolCall("finish", "finish_task"),
+          ],
+        });
+      },
+    };
+    const recentConversation = [
+      {
+        role: "user" as const,
+        content: "What would you change to fit this job better?",
+        proposal: null,
+      },
+      {
+        role: "assistant" as const,
+        content: "I would lead with TypeScript and hide Design Systems.",
+        proposal: {
+          status: "waiting_for_review" as const,
+          changes: [
+            {
+              patchId: "resume_patch_1",
+              operation: "replace_section_text",
+              sectionId: "summary",
+              entryId: null,
+              bulletId: null,
+              newText: "TypeScript frontend engineer.",
+              applied: null,
+            },
+          ],
+        },
+      },
+    ];
+
+    await runResumeEditAgentTask({
+      client,
+      request: {
+        draft: createSummaryDraft(),
+        job: createJobPosting(),
+        request: "the second one",
+        recentConversation,
+        currentPageCount: 1,
+        availableTemplates: [
+          { id: "classic_ats", label: "Chronology Classic", density: "balanced" },
+        ],
+        linesToConfirm: [
+          { text: "SQL", sectionId: "skills", entryId: null, bulletId: "b1" },
+        ],
+      },
+    });
+
+    expect(captured.payload?.recentConversation).toEqual(recentConversation);
+    expect(captured.payload?.request).toBe("the second one");
+    expect(captured.payload?.currentPageCount).toBe(1);
+    expect(captured.payload?.resumeLevel).toBeNull();
+    expect(captured.payload?.currentTemplateLabel).toBe("Chronology Classic");
+    expect(captured.payload?.linesToConfirm).toEqual([
+      { text: "SQL", sectionId: "skills", entryId: null, bulletId: "b1" },
+    ]);
   });
 });

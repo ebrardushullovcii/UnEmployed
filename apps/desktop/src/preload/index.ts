@@ -886,7 +886,10 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:undo-profile-revision", {
         revisionId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
-    importResume: (onProgress?: (event: ResumeImportProgressEvent) => void) => {
+    importResume: (
+      onProgress?: (event: ResumeImportProgressEvent) => void,
+      options?: { retryInterrupted?: boolean },
+    ) => {
       if (activeResumeImportRequestId) {
         return Promise.reject(new Error("A resume import is already running."));
       }
@@ -924,6 +927,9 @@ const desktopApi = {
         return Promise.resolve(
           ipcRenderer.invoke("job-finder:import-resume", {
             requestId,
+            ...(options?.retryInterrupted === true
+              ? { retryInterrupted: true }
+              : {}),
           }) as Promise<JobFinderWorkspaceSnapshot>,
         ).finally(cleanup);
       } catch (error) {
@@ -1209,6 +1215,11 @@ const desktopApi = {
         jobId,
         revisionId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
+    undoResumeAssistantEdit: (jobId: string, revisionId: string) =>
+      ipcRenderer.invoke("job-finder:undo-resume-assistant-edit", {
+        jobId,
+        revisionId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
     regenerateResumeDraft: (jobId: string) =>
       ipcRenderer.invoke("job-finder:regenerate-resume-draft", {
         jobId,
@@ -1340,6 +1351,11 @@ const desktopApi = {
     submitPreparedApplication: (input: { jobId: string }) =>
       ipcRenderer.invoke(
         "job-finder:submit-prepared-application",
+        input,
+      ) as Promise<JobFinderWorkspaceSnapshot>,
+    sendPreparedApplications: (input: { jobIds: string[] }) =>
+      ipcRenderer.invoke(
+        "job-finder:send-prepared-applications",
         input,
       ) as Promise<JobFinderWorkspaceSnapshot>,
     approveApply: (input: JobFinderApplicationStartTarget) =>

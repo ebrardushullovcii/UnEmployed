@@ -658,7 +658,10 @@ function extractListingDetailFromPageText(
   html: string,
   input: ExtractListingDetailInput,
 ): ExtractedListingDetail | null {
-  const bodyHtml = selectMainContentHtml(html);
+  const bodyHtml = startAtTitleHeading(
+    selectMainContentHtml(html),
+    input.expectedTitle,
+  );
   const fullText = trimLeadingChromeBeforeTitle(
     htmlToPlainText(bodyHtml),
     input.expectedTitle,
@@ -712,6 +715,31 @@ function extractListingDetailFromPageText(
     workModeHints: detectWorkModeHints(text),
     directApplyUrl: findApplyLinkInHtml(html, input.url),
   };
+}
+
+/**
+ * A page whose main content heads the posting with an `<h1>` naming the job
+ * starts the listing there. What sits above that heading inside the content
+ * (a banner, breadcrumbs, a "Company · Place · Posted" line) is page chrome;
+ * those facts are read into their own fields, not the listing text.
+ */
+function startAtTitleHeading(
+  contentHtml: string,
+  expectedTitle: string | null | undefined,
+): string {
+  if (!expectedTitle) {
+    return contentHtml;
+  }
+  const heading = contentHtml.match(/<h1\b[^>]*>([\s\S]*?)<\/h1\s*>/iu);
+  if (!heading || heading.index === undefined || heading.index === 0) {
+    return contentHtml;
+  }
+  const headingText = collapseWhitespace(
+    decodeHtmlEntities(heading[1]?.replace(/<[^>]+>/gu, " ") ?? ""),
+  );
+  return lineNamesTitle(headingText, expectedTitle)
+    ? contentHtml.slice(heading.index)
+    : contentHtml;
 }
 
 function selectMainContentHtml(html: string): string {

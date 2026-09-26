@@ -97,6 +97,17 @@ interface ResumeWorkspaceStudioShellProps {
     targetId: string | null,
   ) => void;
   onSetMobileStudioTab: (tab: ResumeStudioMobileTab) => void;
+  /**
+   * Set when this job sends the imported file unchanged. The draft here is
+   * never sent, so the header says that and offers the one press that writes
+   * an editable resume at the saved level instead of approval.
+   */
+  originalResume?: {
+    levelLabel: string;
+    /** The one-press route is running: the job is being moved and written. */
+    writing?: boolean;
+    onWriteEditableResume: () => void;
+  } | null;
   previewPane: ReactNode;
   selectedTemplateApprovalEligible: boolean;
   supportingDetailsPanel?: ReactNode;
@@ -678,7 +689,9 @@ export function ResumeWorkspaceStudioShell(
     ? "Exporting PDF…"
     : props.isWorkspacePending
       ? "Working on your resume…"
-      : props.studioStatusMessage;
+      : props.originalResume
+        ? "Nothing here is sent: this job attaches your original file."
+        : props.studioStatusMessage;
   const blockingIssueCount = validationIssues.filter(
     isBlockingResumeValidationIssue,
   ).length;
@@ -745,7 +758,9 @@ export function ResumeWorkspaceStudioShell(
         : {})}
       onReviewWorkHistoryDecisions={focusWorkHistoryDecisions}
       pdfStatusMessage={
-        props.canClearApproval
+        props.originalResume
+          ? "No application PDF is built here while the job uses your original file."
+          : props.canClearApproval
           ? `Application PDF ready${describeApprovedPageCount(
               props.approvedExportPageCount ?? null,
             )}. Download a copy if you want one.`
@@ -816,6 +831,27 @@ export function ResumeWorkspaceStudioShell(
         data-resume-studio-compact-header
         data-resume-workspace-top-actions
       >
+        {props.originalResume ? (
+          <div
+            className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+            data-resume-studio-original-notice
+          >
+            <Badge variant="outline">
+              {props.originalResume.writing
+                ? `Writing ${props.originalResume.levelLabel}`
+                : "Original resume"}
+            </Badge>
+            <strong
+              aria-live="polite"
+              className="min-w-0 text-(length:--text-body) leading-5 text-(--text-headline)"
+              id="resume-next-step-title"
+            >
+              {props.originalResume.writing
+                ? `Writing an editable ${props.originalResume.levelLabel} resume for this job. This takes a few minutes.`
+                : "This job sends your original file unchanged, so edits here are not used."}
+            </strong>
+          </div>
+        ) : (
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <Badge variant="outline">
             {props.canClearApproval
@@ -866,6 +902,7 @@ export function ResumeWorkspaceStudioShell(
             </span>
           ) : null}
         </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {/* The collapsed Assistant launcher lands here, portalled in by
               `ResumeGuidedEditsPopup`. It used to be a pill fixed to the
@@ -878,7 +915,25 @@ export function ResumeWorkspaceStudioShell(
             className="contents"
             data-resume-studio-assistant-launcher-slot
           />
-          {attentionItemCount > 0 ? (
+          {props.originalResume ? (
+            <Button
+              disabled={
+                props.isWorkspacePending || Boolean(props.originalResume.writing)
+              }
+              onClick={props.originalResume.onWriteEditableResume}
+              pending={
+                props.isWorkspacePending || Boolean(props.originalResume.writing)
+              }
+              type="button"
+              variant="primary"
+            >
+              {props.originalResume.writing
+                ? "Writing…"
+                : `Write an editable ${props.originalResume.levelLabel} resume`}
+              <ArrowRight className="size-4" />
+            </Button>
+          ) : null}
+          {!props.originalResume && attentionItemCount > 0 ? (
             <Button
               data-resume-studio-attention-chip
               onClick={openAttentionPanel}
@@ -932,7 +987,7 @@ export function ResumeWorkspaceStudioShell(
               of it too. On desktop the tools column's status row still owns
               `Clear approval`, and exactly one copy renders either way. */}
           {isDesktopStudio ? null : clearApprovalSlot}
-          {props.canClearApproval ? null : (
+          {props.canClearApproval || props.originalResume ? null : (
             <Button
               disabled={
                 props.isWorkspacePending ||

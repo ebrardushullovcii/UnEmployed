@@ -190,11 +190,11 @@ describe("shell destination counts", () => {
     const inventoryBadge = findJobs.querySelector("span:last-child");
     const attentionBadge = needsYou.querySelector("span.tabular-nums");
 
-    // The shape is the shared `<Count variant="inline">` primitive; the shell
+    // The shape is the shared `<Count variant="pill">` primitive; the shell
     // adds only its own row placement. Composed the same way the component
     // does, so the exact painted string is still pinned.
     expect(inventoryBadge?.className).toBe(
-      cn(COUNT_VARIANT_CLASS.inline, DESTINATION_COUNT_INLINE_LAYOUT_CLASS),
+      cn(COUNT_VARIANT_CLASS.pill, DESTINATION_COUNT_INLINE_LAYOUT_CLASS),
     );
     expect(attentionBadge?.className).toBe(DESTINATION_COUNT_ATTENTION_CLASS);
     expect(inventoryBadge?.className).not.toBe(attentionBadge?.className);
@@ -202,7 +202,9 @@ describe("shell destination counts", () => {
     // A bare number always means inventory, so the attention count also
     // carries a noun rather than standing alone beside the destination name.
     expect(attentionBadge?.textContent).toContain("unresolved");
-    expect(needsYou.getAttribute("aria-label")).toMatch(/^Needs you: \d+ unresolved$/);
+    expect(needsYou.getAttribute("aria-label")).toMatch(
+      /^Needs you: \d+ unresolved$/,
+    );
     // The inventory count stays visual-only; the destination name is the sole
     // announced content.
     expect(inventoryBadge?.getAttribute("aria-hidden")).toBe("true");
@@ -269,7 +271,7 @@ describe("shell destination counts", () => {
     // pill at 1439 — one number, two shapes, one breakpoint apart.
     expect(compactCount?.className).toBe(wideCount?.className);
     expect(compactCount?.className).toBe(
-      cn(COUNT_VARIANT_CLASS.inline, DESTINATION_COUNT_INLINE_LAYOUT_CLASS),
+      cn(COUNT_VARIANT_CLASS.pill, DESTINATION_COUNT_INLINE_LAYOUT_CLASS),
     );
   });
 

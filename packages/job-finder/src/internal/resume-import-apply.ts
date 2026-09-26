@@ -57,6 +57,15 @@ type ResolvedResumeImportSelection = {
     skillGroups?: CandidateProfile["skillGroups"];
     narrative?: Partial<CandidateProfile["narrative"]>;
     answerBank?: Partial<CandidateProfile["answerBank"]>;
+    /**
+     * Work-eligibility facts the resume states outright. `explicit` marks a
+     * value the person is confirming from review right now; an imported value
+     * only fills an empty answer and never replaces one the person saved.
+     */
+    workEligibility?: {
+      authorizedWorkCountries?: { values: string[]; explicit: boolean };
+      requiresVisaSponsorship?: { value: boolean; explicit: boolean };
+    };
     applicationIdentity?: {
       preferredEmail?: string | null;
       preferredPhone?: string | null;
@@ -92,6 +101,7 @@ function buildResolvedSelection(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
   candidates: readonly ResumeImportFieldCandidate[],
+  confirmedCandidateId: string | null = null,
 ): ResolvedResumeImportSelection {
   const autoApplied = candidates.filter(
     (candidate) => candidate.resolution === "auto_applied",
@@ -415,10 +425,58 @@ function buildResolvedSelection(
           careerTransition: typeof value === "string" ? value : null,
         };
         break;
+      case "work_eligibility.authorizedWorkCountries": {
+        const values = uniqueStrings(toStringArray(value));
+        if (values.length > 0) {
+          selection.scalarFields.workEligibility = {
+            ...(selection.scalarFields.workEligibility ?? {}),
+            authorizedWorkCountries: {
+              values,
+              explicit: candidate.id === confirmedCandidateId,
+            },
+          };
+        }
+        break;
+      }
+      case "work_eligibility.requiresVisaSponsorship":
+        if (typeof value === "boolean") {
+          selection.scalarFields.workEligibility = {
+            ...(selection.scalarFields.workEligibility ?? {}),
+            requiresVisaSponsorship: {
+              value,
+              explicit: candidate.id === confirmedCandidateId,
+            },
+          };
+        }
+        break;
     }
   }
 
   return selection;
+}
+
+function mergeImportedWorkEligibility(
+  current: CandidateProfile["workEligibility"],
+  imported: ResolvedResumeImportSelection["scalarFields"]["workEligibility"],
+): CandidateProfile["workEligibility"] {
+  if (!imported) {
+    return current;
+  }
+  const countries = imported.authorizedWorkCountries;
+  const sponsorship = imported.requiresVisaSponsorship;
+  return {
+    ...current,
+    authorizedWorkCountries:
+      countries &&
+      (countries.explicit || current.authorizedWorkCountries.length === 0)
+        ? countries.values
+        : current.authorizedWorkCountries,
+    requiresVisaSponsorship:
+      sponsorship &&
+      (sponsorship.explicit || current.requiresVisaSponsorship === null)
+        ? sponsorship.value
+        : current.requiresVisaSponsorship,
+  };
 }
 
 function mergeProofBankEntries(
@@ -623,6 +681,13 @@ function mergeResolvedSelectionIntoWorkspace(
         ...profile.answerBank,
         ...(selection.scalarFields.answerBank ?? {}),
       },
+      // A resume that says "EU citizen, no sponsorship needed" answers the two
+      // questions every application form asks; saved answers are never
+      // replaced by an import.
+      workEligibility: mergeImportedWorkEligibility(
+        profile.workEligibility,
+        selection.scalarFields.workEligibility,
+      ),
       applicationIdentity: {
         ...profile.applicationIdentity,
         preferredEmail: resolvePreferredContact({
@@ -728,11 +793,19 @@ export function applyResolvedResumeImportCandidatesToWorkspace(input: {
   analysisProviderKind: ResumeImportRun["analysisProviderKind"];
   analysisProviderLabel: ResumeImportRun["analysisProviderLabel"];
   analysisWarnings: readonly string[];
+  /**
+   * The review item the person is confirming right now. Only its value may
+   * replace a saved eligibility answer; every other candidate in the run is
+   * re-applied as a fill for empty answers, so confirming a later item never
+   * undoes an edit the person made after an earlier one.
+   */
+  confirmedCandidateId?: string | null;
 }) {
   const resolvedSelection = buildResolvedSelection(
     input.profile,
     input.searchPreferences,
     input.candidates,
+    input.confirmedCandidateId ?? null,
   );
 
   return mergeResolvedSelectionIntoWorkspace(

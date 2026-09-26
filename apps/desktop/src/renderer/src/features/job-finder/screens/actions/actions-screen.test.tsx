@@ -432,6 +432,31 @@ describe("ActionsScreen", () => {
     );
   });
 
+  it("says Job Finder is checking a step, not that the person should go do it", () => {
+    const { getByText, queryByText } = render(
+      <ActionsScreen
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={vi.fn()}
+        requests={[
+          createRequest({
+            id: "checking",
+            scope: "application",
+            state: "verifying",
+          }),
+        ]}
+      />,
+    );
+
+    expect(
+      getByText(/Job Finder is checking this step and carries on by itself/),
+    ).toBeTruthy();
+    expect(
+      queryByText("Use the Job Finder browser, then return here."),
+    ).toBeNull();
+  });
+
   it("gives the empty inbox one clear next action toward discovery", () => {
     const onNavigate = vi.fn();
     const { getByRole } = render(

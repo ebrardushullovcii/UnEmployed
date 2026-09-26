@@ -223,7 +223,7 @@ describe("SettingsScreen scoped section saves", () => {
     const workspaceSave = within(workspace).getByRole<HTMLButtonElement>(
       "button",
       {
-        name: "Save workspace behavior",
+        name: "Save browser & saved jobs",
       },
     );
     expect(workspaceSave.disabled).toBe(false);
@@ -276,7 +276,7 @@ describe("SettingsScreen scoped section saves", () => {
     ).toBe("true");
     expect(
       within(refreshedWorkspaceRegion).getByRole<HTMLButtonElement>("button", {
-        name: "Save workspace behavior",
+        name: "Save browser & saved jobs",
       }).disabled,
     ).toBe(true);
 
@@ -507,21 +507,21 @@ describe("SettingsScreen scoped section saves", () => {
     fireEvent.click(within(workspace).getAllByRole("switch")[0]!);
     fireEvent.click(
       within(workspace).getByRole<HTMLButtonElement>("button", {
-        name: "Save workspace behavior",
+        name: "Save browser & saved jobs",
       }),
     );
 
     expect(
       within(workspace)
         .getByRole<HTMLButtonElement>("button", {
-          name: "Saving workspace behavior",
+          name: "Saving browser & saved jobs",
         })
         .hasAttribute("disabled"),
     ).toBe(false);
     expect(
       within(workspace)
         .getByRole<HTMLButtonElement>("button", {
-          name: "Saving workspace behavior",
+          name: "Saving browser & saved jobs",
         })
         .getAttribute("aria-disabled"),
     ).toBe("true");
@@ -533,7 +533,7 @@ describe("SettingsScreen scoped section saves", () => {
 
     expect(
       within(workspace).getByText(
-        "Workspace behavior was not saved. Retry before leaving this page.",
+        "Browser & saved jobs were not saved. Retry before leaving this page.",
       ),
     ).toBeTruthy();
     expect(

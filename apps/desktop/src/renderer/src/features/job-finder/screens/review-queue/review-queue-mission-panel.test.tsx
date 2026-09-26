@@ -216,6 +216,40 @@ describe("ReviewQueueMissionPanel", () => {
     expect(props.onEditResumeWorkspace).toHaveBeenCalledWith("job_1");
   });
 
+  it("says when AI could not write the resume and retries in one press", () => {
+    const props = renderPanel({
+      onApproveResumeAndApply: vi.fn(),
+      selectedAsset: createReadyAsset({
+        storagePath: null,
+        generationMethod: "deterministic",
+        generationReason: "provider_failed",
+      }),
+      selectedItem: createItem({
+        assetStatus: "ready",
+        resumeAssetId: "asset_1",
+        resumeReview: { status: "needs_review" },
+      }),
+    });
+
+    expect(screen.getByTestId("shortlisted-state-line").textContent).toBe(
+      "AI could not write this resume, so it keeps your saved wording. Try again, or apply it as it is.",
+    );
+    expect(screen.getByRole("button", { name: "Apply" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again with AI" }));
+    expect(props.onGenerateResume).toHaveBeenCalledWith("job_1");
+  });
+
+  it("does not offer an AI retry once the built-in resume is approved", () => {
+    renderPanel({
+      selectedAsset: createReadyAsset({
+        generationMethod: "deterministic",
+        generationReason: "provider_failed",
+      }),
+    });
+
+    expect(screen.queryByRole("button", { name: "Try again with AI" })).toBeNull();
+  });
+
   it("sends an Aggressive draft to review instead of Apply", () => {
     const props = renderPanel({
       selectedAsset: createReadyAsset({ storagePath: null }),
@@ -442,6 +476,8 @@ describe("ReviewQueueMissionPanel", () => {
     expect(
       screen.getByText(/base-resume\.pdf goes out exactly as imported/),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Edit resume" })).toBeNull();
+    // Its studio is one press away: that is where the original becomes an
+    // editable resume.
+    expect(screen.getByRole("button", { name: "Edit resume" })).toBeTruthy();
   });
 });

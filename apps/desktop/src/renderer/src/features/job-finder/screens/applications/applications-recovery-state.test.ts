@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 import {
   applyResultStoppedStructurally,
+  buildApplyRunContextReader,
   formatQuestionPrompt,
   getApplicationStopReasonSentence,
   resolveApplicationRecoveryPresentation,
@@ -124,6 +125,24 @@ describe("resolveApplicationRecoveryPresentation", () => {
     expect(presentation.statusLine).toBe("Application submitted");
     expect(presentation.primaryAction).toBe("none");
     expect(presentation.primaryActionLabel).toBeNull();
+  });
+
+  it("shows an application the person sent on the site as sent, with no Try again", () => {
+    const presentation = resolve(
+      buildResult({
+        state: "submitted",
+        summary: "You sent this application yourself on the site.",
+        detail:
+          "The site showed its confirmation after you sent the form Job Finder filled in. Job Finder did not press send.",
+        privacyReceipt: null,
+      }),
+    );
+
+    expect(presentation).toMatchObject({
+      state: "submitted",
+      primaryAction: "none",
+      primaryActionLabel: null,
+    });
   });
 
   it("keeps an uncertain submission terminal until a person verifies it", () => {
@@ -493,5 +512,83 @@ describe("resolveApplicationRecoveryPresentation", () => {
     );
     expect(presentation.primaryAction).toBe("none");
     expect(presentation.primaryActionLabel).toBeNull();
+  });
+});
+
+describe("a planned job's standing in its batch", () => {
+  const planned = buildResult({
+    runId: "run_1",
+    state: "planned",
+    completedAt: null,
+  });
+
+  it("reads what the run is doing from the workspace", () => {
+    const read = buildApplyRunContextReader({
+      applyRuns: [
+        { id: "run_1", state: "running" },
+      ] as unknown as JobFinderWorkspaceSnapshot["applyRuns"],
+      applyJobResults: [
+        buildResult({
+          id: "result_0",
+          runId: "run_1",
+          state: "awaiting_review",
+        }),
+        planned,
+      ],
+      activityControl: { paused: true, pauseBehavior: "finish_current" },
+    });
+    expect(read(planned)).toEqual({
+      state: "running",
+      activityPaused: true,
+      started: true,
+    });
+    expect(read(buildResult({ runId: "run_gone" }))).toBeNull();
+  });
+
+  it("offers Try again for a job a safety limit left behind", () => {
+    expect(
+      resolveApplicationRecoveryPresentation({
+        canOpenSafeguards: true,
+        isApplyPending: false,
+        run: {
+          state: "paused_for_user_review",
+          activityPaused: false,
+          started: true,
+        },
+        visibleApplyResult: planned,
+      }),
+    ).toMatchObject({
+      state: "retry",
+      statusLine: "Job Finder did not get to this application",
+      primaryAction: "try_again",
+    });
+  });
+
+  it("says Paused, with no action, while the person's pause holds it", () => {
+    expect(
+      resolveApplicationRecoveryPresentation({
+        canOpenSafeguards: true,
+        isApplyPending: false,
+        run: { state: "running", activityPaused: true, started: true },
+        visibleApplyResult: planned,
+      }),
+    ).toMatchObject({
+      statusLine: "Paused before this application",
+      primaryAction: "none",
+    });
+  });
+
+  it("waits its turn in a batch that is still going", () => {
+    expect(
+      resolveApplicationRecoveryPresentation({
+        canOpenSafeguards: true,
+        isApplyPending: false,
+        run: { state: "running", activityPaused: false, started: true },
+        visibleApplyResult: planned,
+      }),
+    ).toMatchObject({
+      statusLine: "Waiting its turn in this batch",
+      primaryAction: "none",
+    });
   });
 });

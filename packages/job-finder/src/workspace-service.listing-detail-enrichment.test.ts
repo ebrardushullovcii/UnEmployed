@@ -126,4 +126,36 @@ describe("listing detail enrichment inside a discovery run", () => {
       ),
     ).toBe(true);
   }, 30_000);
+
+  test("a rate-limited listing is read on shortlist once the site's wait has passed", async () => {
+    let limited = true;
+    const fetchListingHtml: ListingHtmlFetcher = (url) =>
+      Promise.resolve(
+        limited
+          ? { status: 429, html: "", finalUrl: url, retryAfterMs: 0 }
+          : {
+              status: 200,
+              html: RECORD_PAGE("Senior Product Designer", "Signal Systems"),
+              finalUrl: url,
+            },
+      );
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      fetchListingHtml,
+    });
+
+    await workspaceService.runDiscovery();
+    const blocked = (await repository.listSavedJobs()).find(
+      (job) => job.listingDetailFetch?.outcome === "blocked",
+    );
+    expect(blocked?.listingDetailFetch?.retryAfterAt).toBeTruthy();
+
+    limited = false;
+    await workspaceService.queueJobForReview(blocked!.id);
+
+    const read = (await repository.listSavedJobs()).find(
+      (job) => job.id === blocked!.id,
+    );
+    expect(read?.listingDetailFetch?.outcome).toBe("enriched");
+    expect(read?.listingDetailCapture?.state).toBe("captured");
+  }, 30_000);
 });

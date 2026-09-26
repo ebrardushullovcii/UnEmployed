@@ -3,6 +3,8 @@ import type {
   OpenBrowserSessionOptions,
 } from "@unemployed/browser-runtime";
 import { randomUUID } from "node:crypto";
+import { recordApplicationsSentByPerson } from "./internal/application-sent-by-person";
+import { refreshAutomaticApplicationFailurePauses } from "./internal/automatic-safeguards";
 import {
   ApplicationRecordSchema,
   JobFinderDiscoveryCancellationInputSchema,
@@ -229,6 +231,9 @@ async function withPreparationCapacityTransition<T>(
   }
 }
 
+/** How long a workspace read waits for verifying steps to be picked up. */
+const SNAPSHOT_RECOVERY_WAIT_MS = 1_500;
+
 export function createJobFinderWorkspaceService(
   options: CreateJobFinderWorkspaceServiceOptions,
 ): JobFinderWorkspaceService {
@@ -244,6 +249,7 @@ export function createJobFinderWorkspaceService(
     fetchListingHtml,
     onActivityControlChanged,
     onDetachedApplyRunFinished,
+    onExplicitUserStart,
   } = options;
   const activeDiscoveryAbortControllerRef = {
     current: null as AbortController | null,
@@ -624,6 +630,9 @@ export function createJobFinderWorkspaceService(
     async closeParkedBrowserTab(source, tab): Promise<void> {
       await browserRuntime.closeParkedTab?.(source, tab);
     },
+    async resumeActivityForExplicitStart(): Promise<void> {
+      await requireActivityEnabled();
+    },
     hasActiveBrowserWorkflow: () =>
       activeDiscoveryAbortControllerRef.current !== null ||
       activeDiscoveryPromiseRef.current !== null ||
@@ -712,7 +721,24 @@ export function createJobFinderWorkspaceService(
   }
 
   async function getWorkspaceSnapshot() {
-    await resumeVerifyingUserActions();
+    // Recovery starts or joins the continuation of every verifying step, and
+    // a continuation drives the browser for minutes. Quick verifications
+    // still land in this snapshot; a long continuation carries on in the
+    // background instead of holding every read (the app showed "Loading your
+    // workspace" for as long as the agent worked).
+    const recovery = resumeVerifyingUserActions();
+    recovery.catch((error: unknown) => {
+      console.error("[user-actions] recovery of a verifying step failed", error);
+    });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    await Promise.race([
+      recovery,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, SNAPSHOT_RECOVERY_WAIT_MS);
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
     return snapshotProfileMethods.getWorkspaceSnapshot();
   }
 
@@ -755,6 +781,10 @@ export function createJobFinderWorkspaceService(
     getWorkspaceSnapshot,
   });
   context.requireApplicationSafeguardClearance = async (jobIds, savedJobs) => {
+    await refreshAutomaticApplicationFailurePauses({
+      ctx: context,
+      now: new Date().toISOString(),
+    });
     const blockers =
       await safeguardMethods.evaluateApplicationPreparationBlockers(
         jobIds,
@@ -902,6 +932,7 @@ export function createJobFinderWorkspaceService(
     if ((await repository.getActivityControl()).paused) {
       await setActivityControl({ paused: false });
     }
+    await onExplicitUserStart?.();
   }
 
   async function resolvePreparationCampaign(
@@ -1552,6 +1583,8 @@ export function createJobFinderWorkspaceService(
         userActionMethods.performUserAction(command),
       ),
     ...applicationMethods,
+    recordApplicationsSentByPerson: () =>
+      recordApplicationsSentByPerson(context),
     generateResume: (jobId) =>
       trackWorkspaceOperation("resume generation", () =>
         applicationMethods.generateResume(jobId),

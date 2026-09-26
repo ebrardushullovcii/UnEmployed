@@ -17,6 +17,15 @@ describe("createJobFinderWorkspaceService", () => {
           headline: "Placeholder headline",
           portfolioUrl: null,
           linkedinUrl: null,
+          // Untouched: nothing of the person's own is on it yet. A profile
+          // with roles or skills on it is theirs, and an import asks before
+          // replacing what it holds.
+          experiences: [],
+          education: [],
+          certifications: [],
+          projects: [],
+          spokenLanguages: [],
+          skills: [],
           baseResume: {
             ...createSeed().profile.baseResume,
             extractionStatus: "not_started",

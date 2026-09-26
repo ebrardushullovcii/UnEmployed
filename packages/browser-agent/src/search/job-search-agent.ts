@@ -712,6 +712,10 @@ export async function runJobSearchAgent(
     ceilings: {
       maxSteps: Math.max(config.maxSteps, DEFAULT_MAX_STEPS),
       timeBudgetMs: config.runControl?.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS,
+      // Same as the apply agent: a turn that timed out or hit a temporary
+      // service failure ran no tools, so asking once more repeats nothing,
+      // and one provider hiccup no longer ends the search on this source.
+      modelTurnTimeoutRetries: 1,
       ...(config.runControl?.noProgressStepLimit
         ? { noProgressStepLimit: config.runControl.noProgressStepLimit }
         : {}),

@@ -151,6 +151,44 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(model.activeCount).toBe(0);
   });
 
+  test("names the job being filled after a resume, not the one finished before the pause", () => {
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        activityControl: { paused: false, pausedAt: null, reason: null },
+        discoveryJobs: [
+          { id: "job_1", company: "Dusk", title: "Frontend" },
+          { id: "job_2", company: "Cedar", title: "Frontend" },
+        ] as unknown as JobFinderWorkspaceSnapshot["discoveryJobs"],
+        applyRuns: [
+          createApplyRun({
+            mode: "queue_auto",
+            jobIds: ["job_1", "job_2"],
+            currentJobId: "job_1",
+            totalJobs: 2,
+            pendingJobs: 1,
+          }),
+        ],
+        applyJobResults: [
+          {
+            id: "result_1",
+            runId: "apply_current",
+            jobId: "job_1",
+            state: "awaiting_review",
+          },
+          {
+            id: "result_2",
+            runId: "apply_current",
+            jobId: "job_2",
+            state: "filling",
+          },
+        ] as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    expect(findTask(model, "apply").sourceLabel).toBe("Cedar · Frontend");
+  });
+
   test("does not claim an application-only safeguard also pauses discovery", () => {
     const model = buildJobFinderTaskCenterModel({
       workspace: createWorkspace({
@@ -804,7 +842,8 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.resumeActionLabel).toBe("Prepare remaining jobs");
     expect(task.resumeRoute).toBe("/job-finder/applications");
     expect(task.applyRecoveryJobIds).toEqual(["job_1"]);
-    expect(task.reviewActionLabel).toBe("Review prepared sample");
+    // No sample review waits for this run, so there is no sample to review.
+    expect(task.reviewActionLabel).toBe("Open Safeguards");
     expect(task.reviewRoute).toBe("/job-finder/safeguards");
   });
 
@@ -882,6 +921,157 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.applyRecoveryJobIds).toBeUndefined();
   });
 
+  test("an old paused run whose only job was sent reads finished, not a pause or a final review", () => {
+    const run = createApplyRun({
+      state: "paused_for_user_review",
+      totalJobs: 1,
+      pendingJobs: 1,
+      summary: "The site wants you signed in first.",
+    });
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        applyRuns: [run],
+        applyJobResults: [
+          {
+            id: "result_sent",
+            runId: run.id,
+            jobId: "job_1",
+            applicationRecordId: "application_1",
+            state: "submitted",
+            updatedAt: "2026-07-31T10:00:06.000Z",
+          },
+        ] as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    const task = findTask(model, "apply");
+    expect(task.status).toBe("completed");
+    expect(task.stageLabel).toBe("Applied");
+    expect(task.canCancel).toBe(false);
+    expect(task.reviewActionLabel).toBeUndefined();
+    expect(model.items.some((item) => item.kind === "safeguards")).toBe(false);
+  });
+
+  test("an old paused run whose job was tried again in a newer attempt is finished", () => {
+    const run = createApplyRun({
+      state: "paused_for_user_review",
+      totalJobs: 1,
+      pendingJobs: 1,
+    });
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        applyRuns: [run],
+        applyJobResults: [
+          {
+            id: "result_old",
+            runId: run.id,
+            jobId: "job_1",
+            applicationRecordId: "application_1",
+            state: "awaiting_review",
+            blockerReason: "auth_required",
+            updatedAt: "2026-07-31T10:00:06.000Z",
+          },
+          {
+            id: "result_new",
+            runId: "apply_other",
+            jobId: "job_1",
+            applicationRecordId: "application_1",
+            state: "failed",
+            updatedAt: "2026-07-31T10:30:00.000Z",
+          },
+        ] as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    expect(findTask(model, "apply").stageLabel).toBe("Finished");
+    expect(model.pausedCount).toBe(0);
+  });
+
+  test("a safety pause with a pending sample review offers the sample", () => {
+    const run = createApplyRun({
+      state: "paused_for_user_review",
+      jobIds: ["job_1", "job_2"],
+      totalJobs: 2,
+      pendingJobs: 1,
+    });
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        applyRuns: [run],
+        intelligence: JobFinderIntelligenceStateSchema.parse({
+          safeguards: {
+            companyApplicationCaps: [],
+            simultaneousApplicationConflicts: [],
+            listingSignals: [],
+            abnormalFailurePauses: [],
+            preparedBatchSampleReviews: [
+              {
+                id: "review_1",
+                batchId: run.id,
+                preparedCount: 1,
+                sampleCount: 1,
+                reviewedCount: 0,
+                sampledItemIds: [],
+                reviewCompleted: false,
+                explanation: "Review one prepared application.",
+                recoveryGuidance: "Open the sample and mark it reviewed.",
+              },
+            ],
+            contradictoryAnswerDetections: [],
+            safeguardDismissals: [],
+            updatedAt: "2026-07-31T10:00:06.000Z",
+          },
+        }),
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    const task = findTask(model, "apply");
+    expect(task.stageLabel).toBe("Paused by a safety limit");
+    expect(task.reviewActionLabel).toBe("Review prepared sample");
+  });
+
+  test("an outcome to verify does not hide a batch running meanwhile", () => {
+    const running = createApplyRun({
+      id: "apply_running",
+      mode: "queue_auto",
+      state: "running",
+      jobIds: ["job_2", "job_3"],
+      totalJobs: 2,
+      pendingJobs: 2,
+      updatedAt: "2026-07-31T10:10:00.000Z",
+    });
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        applyRuns: [running],
+        applyJobResults: [
+          {
+            id: "result_uncertain",
+            runId: "apply_old",
+            jobId: "job_1",
+            applicationRecordId: "application_1",
+            state: "submitted",
+            updatedAt: "2026-07-31T10:00:06.000Z",
+            privacyReceipt: {
+              submissionOutcome: { outcome: "outcome_uncertain" },
+            },
+          },
+        ] as unknown as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    const applyItems = model.items.filter((item) => item.kind === "apply");
+    expect(applyItems.map((item) => item.title)).toEqual([
+      "Manual verification required",
+      "Applications",
+    ]);
+    expect(applyItems[1]?.status).toBe("active");
+    expect(applyItems[1]?.canCancel).toBe(true);
+    expect(model.activeCount).toBe(1);
+  });
+
   test("clears the paused task after the last application handoff is cancelled", () => {
     const run = createApplyRun({
       state: "paused_for_user_review",
@@ -920,7 +1110,13 @@ describe("buildJobFinderTaskCenterModel", () => {
       isResumeImportPending: false,
     });
 
-    expect(model.items.some((item) => item.kind === "apply")).toBe(false);
+    // The run is history now: no pause, no chip, nothing on Safeguards.
+    expect(
+      model.items.some(
+        (item) => item.kind === "apply" && item.status === "paused",
+      ),
+    ).toBe(false);
+    expect(model.items.some((item) => item.kind === "safeguards")).toBe(false);
     expect(model.pausedCount).toBe(0);
   });
 

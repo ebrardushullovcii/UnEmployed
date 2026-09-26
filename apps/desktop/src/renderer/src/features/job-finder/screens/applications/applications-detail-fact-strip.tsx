@@ -17,6 +17,7 @@ import {
   getCustomerFacingApplyText,
   applyResultIsServiceWorkerBlocked,
 } from "./applications-detail-panel-helpers";
+import type { PlannedApplyStanding } from "./applications-recovery-state";
 
 // The eyebrow token, not a literal `text-xs`: at 12px these labels sat between
 // the 11px eyebrow floor and the neighbouring `.label-mono-xs` labels in the
@@ -75,6 +76,8 @@ export function ApplicationsDetailFactStrip(props: {
     | null;
   visibleApplyRunId: string | null;
   waitingOnSafetyLimitReview?: boolean;
+  /** A job its batch has not started: the facts follow the status block. */
+  plannedStanding?: PlannedApplyStanding | null;
 }) {
   const {
     selectedAttempt,
@@ -85,7 +88,9 @@ export function ApplicationsDetailFactStrip(props: {
   const { consentSummary, latestBlocker, questionSummary, replaySummary } =
     selectedRecord;
   const resolvedRunId = visibleApplyRunId ?? visibleApplyResult?.runId ?? null;
+  const plannedStanding = props.plannedStanding ?? null;
   const visibleRunIsActive =
+    plannedStanding === null &&
     visibleApplyResult?.completedAt === null &&
     (visibleApplyResult.state === "planned" ||
       visibleApplyResult.state === "question_capture" ||
@@ -112,23 +117,29 @@ export function ApplicationsDetailFactStrip(props: {
           ? getAttemptLabel(persistedAttemptState)
           : null;
   const attemptStateLabel =
-    submissionOutcome === "submitted"
-      ? "Submitted (verified)"
-      : submissionOutcome === "outcome_uncertain"
-        ? "Outcome needs verification"
-        : visibleApplyResult?.state === "submitted"
-          ? "Submitted"
-          : visibleApplyResult?.state === "failed"
-            ? "Could not apply"
-            : visibleRunIsActive && !selectedAttemptBelongsToVisibleRun
-              ? "In progress"
-              : isResolvedAwaitingReview
-                ? "Ready to send"
-                : visibleApplyResult?.state === "blocked" ||
-                    (visibleApplyResult?.state === "awaiting_review" &&
-                      visibleApplyResult.blockerReason)
-                  ? "Needs you"
-                  : fallbackAttemptLabel;
+    plannedStanding === "not_started"
+      ? "Not started"
+      : plannedStanding === "paused"
+        ? "Paused"
+        : plannedStanding === "waiting_turn"
+          ? "Waiting its turn"
+          : submissionOutcome === "submitted"
+            ? "Submitted (verified)"
+            : submissionOutcome === "outcome_uncertain"
+              ? "Outcome needs verification"
+              : visibleApplyResult?.state === "submitted"
+                ? "Submitted"
+                : visibleApplyResult?.state === "failed"
+                  ? "Could not apply"
+                  : visibleRunIsActive && !selectedAttemptBelongsToVisibleRun
+                    ? "In progress"
+                    : isResolvedAwaitingReview
+                      ? "Ready to send"
+                      : visibleApplyResult?.state === "blocked" ||
+                          (visibleApplyResult?.state === "awaiting_review" &&
+                            visibleApplyResult.blockerReason)
+                        ? "Needs you"
+                        : fallbackAttemptLabel;
 
   const replayNoteSegments = [
     replaySummary.evidenceCount > 0
@@ -158,17 +169,18 @@ export function ApplicationsDetailFactStrip(props: {
     selectedRecord.lastActionLabel !== undefined &&
     (visibleApplyResult?.detail === selectedRecord.lastActionLabel ||
       visibleApplyResult?.summary === selectedRecord.lastActionLabel);
-  const latestActivityContent = isResolvedAwaitingReview
-    ? null
-    : visibleRunIsActive
-      ? getCustomerFacingApplyText(visibleApplyResult.detail)
-      : isFieldSavePause
-        ? FIELD_SAVE_PAUSE_ACTIVITY
-        : selectedRecord.lastActionLabel && !repeatsStatusBlock
-          ? isSiteBlockedPause
-            ? "Automatic prep paused"
-            : selectedRecord.lastActionLabel
-          : null;
+  const latestActivityContent =
+    isResolvedAwaitingReview || plannedStanding !== null
+      ? null
+      : visibleRunIsActive
+        ? getCustomerFacingApplyText(visibleApplyResult.detail)
+        : isFieldSavePause
+          ? FIELD_SAVE_PAUSE_ACTIVITY
+          : selectedRecord.lastActionLabel && !repeatsStatusBlock
+            ? isSiteBlockedPause
+              ? "Automatic prep paused"
+              : selectedRecord.lastActionLabel
+            : null;
   // On a finish-yourself pause the Next step callout directly above already
   // prints the whole sentence — the site acted, Job Finder stopped, finish in
   // the browser. "Latest activity" and "What stopped progress" were its two

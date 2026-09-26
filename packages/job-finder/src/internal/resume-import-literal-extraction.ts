@@ -273,6 +273,363 @@ function extractHeaderWorkModes(documentBundle: ResumeDocumentBundle): {
   };
 }
 
+/**
+ * Places a resume can name when it says where the person may work, in the
+ * words forms use. Anything else must read as a proper name (capitalised
+ * words) to be kept at all.
+ */
+const WORK_PLACE_ALIASES: Record<string, string> = {
+  us: "United States",
+  "u.s": "United States",
+  "u.s.": "United States",
+  usa: "United States",
+  "u.s.a": "United States",
+  "u.s.a.": "United States",
+  "united states": "United States",
+  "united states of america": "United States",
+  america: "United States",
+  uk: "United Kingdom",
+  "u.k": "United Kingdom",
+  "u.k.": "United Kingdom",
+  "united kingdom": "United Kingdom",
+  "great britain": "United Kingdom",
+  britain: "United Kingdom",
+  eu: "European Union",
+  "e.u": "European Union",
+  "e.u.": "European Union",
+  "european union": "European Union",
+  eea: "European Economic Area",
+  "european economic area": "European Economic Area",
+};
+
+/** "EU citizen", "British passport holder": the adjective names the place. */
+const NATIONALITY_PLACES: Record<string, string> = {
+  us: "United States",
+  "u.s.": "United States",
+  american: "United States",
+  uk: "United Kingdom",
+  british: "United Kingdom",
+  eu: "European Union",
+  european: "European Union",
+  "european union": "European Union",
+  albanian: "Albania",
+  australian: "Australia",
+  austrian: "Austria",
+  belgian: "Belgium",
+  brazilian: "Brazil",
+  bulgarian: "Bulgaria",
+  canadian: "Canada",
+  croatian: "Croatia",
+  czech: "Czechia",
+  danish: "Denmark",
+  dutch: "Netherlands",
+  estonian: "Estonia",
+  finnish: "Finland",
+  french: "France",
+  german: "Germany",
+  greek: "Greece",
+  hungarian: "Hungary",
+  indian: "India",
+  irish: "Ireland",
+  italian: "Italy",
+  japanese: "Japan",
+  kosovar: "Kosovo",
+  latvian: "Latvia",
+  lithuanian: "Lithuania",
+  mexican: "Mexico",
+  norwegian: "Norway",
+  polish: "Poland",
+  portuguese: "Portugal",
+  romanian: "Romania",
+  singaporean: "Singapore",
+  slovak: "Slovakia",
+  slovenian: "Slovenia",
+  spanish: "Spain",
+  swedish: "Sweden",
+  swiss: "Switzerland",
+  ukrainian: "Ukraine",
+};
+
+// A line about the work the person did for others ("helped clients obtain
+// work permits for Canada") is not a statement about the person.
+const THIRD_PARTY_CONTEXT =
+  /\b(?:clients?|customers?|employees?|candidates?|applicants?|staff|team members?|users?|workers|students|nationals|hires)\b/i;
+
+function normalizeWorkPlace(raw: string): string | null {
+  const cleaned = raw
+    .replace(/\s+/g, " ")
+    .replace(/^(?:the)\s+/i, "")
+    .replace(/[\s,]+$/g, "")
+    .trim();
+  if (!cleaned || cleaned.length > 40) {
+    return null;
+  }
+  const alias = WORK_PLACE_ALIASES[cleaned.toLowerCase()];
+  if (alias) {
+    return alias;
+  }
+  const words = cleaned.split(" ");
+  return words.length <= 4 &&
+    words.every((word) => /^\p{Lu}[\p{L}.'-]*$/u.test(word))
+    ? cleaned
+    : null;
+}
+
+function splitWorkPlaces(raw: string): string[] {
+  const bounded = raw.split(
+    /\s+(?:without|with|for|since|until|as|on|under|via|through|but|who|which|while|and\s+(?:do|does|will|am|have|need|require))\b/i,
+  )[0];
+  return (bounded ?? "")
+    .split(/\s*(?:,|&|\/|\band\b|\bor\b)\s*/i)
+    .map((part) => normalizeWorkPlace(part))
+    .filter((part): part is string => Boolean(part));
+}
+
+/**
+ * "U.S." and friends carry periods that would end a clause early; spell
+ * them without periods before anything reads the line.
+ */
+function normalizeEligibilityLine(line: string): string {
+  return line
+    .replace(/\bU\.\s?S\.\s?A\.?(?=\s|$|[^\p{L}])/giu, "USA")
+    .replace(/\bU\.\s?S\.?(?=\s|$|[^\p{L}])/giu, "US")
+    .replace(/\bU\.\s?K\.?(?=\s|$|[^\p{L}])/giu, "UK")
+    .replace(/\bE\.\s?U\.?(?=\s|$|[^\p{L}])/giu, "EU")
+    .replace(/[’‘]/g, "'");
+}
+
+/**
+ * Words that turn a statement of eligibility into its opposite or into
+ * something that is not true yet: "not authorized to work in", "awaiting
+ * green card", "applied for a work permit in". A legal answer is never read
+ * from such a clause; setup asks instead.
+ */
+const ELIGIBILITY_NEGATION =
+  /\b(?:not|no|non|never|without|yet|pending|awaiting|await|applying|applied|apply|application|in\s+progress|expired|expiring|former|formerly|previously|seeking|once|upon|expect|expects|expected|expecting|cannot|lack|lacks|lacking)\b|n't\b|\bwill\s+be\b|\bwould\s+be\b/i;
+
+/**
+ * What may follow the place in the same clause without turning the
+ * statement around. "Authorized to work in the US without sponsorship" is a
+ * yes; "Eligible to work in Canada (pending)" and "Authorized to work in the
+ * US: No" are not.
+ */
+const ELIGIBILITY_TAIL_NEGATION =
+  /\b(?:yet|pending|awaiting|applying|applied|application|in\s+progress|expired|expiring|expected|from\s+\d{4}|starting|once|upon)\b|[:?]\s*(?:no|false|n)\b/i;
+
+/** Text from the start of the clause that holds `index` up to `index`. */
+function clauseLead(line: string, index: number): string {
+  const before = line.slice(0, index);
+  const boundary = Math.max(
+    before.lastIndexOf("."),
+    before.lastIndexOf(";"),
+    before.lastIndexOf(","),
+  );
+  return before.slice(boundary + 1);
+}
+
+/** Text from `index` to the end of its clause. */
+function clauseTail(line: string, index: number): string {
+  const after = line.slice(index);
+  const boundary = after.search(/[.;,]/);
+  return boundary === -1 ? after : after.slice(0, boundary);
+}
+
+/**
+ * `matchStart..claimEnd` is the claim ("authorized to work in", "US
+ * citizen"); the clause before it must not negate it, and what follows it
+ * in the clause must not say it is pending, expired or answered "No".
+ */
+function statesEligibility(
+  line: string,
+  matchStart: number,
+  claimEnd: number,
+): boolean {
+  const lead = clauseLead(line, matchStart) + line.slice(matchStart, claimEnd);
+  return (
+    !ELIGIBILITY_NEGATION.test(lead) &&
+    !ELIGIBILITY_TAIL_NEGATION.test(clauseTail(line, claimEnd))
+  );
+}
+
+const SPONSORSHIP_WORD = /\b(?:visa\s+)?sponsor(?:ship)?\b/i;
+
+/**
+ * "Sponsorship required: No", "Need visa sponsorship? Yes": a form-style
+ * answer. The value after the colon or question mark decides; a label that
+ * is itself negated or is about an employer offering sponsorship is left
+ * alone.
+ */
+function readFormStyleSponsorship(line: string): boolean | null {
+  for (const match of line.matchAll(
+    /([^.;,:?]*\b(?:sponsorship|visa\s+sponsor)\b[^.;,:?]*)[:?]\s*(yes|no|true|false|y|n)\b/gi,
+  )) {
+    const label = match[1] ?? "";
+    if (
+      ELIGIBILITY_NEGATION.test(label) ||
+      /\b(?:offer|offers|offering|provide|provides|providing|available|company|employer|employers)\b/i.test(
+        label,
+      )
+    ) {
+      continue;
+    }
+    const answer = (match[2] ?? "").toLowerCase();
+    return answer === "yes" || answer === "true" || answer === "y";
+  }
+  return null;
+}
+
+/**
+ * Work-authorization and sponsorship facts the resume states outright.
+ *
+ * Application forms ask both on almost every job. A resume that says "EU
+ * citizen, no visa sponsorship required" has answered them; nothing here is
+ * inferred from where the person lives or wants to work. Negated, pending or
+ * ambiguous statements yield nothing, so setup asks the person.
+ */
+export function extractExplicitWorkEligibility(
+  documentBundle: ResumeDocumentBundle,
+): {
+  authorizedWorkCountries: {
+    values: string[];
+    evidence: string[];
+    blockIds: string[];
+  } | null;
+  requiresVisaSponsorship: {
+    value: boolean;
+    evidence: string;
+    blockIds: string[];
+  } | null;
+} {
+  const countries: string[] = [];
+  const countryEvidence: string[] = [];
+  const countryBlockIds: string[] = [];
+  let sponsorship: {
+    value: boolean;
+    evidence: string;
+    blockIds: string[];
+  } | null = null;
+
+  const blocks = [...documentBundle.blocks].sort(
+    (left, right) => left.readingOrder - right.readingOrder,
+  );
+  for (const block of blocks) {
+    for (const rawLine of block.text.split(/\r?\n/)) {
+      const evidenceLine = rawLine.replace(/^[\s•*·-]+/, "").trim();
+      if (
+        !evidenceLine ||
+        evidenceLine.length > 240 ||
+        THIRD_PARTY_CONTEXT.test(evidenceLine)
+      ) {
+        continue;
+      }
+      const line = normalizeEligibilityLine(evidenceLine);
+
+      const found: string[] = [];
+      for (const pattern of [
+        /\b(?:legally\s+)?(?:authori[sz]ed|eligible|entitled|permitted|allowed|cleared)\s+to\s+work\s+(?:(?:full[- ]time|permanently|legally)\s+)?in\s+([^.;:?()\n]+)/gi,
+        /\bright\s+to\s+work\s+in\s+([^.;:?()\n]+)/gi,
+        /\bwork\s+(?:permit|visa|authori[sz]ation)\s+(?:for|in)\s+([^.;:?()\n]+)/gi,
+        /\b(?:permanent\s+resident|citizen|national)\s+of\s+([^.;:?()\n]+)/gi,
+      ]) {
+        for (const match of line.matchAll(pattern)) {
+          const placesText = match[1] ?? "";
+          const places = splitWorkPlaces(placesText);
+          const matchStart = match.index ?? 0;
+          const claimEnd = matchStart + match[0].length - placesText.length;
+          if (
+            places.length > 0 &&
+            statesEligibility(line, matchStart, claimEnd)
+          ) {
+            found.push(...places);
+          }
+        }
+      }
+      // An adjective names the place only as a citizenship, a passport the
+      // person holds, or permanent residence: "German national team",
+      // "EU citizenship portal" and "Irish passport office" say nothing
+      // about the person.
+      for (const match of line.matchAll(
+        /\b([A-Z][A-Za-z]+(?:\s+Union)?)\s+([Cc]itizen|[Pp]assport\s+[Hh]older|[Pp]assport|[Pp]ermanent\s+[Rr]esident)\b(?!\s+(?:[Tt]eam|[Ss]ervices?|[Pp]ortal|[Oo]ffice|[Pp]rogram|[Pp]rogramme|[Aa]gency|[Dd]epartment)\b)/g,
+      )) {
+        const place = NATIONALITY_PLACES[(match[1] ?? "").toLowerCase()];
+        const matchStart = match.index ?? 0;
+        const noun = (match[2] ?? "").toLowerCase();
+        const matchEnd = matchStart + match[0].length;
+        if (
+          !place ||
+          (noun === "passport" &&
+            !/\b(?:hold|holds|holding|have|has|having)\s+(?:an?\s+|my\s+)?$/i.test(
+              line.slice(0, matchStart),
+            ))
+        ) {
+          continue;
+        }
+        if (statesEligibility(line, matchStart, matchEnd)) {
+          found.push(place);
+        }
+      }
+      for (const match of line.matchAll(
+        /\b(?:green[\s-]?card\s+holder|(?:hold|holds|holding|have|has|having)\s+(?:an?\s+|my\s+)?(?:(?:US|American)\s+)?green[\s-]?card)\b/gi,
+      )) {
+        const matchStart = match.index ?? 0;
+        if (statesEligibility(line, matchStart, matchStart + match[0].length)) {
+          found.push("United States");
+        }
+      }
+      if (found.length > 0) {
+        countries.push(...found);
+        countryEvidence.push(evidenceLine);
+        countryBlockIds.push(block.id);
+      }
+
+      if (!sponsorship && SPONSORSHIP_WORD.test(line)) {
+        const formAnswer = readFormStyleSponsorship(line);
+        if (formAnswer !== null) {
+          sponsorship = {
+            value: formAnswer,
+            evidence: evidenceLine,
+            blockIds: [block.id],
+          };
+          continue;
+        }
+        // Negation must sit in the same clause as the sponsorship words:
+        // "Not open to relocation, requires sponsorship" needs it.
+        const negative =
+          /\b(?:no|not|never|without|don't|do\s+not|does\s+not|doesn't|won't|will\s+not|shall\s+not)\b[^.;,\n]{0,40}?\b(?:visa\s+)?sponsor(?:ship)?\b/i.test(
+            line,
+          ) ||
+          /\bsponsorship\s*[:-]?\s*(?:is\s+)?(?:not|never)\s+(?:required|needed|necessary)\b/i.test(
+            line,
+          );
+        const positive =
+          /\b(?:require|requires|required|requiring|need|needs|needing|will\s+need)\b[^.;,\n]{0,30}?\b(?:visa\s+)?sponsor(?:ship)?\b/i.test(
+            line,
+          ) || /\bsponsorship\s+(?:is\s+)?(?:required|needed)\b/i.test(line);
+        if (negative || positive) {
+          sponsorship = {
+            value: !negative,
+            evidence: evidenceLine,
+            blockIds: [block.id],
+          };
+        }
+      }
+    }
+  }
+
+  const uniqueCountries = [...new Set(countries)];
+  return {
+    authorizedWorkCountries:
+      uniqueCountries.length > 0
+        ? {
+            values: uniqueCountries,
+            evidence: [...new Set(countryEvidence)],
+            blockIds: [...new Set(countryBlockIds)],
+          }
+        : null,
+    requiresVisaSponsorship: sponsorship,
+  };
+}
+
 export function extractLiteralCandidates(
   runId: string,
   documentBundle: ResumeDocumentBundle,
@@ -414,6 +771,44 @@ export function extractLiteralCandidates(
       sourceBlockIds: headerWorkMode.sourceBlockIds,
       confidence: 0.99,
       notes: ["explicit_header_work_mode"],
+      alternatives: [],
+    });
+  }
+
+  const eligibility = extractExplicitWorkEligibility(documentBundle);
+  if (eligibility.authorizedWorkCountries) {
+    drafts.push({
+      target: {
+        section: "work_eligibility",
+        key: "authorizedWorkCountries",
+        recordId: null,
+      },
+      label: "Countries where you can work",
+      value: eligibility.authorizedWorkCountries.values,
+      normalizedValue: eligibility.authorizedWorkCountries.values,
+      valuePreview: eligibility.authorizedWorkCountries.values.join(", "),
+      evidenceText: eligibility.authorizedWorkCountries.evidence.join(" "),
+      sourceBlockIds: eligibility.authorizedWorkCountries.blockIds,
+      confidence: 0.97,
+      notes: ["explicit_eligibility_statement"],
+      alternatives: [],
+    });
+  }
+  if (eligibility.requiresVisaSponsorship) {
+    drafts.push({
+      target: {
+        section: "work_eligibility",
+        key: "requiresVisaSponsorship",
+        recordId: null,
+      },
+      label: "Needs visa sponsorship",
+      value: eligibility.requiresVisaSponsorship.value,
+      normalizedValue: eligibility.requiresVisaSponsorship.value,
+      valuePreview: eligibility.requiresVisaSponsorship.value ? "Yes" : "No",
+      evidenceText: eligibility.requiresVisaSponsorship.evidence,
+      sourceBlockIds: eligibility.requiresVisaSponsorship.blockIds,
+      confidence: 0.97,
+      notes: ["explicit_eligibility_statement"],
       alternatives: [],
     });
   }

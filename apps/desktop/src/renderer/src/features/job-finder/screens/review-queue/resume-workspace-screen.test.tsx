@@ -445,6 +445,7 @@ function renderScreen(options?: {
     patchIds: readonly string[],
   ) => void;
   onRestoreRevision?: (jobId: string, revisionId: string) => void;
+  onUndoAiEdit?: (jobId: string, revisionId: string) => void;
   onSaveDraftAndThen?: (
     draft: ResumeDraft,
     next: () => void | Promise<void>,
@@ -485,6 +486,7 @@ function renderScreen(options?: {
         options?.onResolveAssistantProposal ?? vi.fn()
       }
       onRestoreRevision={options?.onRestoreRevision ?? vi.fn()}
+      onUndoAiEdit={options?.onUndoAiEdit ?? vi.fn()}
       onSaveDraft={vi.fn()}
       onSaveDraftAndThen={options?.onSaveDraftAndThen ?? vi.fn()}
       onSendAssistantMessage={vi.fn()}
@@ -948,6 +950,7 @@ describe("ResumeWorkspaceScreen", () => {
         onRefresh={vi.fn()}
         onRegenerateDraft={vi.fn()}
         onRestoreRevision={vi.fn()}
+        onUndoAiEdit={vi.fn()}
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
         onSendAssistantMessage={vi.fn()}
@@ -993,6 +996,7 @@ describe("ResumeWorkspaceScreen", () => {
           onRefresh={vi.fn()}
           onRegenerateDraft={vi.fn()}
           onRestoreRevision={vi.fn()}
+          onUndoAiEdit={vi.fn()}
           onSaveDraft={vi.fn()}
           onSaveDraftAndThen={vi.fn()}
           onSendAssistantMessage={vi.fn()}
@@ -1301,6 +1305,7 @@ describe("ResumeWorkspaceScreen", () => {
       throw new Error("Expected a section with text in the fixture.");
     }
     const onRestoreRevision = vi.fn();
+    const onUndoAiEdit = vi.fn();
     const acceptedWorkspace = JobFinderResumeWorkspaceSchema.parse({
       ...workspace,
       revisions: [
@@ -1325,6 +1330,7 @@ describe("ResumeWorkspaceScreen", () => {
 
     renderScreen({
       onRestoreRevision,
+      onUndoAiEdit,
       workspace: acceptedWorkspace,
       assistantMessages: [
         buildAssistantMessage({
@@ -1362,12 +1368,14 @@ describe("ResumeWorkspaceScreen", () => {
     expect(notice?.textContent).toContain("1 AI edit applied");
 
     // Accepting a proposal is undoable from the page it changed, not only
-    // from version history.
+    // from version history. Undo removes only that AI edit; it does not
+    // restore the whole pre-edit draft over later manual edits.
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
-    expect(onRestoreRevision).toHaveBeenCalledWith(
+    expect(onUndoAiEdit).toHaveBeenCalledWith(
       "job_ready",
       "revision_assistant_1",
     );
+    expect(onRestoreRevision).not.toHaveBeenCalled();
   });
 
   it("keeps only the focused section open and still lands on its exact field", async () => {
@@ -1590,6 +1598,7 @@ describe("ResumeWorkspaceScreen", () => {
         onRefresh={vi.fn()}
         onRegenerateDraft={vi.fn()}
         onRestoreRevision={vi.fn()}
+        onUndoAiEdit={vi.fn()}
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
         onSendAssistantMessage={vi.fn()}
@@ -1839,6 +1848,7 @@ describe("ResumeWorkspaceScreen", () => {
         onRefresh={vi.fn()}
         onRegenerateDraft={vi.fn()}
         onRestoreRevision={vi.fn()}
+        onUndoAiEdit={vi.fn()}
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
         onSendAssistantMessage={vi.fn()}
@@ -2232,6 +2242,7 @@ describe("ResumeWorkspaceScreen", () => {
           onRegenerateDraft={vi.fn()}
           onResolveAssistantProposal={onResolveAssistantProposal}
           onRestoreRevision={vi.fn()}
+          onUndoAiEdit={vi.fn()}
           onSaveDraft={vi.fn()}
           onSaveDraftAndThen={vi.fn()}
           onSendAssistantMessage={vi.fn()}

@@ -112,7 +112,7 @@ const CANONICAL_ROUTE_DEFINITIONS = Object.freeze([
     id: "shortlisted",
     route: "/job-finder/review-queue",
     label: "Shortlisted",
-    heading: "Shortlisted jobs",
+    heading: "Shortlisted",
     surface: "shortlisted",
   },
   {
@@ -3778,7 +3778,7 @@ async function run() {
       id: "shortlisted",
       scenarioId: "scale-shortlisted-pagination",
       route: "/job-finder/review-queue",
-      heading: "Shortlisted jobs",
+      heading: "Shortlisted",
       surface: "shortlisted",
       pageCount: Math.ceil(counts.shortlisted / 40),
       paginationLabel: "shortlisted jobs pagination",
@@ -3941,7 +3941,7 @@ async function run() {
       paginationGeometry: native125PaginationGeometry,
     });
 
-    await navigateHash(page, "/job-finder/review-queue", "Shortlisted jobs");
+    await navigateHash(page, "/job-finder/review-queue", "Shortlisted");
     await checkHorizontalOverflow(page, "shortlisted-native125");
     await captureScreenshot(page, "shortlisted-p1-native125", {
       viewport: "native125",

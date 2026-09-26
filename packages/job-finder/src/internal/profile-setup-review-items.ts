@@ -854,7 +854,9 @@ export function buildProfileSetupReviewItems(
         shouldIncludeCandidateInSetupReview(candidate) &&
         !isEducationScalarCoveredByRecord(candidate, input.candidates),
     )
-    .map((candidate) => toReviewDraft(candidate, input.documentBundle))
+    .map((candidate) =>
+      toReviewDraft(candidate, input.documentBundle, input.profile),
+    )
     .filter((draft): draft is DerivedReviewDraft => draft !== null)
     .filter(
       (draft) =>

@@ -58,7 +58,18 @@ import {
 import { ApplicationsCrmDetail } from "./applications-crm-detail";
 import type { ApplyMode } from "../../lib/apply-mode-contracts-stub";
 import { resolveApplyStatePresentation } from "./apply-state";
+import { buildApplyRunContextReader } from "./applications-recovery-state";
 import { APPLICATION_PREPARATION_BATCH_LIMIT } from "../review-queue/review-queue-status";
+
+/** Statuses an application reaches once it was sent and can have an outcome. */
+const OUTCOME_STATUSES = new Set<string>([
+  "submitted",
+  "assessment",
+  "interview",
+  "rejected",
+  "offer",
+  "withdrawn",
+]);
 
 export function ApplicationsScreen(props: {
   actionMessage?: string | null;
@@ -66,6 +77,8 @@ export function ApplicationsScreen(props: {
   applicationRecords: readonly ApplicationRecord[];
   applyRuns: JobFinderWorkspaceSnapshot["applyRuns"];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];
+  /** The person's pause, so a job held by it reads Paused, not Filling in. */
+  activityControl?: JobFinderWorkspaceSnapshot["activityControl"] | null;
   /**
    * Live user-action requests, so the finished-run summary counts this run's
    * share of the same Needs you population the header badge totals.
@@ -134,6 +147,8 @@ export function ApplicationsScreen(props: {
   getOutcomeResumeStrategyId?: (jobId: string) => string | null;
   safeguardsBlockerCount?: number;
   onOpenSafeguards?: () => void;
+  /** Opens Outcomes, which has no navigation entry of its own. */
+  onOpenOutcomes?: () => void;
   onOpenNeedsYou?: () => void;
   onPerformUserAction?: (
     command: UserActionCommandInput,
@@ -155,6 +170,8 @@ export function ApplicationsScreen(props: {
   onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
   /** True while a pending browser step exists for the visible result. */
   canConfirmFinishedInBrowser?: boolean;
+  /** The pending browser step is a sign-in Job Finder watches by itself. */
+  browserStepContinuesOnItsOwn?: boolean;
   confirmFinishedInBrowserStatus?: ConfirmFinishedInBrowserStatus;
   confirmFinishedInBrowserBlockerText?: string | null;
   /** The mode chosen in Settings; decides what a finished fill means. */
@@ -253,14 +270,19 @@ export function ApplicationsScreen(props: {
     for (const result of applyJobResults) {
       if (!runningRunIds.has(result.runId)) continue;
       if (result.state === "planned") {
-        lines.set(result.jobId, "Waiting its turn in this run.");
+        lines.set(
+          result.jobId,
+          props.activityControl?.paused
+            ? "Paused before this application. It carries on when you resume."
+            : "Waiting its turn in this run.",
+        );
         continue;
       }
       if (result.state !== "filling" && result.state !== "submitting") continue;
       lines.set(result.jobId, result.summary?.trim() || "Filling in the form.");
     }
     return lines;
-  }, [applyJobResults, applyRuns]);
+  }, [applyJobResults, applyRuns, props.activityControl?.paused]);
   const applyMode: ApplyMode = props.applyMode ?? "fill_only";
   // The newest run result per record, so each row reads one of the five
   // apply states from what the run recorded.
@@ -278,6 +300,17 @@ export function ApplicationsScreen(props: {
     }
     return latest;
   }, [applyJobResults]);
+  // What each result's run is doing: a planned job waits its turn, is held
+  // by the person's pause, or was left behind by a batch that stopped.
+  const readApplyRunContext = useMemo(
+    () =>
+      buildApplyRunContextReader({
+        applyRuns,
+        applyJobResults,
+        activityControl: props.activityControl ?? null,
+      }),
+    [applyJobResults, applyRuns, props.activityControl],
+  );
   // Bulk retry: every application whose last run ended where a fresh run
   // could differ. One control, so a batch that failed on a bad network night
   // is not ten separate "Try again" presses.
@@ -298,6 +331,7 @@ export function ApplicationsScreen(props: {
             ? "apply_for_me"
             : "fill_only",
         result,
+        run: readApplyRunContext(result),
         recordFailure:
           record.lastAttemptState === "failed"
             ? {
@@ -315,7 +349,12 @@ export function ApplicationsScreen(props: {
       }
     }
     return jobIds.slice(0, APPLICATION_PREPARATION_BATCH_LIMIT);
-  }, [applicationRecords, applyRuns, latestApplyResultByRecordId]);
+  }, [
+    applicationRecords,
+    applyRuns,
+    latestApplyResultByRecordId,
+    readApplyRunContext,
+  ]);
   const filterCounts = useMemo(
     () =>
       Object.fromEntries(
@@ -332,6 +371,9 @@ export function ApplicationsScreen(props: {
                         ? "apply_for_me"
                         : "fill_only",
                     result: latestApplyResultByRecordId.get(record.id) ?? null,
+                    run: readApplyRunContext(
+                      latestApplyResultByRecordId.get(record.id) ?? null,
+                    ),
                     pendingQuestionCount: Math.max(
                       0,
                       record.questionSummary.total -
@@ -350,7 +392,7 @@ export function ApplicationsScreen(props: {
           ).length,
         ]),
       ) as Record<ApplicationsViewFilter, number>,
-    [applicationRecords, latestApplyResultByRecordId],
+    [applicationRecords, latestApplyResultByRecordId, readApplyRunContext],
   );
   const latestFinishedAutomaticRun = useMemo(
     () =>
@@ -414,6 +456,9 @@ export function ApplicationsScreen(props: {
                     ? "apply_for_me"
                     : "fill_only",
                 result: latestApplyResultByRecordId.get(record.id) ?? null,
+                run: readApplyRunContext(
+                  latestApplyResultByRecordId.get(record.id) ?? null,
+                ),
                 pendingQuestionCount: Math.max(
                   0,
                   record.questionSummary.total -
@@ -430,7 +475,12 @@ export function ApplicationsScreen(props: {
             : undefined,
         ),
       ),
-    [activeFilter, applicationRecords, latestApplyResultByRecordId],
+    [
+      activeFilter,
+      applicationRecords,
+      latestApplyResultByRecordId,
+      readApplyRunContext,
+    ],
   );
   const isSelectedRecordHiddenByFilter =
     selectedRecord !== null &&
@@ -734,16 +784,35 @@ export function ApplicationsScreen(props: {
                   Back to Applications
                 </Button>
               ) : applicationRecords.length > 0 ? (
-                <Button
-                  className="border-(--control-border)"
-                  data-testid="applications-open-tracker"
-                  onClick={() => setWorkspaceView("crm")}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  Open tracker
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Outcomes has no navigation entry; it is reached from
+                      here once something has been sent and can have one. */}
+                  {props.onOpenOutcomes &&
+                  applicationRecords.some((record) =>
+                    OUTCOME_STATUSES.has(record.status),
+                  ) ? (
+                    <Button
+                      className="border-(--control-border)"
+                      data-testid="applications-open-outcomes"
+                      onClick={props.onOpenOutcomes}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      See outcomes
+                    </Button>
+                  ) : null}
+                  <Button
+                    className="border-(--control-border)"
+                    data-testid="applications-open-tracker"
+                    onClick={() => setWorkspaceView("crm")}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    Open tracker
+                  </Button>
+                </div>
               ) : null
             }
             description={
@@ -905,6 +974,7 @@ export function ApplicationsScreen(props: {
             hasAnyApplications={applicationRecords.length > 0}
             liveRunLinesByJobId={liveRunLinesByJobId}
             latestApplyResultByRecordId={latestApplyResultByRecordId}
+            readApplyRunContext={readApplyRunContext}
             applyMode={applyMode}
             onFilterChange={setActiveFilter}
             onSelectRecord={selectRecordAndRevealDetails}
@@ -978,6 +1048,7 @@ export function ApplicationsScreen(props: {
         ) : (
           <ApplicationsDetailPanel
             activeFilter={activeFilter}
+            readApplyRunContext={readApplyRunContext}
             applyRunDetails={applyRunDetails}
             applyRunDetailsTarget={applyRunDetailsTarget}
             applyRunDetailsError={applyRunDetailsError}
@@ -1055,6 +1126,9 @@ export function ApplicationsScreen(props: {
               : {})}
             canConfirmFinishedInBrowser={
               props.canConfirmFinishedInBrowser ?? false
+            }
+            browserStepContinuesOnItsOwn={
+              props.browserStepContinuesOnItsOwn ?? false
             }
             confirmFinishedInBrowserStatus={
               props.confirmFinishedInBrowserStatus ?? "idle"

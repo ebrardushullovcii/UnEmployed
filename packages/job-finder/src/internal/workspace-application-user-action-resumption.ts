@@ -36,6 +36,7 @@ import {
   buildApplicationBlockerFingerprint,
   isApplicationAuthenticationUserActionKind,
   isApplicationPrepareOnlyUserAction,
+  handApplicationPageToPersonForAccessStep,
   persistApplicationUserAction,
 } from "./workspace-application-user-action";
 import {
@@ -59,6 +60,7 @@ import {
   resolveActiveSourceInstructionArtifact,
 } from "./workspace-helpers";
 import { uniqueStrings } from "./shared";
+import { selectApplicationSighting } from "./listing-sightings";
 import { withApplicationRecordTransition } from "./application-crm";
 import { mergeApplicationAnswersIntoExecutionProfile } from "./workspace-application-answer-execution";
 import { resolveApplicationAttachmentsForExecution } from "./workspace-application-attachments";
@@ -357,7 +359,7 @@ function createFailedExecutionResult(error: unknown): ApplyExecutionResult {
     visualEvidence: [],
     visualObservationSets: [],
     visualCheckpoints: [],
-    nextActionLabel: "Start Apply Copilot again when you are ready.",
+    nextActionLabel: "Try again when you are ready.",
     executionTimings: [],
   });
 }
@@ -783,6 +785,43 @@ export function createApplicationUserActionResumer(
           );
     if (!hasTransitionEvidence) return;
 
+    // A typed answer is committed in two writes: the request moves to
+    // verifying, then the answer is stored. If the second write failed, the
+    // application must not carry on without it (the agent would write its
+    // own answer instead). Hand the question back so the person can answer
+    // again. A grouped answer is stored in the same write as its transition.
+    if (request.state === "verifying") {
+      const answerEvent = requestEvents.find(
+        (event) =>
+          event.operation === "submit_manual_answer" &&
+          event.resultingRevision === request.revision &&
+          !event.id.endsWith(":grouped_manual_answer"),
+      );
+      if (answerEvent && scope.resultId) {
+        const recordPrefix = `manual_answer_${request.id}_${request.revision}`;
+        const storedAnswers =
+          await ctx.repository.listApplicationAnswerRecords({
+            runId: scope.runId,
+            jobId: scope.jobId,
+            resultId: scope.resultId,
+            applicationRecordId: scope.applicationRecordId,
+          });
+        const answerStored = storedAnswers.some(
+          (record) =>
+            record.id === recordPrefix ||
+            record.id.startsWith(`${recordPrefix}_`),
+        );
+        if (!answerStored) {
+          await settlePrepareOnlyVerification({
+            ctx,
+            outcome: "still_blocked",
+            request,
+          });
+          return;
+        }
+      }
+    }
+
     const attemptId = getResumptionAttemptId(request);
     const attempts = await ctx.repository.listApplicationAttempts();
     const existingAttempt =
@@ -801,6 +840,14 @@ export function createApplicationUserActionResumer(
       );
     }
     if (existingAttempt?.completedAt) return;
+
+    // This continuation works on the kept page: take back anything the
+    // person was allowed to press there (their sign-in, their own send)
+    // before Job Finder touches it.
+    await ctx.browserRuntime.closeApplicationFormAction?.(
+      scope.source,
+      scope.resultId,
+    );
 
     const scheduledAt = new Date().toISOString();
     const scheduledAttempt = createResumptionAttempt({
@@ -971,7 +1018,10 @@ export function createApplicationUserActionResumer(
       idPrefix: `application_${request.id}`,
     });
     const provenanceTargetId =
-      job.provenance.at(-1)?.targetId ?? job.provenance[0]?.targetId ?? null;
+      selectApplicationSighting(job)?.targetId ??
+      job.provenance.at(-1)?.targetId ??
+      job.provenance[0]?.targetId ??
+      null;
     const provenanceTarget = provenanceTargetId
       ? (searchPreferences.discovery.targets.find(
           (target) => target.id === provenanceTargetId,
@@ -1499,6 +1549,12 @@ export function createApplicationUserActionResumer(
       replayCheckpointId: checkpoint.id,
       blocker: finalExecutionResult.blocker,
       occurredAt: completedAt,
+    });
+    await handApplicationPageToPersonForAccessStep({
+      browserRuntime: ctx.browserRuntime,
+      source: job.source,
+      resultId: nextResult.id,
+      blocker: finalExecutionResult.blocker,
     });
     if (
       nextResult.state === "awaiting_review" &&

@@ -44,6 +44,26 @@ import {
  * Tasks. Runs recorded before the report existed keep the older label rather
  * than inventing numbers for it.
  */
+/** Plain words for one source's outcome in a run, never the raw state. */
+export function describeSourceRunHealth(
+  health: DiscoveryRunRecord["summary"]["sourceHealth"][number]["health"],
+): string {
+  switch (health) {
+    case "healthy":
+      return "Finished";
+    case "warning":
+      return "Finished · found nothing";
+    case "failed":
+      return "Could not be read";
+    case "cancelled":
+      return "Stopped";
+    case "skipped":
+      return "Skipped";
+    default:
+      return "Waiting";
+  }
+}
+
 function describeRunCounts(run: DiscoveryRunRecord): string {
   const report = getDiscoveryRunReportCounts(run);
   if (hasDiscoveryRunReportCounts(report)) {
@@ -709,6 +729,11 @@ export function DiscoveryHistoryModal(props: {
                           (candidate) => candidate.targetId === source.targetId,
                         );
                         const contributed = execution?.jobsPersisted ?? 0;
+                        // Jobs this source listed that were already saved: a
+                        // quiet re-run found them, it did not come up empty.
+                        const alreadySaved =
+                          (execution?.duplicatesMerged ?? 0) +
+                          (execution?.jobsSkippedByLedger ?? 0);
                         const previousExecution = props.recentRuns
                           .filter((run) => run.id !== selectedRun.id)
                           .sort((left, right) =>
@@ -721,7 +746,11 @@ export function DiscoveryHistoryModal(props: {
                           );
                         const repeatedZero =
                           contributed === 0 &&
-                          previousExecution?.jobsPersisted === 0;
+                          alreadySaved === 0 &&
+                          previousExecution?.jobsPersisted === 0 &&
+                          previousExecution.duplicatesMerged +
+                            previousExecution.jobsSkippedByLedger ===
+                            0;
                         const zeroReason = repeatedZero
                           ? execution?.warning || source.warnings[0]
                             ? "The source was blocked or could not be read. Review it in the Job Finder browser or replace it."
@@ -740,14 +769,18 @@ export function DiscoveryHistoryModal(props: {
                                 <p className="break-words text-[0.9rem] font-semibold text-(--text-headline)">
                                   {sourceLabel}
                                 </p>
-                                <p className="mt-1 text-[0.76rem] capitalize text-foreground-muted">
-                                  {source.health}
+                                <p className="mt-1 text-[0.76rem] text-foreground-muted">
+                                  {describeSourceRunHealth(source.health)}
                                   {source.durationMs > 0
                                     ? ` · ${formatDuration(source.durationMs)}`
                                     : ""}
                                 </p>
                                 <p className="mt-1 text-[0.82rem] text-foreground-soft">
-                                  Contributed {contributed} job{contributed === 1 ? "" : "s"} to this run.
+                                  Contributed {contributed} new job{contributed === 1 ? "" : "s"} to this run
+                                  {alreadySaved > 0
+                                    ? `; ${alreadySaved} ${alreadySaved === 1 ? "was" : "were"} already saved`
+                                    : ""}
+                                  .
                                 </p>
                               </div>
                               {canRetry ? (

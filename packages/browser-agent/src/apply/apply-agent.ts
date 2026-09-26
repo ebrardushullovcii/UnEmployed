@@ -36,7 +36,10 @@ import {
   checkWrittenApplicationAnswer,
   WrittenAnswerCheckUnavailableError,
 } from "./written-answer-grounding";
-import { reportedSecurityChallenge } from "./blockers";
+import {
+  isSecurityChallengeControl,
+  reportedSecurityChallenge,
+} from "./blockers";
 import type {
   ApplyAgentConfig,
   ApplyAgentResult,
@@ -502,6 +505,7 @@ export async function runApplyAgent(
                   detectedAt: now().toISOString(),
                   suggestion: resolution.suggestion,
                   siblings: observation.controls,
+                  reason: resolution.reason,
                 }),
               );
               continue;
@@ -543,7 +547,33 @@ export async function runApplyAgent(
           needsPerson: outcome.needsPerson,
           data: {},
         };
-        const reportedChallenge = reportedSecurityChallenge(outcome.reason);
+        // A challenge the person already solved on this page (its box is
+        // ticked) is not waiting on them, whatever the finish text says.
+        const challengeControls = observation.controls.filter(
+          (control) => control.visible && isSecurityChallengeControl(control),
+        );
+        const challengeAlreadySolved =
+          challengeControls.length > 0 &&
+          challengeControls.every(
+            (control) =>
+              control.checked ||
+              (control.answered && control.value.trim().length > 0),
+          );
+        const challengeInReason = reportedSecurityChallenge(outcome.reason);
+        if (
+          challengeAlreadySolved &&
+          observation.blocker === null &&
+          /captcha|not a robot|verify you are (?:a )?human|security check/iu.test(
+            outcome.reason,
+          )
+        ) {
+          // The model is pointing at a check the person already solved, and
+          // nothing else on the page is waiting on them.
+          finish.needsPerson = false;
+        }
+        const reportedChallenge = challengeAlreadySolved
+          ? null
+          : challengeInReason;
         if (reportedChallenge) {
           pauses.push({
             code: "page_blocked",

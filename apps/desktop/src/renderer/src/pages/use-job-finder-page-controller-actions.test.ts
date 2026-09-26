@@ -16,6 +16,7 @@ import type {
 import {
   createActionRunners,
   createDiscoveryWorkspaceRefreshCoordinator,
+  consumeFirstSearchRequest,
   createPrimaryPageActions,
   describePreparedApplicationSubmitResult,
   clearJobFinderNavigationHint,
@@ -532,6 +533,7 @@ describe("createPrimaryPageActions", () => {
     },
     workEligibility: {
       authorizedWorkCountries: ["United Kingdom"],
+      requiresVisaSponsorship: false,
       remoteEligible: true,
     },
     targetRoles: ["Principal Designer"],
@@ -687,6 +689,71 @@ describe("createPrimaryPageActions", () => {
       replace: true,
     });
     expect(finish.navigate).not.toHaveBeenCalledWith("/job-finder/profile");
+  });
+
+  it("starts the first search when the source was added on the finishing step", async () => {
+    consumeFirstSearchRequest();
+    // The workspace the handler closed over predates the source the person
+    // just added on this step; only the saved snapshot has it.
+    const staleWorkspace = {
+      profile: completeSetupProfile,
+      searchPreferences: {
+        ...completeSetupPreferences,
+        discovery: { ...completeSetupPreferences.discovery, targets: [] },
+      },
+      recentDiscoveryRuns: [],
+      activeDiscoveryRun: null,
+      profileSetupState: {
+        status: "in_progress",
+        currentStep: "targeting",
+        completedAt: null,
+        lastResumedAt: null,
+        reviewItems: [],
+      },
+    } as unknown as JobFinderWorkspaceSnapshot;
+    const savedSnapshot = {
+      ...staleWorkspace,
+      searchPreferences: completeSetupPreferences,
+    } as unknown as JobFinderWorkspaceSnapshot;
+    const navigate = vi.fn();
+    type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
+    const pageActions = createPrimaryPageActions({
+      actions: {
+        saveProfileSetupState: vi.fn(
+          (nextState: JobFinderWorkspaceSnapshot["profileSetupState"]) =>
+            Promise.resolve({ ...savedSnapshot, profileSetupState: nextState }),
+        ),
+        saveWorkspaceInputs: vi.fn().mockResolvedValue(savedSnapshot),
+      } as unknown as JobFinderShellActions,
+      locationPathname: "/job-finder/profile/setup",
+      navigate,
+      runAction: vi.fn(),
+      runSaveAction: vi.fn(
+        async (saveInput: {
+          action: () => Promise<JobFinderWorkspaceSnapshot>;
+          onSuccess: (
+            result: JobFinderWorkspaceSnapshot,
+          ) => void | Promise<void>;
+        }) => {
+          await saveInput.onSuccess(await saveInput.action());
+          return true;
+        },
+      ),
+      workspace: staleWorkspace,
+    } as unknown as PrimaryPageActionArgs);
+
+    pageActions.onSaveSetupStep(
+      completeSetupProfile,
+      completeSetupPreferences,
+      "ready_check",
+      { finishSetup: true },
+    );
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith("/job-finder/discovery", {
+        replace: true,
+      }),
+    );
+    expect(consumeFirstSearchRequest()).toBe(true);
   });
 
   it("hands off to Find jobs before the completed setup state is persisted", async () => {
@@ -917,6 +984,34 @@ describe("createPrimaryPageActions", () => {
     expect(setup.navigate).toHaveBeenCalledWith("/job-finder/discovery", {
       replace: true,
     });
+  });
+
+  it("keeps setup open until both work-eligibility answers are in", async () => {
+    // Countries alone are half the answer: the sponsorship question is the
+    // other one every application form asks.
+    const profileWithoutSponsorship = CandidateProfileSchema.parse({
+      ...completeSetupProfile,
+      workEligibility: {
+        ...completeSetupProfile.workEligibility,
+        requiresVisaSponsorship: null,
+      },
+    });
+    const setup = createSetupActions({ profile: profileWithoutSponsorship });
+
+    setup.pageActions.onSaveSetupStep(
+      profileWithoutSponsorship,
+      completeSetupPreferences,
+      "targeting",
+      { finishSetup: true, openProfile: true },
+    );
+
+    await vi.waitFor(() =>
+      expect(setup.saveProfileSetupState).toHaveBeenCalledOnce(),
+    );
+    expect(setup.saveProfileSetupState.mock.calls[0]?.[0].status).toBe(
+      "in_progress",
+    );
+    expect(setup.navigate).not.toHaveBeenCalled();
   });
 
   it("persists setup's unchanged-original choice through the existing application mode", async () => {

@@ -39,6 +39,7 @@ import { useStableCallback } from "../../hooks/use-stable-callback";
 import { ReviewQueueListPanel } from "./review-queue-list-panel";
 import { collectPreparedApplicationJobIds } from "./review-queue-status";
 import { ReviewQueueMissionPanel } from "./review-queue-mission-panel";
+import { describeApplyAllOutcome } from "./review-queue-mission-panel-helpers";
 import { ReviewQueuePreviewPanel } from "./review-queue-preview-panel";
 import type { TailoredDraftPreparationViewState } from "./review-queue-status";
 
@@ -326,6 +327,7 @@ export function ReviewQueueScreen(props: {
           isApplyToAllPending={applyAllPending || isApplyPending}
           isJobPending={isJobPending}
           onApplyToAllReady={handleApplyToAllReady}
+          applyAllOutcome={describeApplyAllOutcome(applicationAutomationMode)}
           onPrepareTailoredDrafts={onPrepareTailoredDrafts}
           {...(onOpenSafeguards ? { onOpenSafeguards } : {})}
           safeguardBlocker={safeguardBlocker ?? null}

@@ -127,6 +127,14 @@ export type JobFinderJobActionInput = z.infer<
   typeof JobFinderJobActionInputSchema
 >;
 
+/** Send for me: the filled-in forms the agent sends, one after another. */
+export const JobFinderSendPreparedApplicationsInputSchema = z.object({
+  jobIds: z.array(NonEmptyStringSchema).min(1).max(100),
+});
+export type JobFinderSendPreparedApplicationsInput = z.infer<
+  typeof JobFinderSendPreparedApplicationsInputSchema
+>;
+
 /** Durable identity of one prepared application page. */
 export const JobFinderPreparedApplicationPageInputSchema = z.object({
   runId: NonEmptyStringSchema,

@@ -13,6 +13,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   describeApplicationBlockerReason,
+  handApplicationPageToPersonForAccessStep,
   persistApplicationUserAction,
   terminalizeApplicationAfterPreparedPageLost,
 } from "./internal/workspace-application-user-action";
@@ -489,6 +490,14 @@ describe("application login UserActionRequest adoption", () => {
 
     const requests = await harness.repository.listUserActionRequests();
     expect(requests).toHaveLength(1);
+    // The sign-in is watched on the kept page, so the card never asks the
+    // person to come back and confirm it.
+    expect(requests[0]?.summary).toContain(
+      "carries on with this application by itself once you're in",
+    );
+    expect(
+      [requests[0]?.summary, ...(requests[0]?.instructions ?? [])].join(" "),
+    ).not.toMatch(/confirm/i);
     expect(requests[0]).toMatchObject({
       kind: "login",
       state: "pending",
@@ -672,11 +681,50 @@ describe("application login UserActionRequest adoption", () => {
     });
   });
 
+  test("a new sign-in or account step hands the kept page to the person; other steps do not", async () => {
+    const handApplicationPageToPerson = vi.fn(() => Promise.resolve());
+    for (const [code, expected] of [
+      ["site_login_required", 1],
+      ["missing_candidate_answer", 0],
+      ["application_page_unreachable", 0],
+    ] as const) {
+      handApplicationPageToPerson.mockClear();
+      await handApplicationPageToPersonForAccessStep({
+        browserRuntime: { handApplicationPageToPerson },
+        source: "target_site",
+        resultId: "result_1",
+        blocker: ApplicationAttemptBlockerSchema.parse({
+          code,
+          summary: "Blocked.",
+          url: "https://jobs.example.com/apply",
+        }),
+      });
+      expect(handApplicationPageToPerson).toHaveBeenCalledTimes(expected);
+    }
+    // No kept page: nothing to hand over, and nothing breaks.
+    await expect(
+      handApplicationPageToPersonForAccessStep({
+        browserRuntime: {
+          handApplicationPageToPerson: () =>
+            Promise.reject(new Error("no page")),
+        },
+        source: "target_site",
+        resultId: "result_1",
+        blocker: ApplicationAttemptBlockerSchema.parse({
+          code: "site_login_required",
+          summary: "Sign in.",
+          url: "https://jobs.example.com/apply",
+        }),
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   test("arms only the observed sign-in control on the retained application binding", async () => {
     const baseRuntime = createBrowserRuntime();
     const raw = await taskLocalSignInSession(() => undefined).readPage();
     const armApplicationFormAction = vi.fn(() => Promise.resolve());
     const closeApplicationFormAction = vi.fn(() => Promise.resolve());
+    const handApplicationPageToPerson = vi.fn(() => Promise.resolve());
     const harness = createWorkspaceServiceHarness({
       seed: createSeed(),
       browserRuntime: {
@@ -685,6 +733,7 @@ describe("application login UserActionRequest adoption", () => {
         readApplicationPageBinding: vi.fn(() => Promise.resolve(raw)),
         armApplicationFormAction,
         closeApplicationFormAction,
+        handApplicationPageToPerson,
       },
     });
     const job = (await harness.repository.listSavedJobs())[0];
@@ -710,6 +759,28 @@ describe("application login UserActionRequest adoption", () => {
       requestId: request.id,
       expectedRevision: request.revision,
       action: "open_page",
+    });
+    expect(closeApplicationFormAction).toHaveBeenCalledWith(
+      job.source,
+      "result_exact_login",
+    );
+    // The person's own posts on the kept page (creating the account,
+    // signing in) go through while this step is theirs; the lock comes first.
+    expect(handApplicationPageToPerson).toHaveBeenCalledWith(
+      job.source,
+      "result_exact_login",
+    );
+    expect(closeApplicationFormAction.mock.invocationCallOrder[0]).toBeLessThan(
+      handApplicationPageToPerson.mock.invocationCallOrder[0]!,
+    );
+    // Confirming the step locks the page again before Job Finder continues.
+    const opened = await harness.repository.getUserActionRequest(request.id);
+    closeApplicationFormAction.mockClear();
+    await harness.workspaceService.performUserAction({
+      commandId: "confirm_exact_login",
+      requestId: request.id,
+      expectedRevision: opened!.revision,
+      action: "confirm_done",
     });
     expect(closeApplicationFormAction).toHaveBeenCalledWith(
       job.source,

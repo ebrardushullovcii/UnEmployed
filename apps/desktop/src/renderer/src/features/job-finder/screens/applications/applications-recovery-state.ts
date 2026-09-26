@@ -195,8 +195,102 @@ const RUNNING_RESULT_STATES = new Set([
   "submitting",
 ]);
 
-export function applyResultIsStillRunning(result: ApplyResult): boolean {
-  return result !== null && RUNNING_RESULT_STATES.has(result.state);
+/**
+ * What the run a result belongs to is doing, read from the workspace. A
+ * "planned" result means nothing on its own: it is waiting its turn in a
+ * running batch, held by the person's pause, or left behind by a batch that
+ * stopped and will never come back for it.
+ */
+export interface ApplyRunContext {
+  state: ApplyRunState;
+  /** The person paused new work ("Pause new work"). */
+  activityPaused: boolean;
+  /** Any job in the run has been started. */
+  started: boolean;
+}
+
+type ApplyRunState = NonNullable<
+  JobFinderWorkspaceSnapshot["applyRuns"]
+>[number]["state"];
+
+/** Where a planned (not yet started) application stands. */
+export type PlannedApplyStanding = "waiting_turn" | "paused" | "not_started";
+
+export function buildApplyRunContextReader(workspace: {
+  applyRuns?: JobFinderWorkspaceSnapshot["applyRuns"] | null;
+  applyJobResults?: JobFinderWorkspaceSnapshot["applyJobResults"] | null;
+  activityControl?: Pick<
+    JobFinderWorkspaceSnapshot["activityControl"],
+    "paused" | "pauseBehavior"
+  > | null;
+}): (result: ApplyResult) => ApplyRunContext | null {
+  const activityPaused = Boolean(workspace.activityControl?.paused);
+  const startedRunIds = new Set(
+    (workspace.applyJobResults ?? [])
+      .filter(
+        (result) =>
+          result.state !== "planned" ||
+          result.applicationPreparationStartedAt != null,
+      )
+      .map((result) => result.runId),
+  );
+  const runsById = new Map(
+    (workspace.applyRuns ?? []).map((run) => [run.id, run]),
+  );
+  return (result) => {
+    const run = result ? runsById.get(result.runId) : undefined;
+    if (!run) return null;
+    return {
+      state: run.state,
+      activityPaused,
+      started: startedRunIds.has(run.id),
+    };
+  };
+}
+
+export function resolvePlannedApplyStanding(
+  result: ApplyResult,
+  run: ApplyRunContext | null | undefined,
+): PlannedApplyStanding | null {
+  if (result?.state !== "planned") return null;
+  if (result.applicationPreparationStartedAt != null) return null;
+  if (!run) return "waiting_turn";
+  switch (run.state) {
+    case "draft":
+    case "awaiting_submit_approval":
+    case "paused_for_consent":
+      return "waiting_turn";
+    case "running":
+      return run.activityPaused ? "paused" : "waiting_turn";
+    case "paused_for_user_review":
+      // A batch reusing an approval is written paused and started a moment
+      // later; until any job in it starts, it is a batch about to run.
+      return run.started ? "not_started" : "waiting_turn";
+    default:
+      return "not_started";
+  }
+}
+
+/** Why a planned job of a stopped batch was never filled in. */
+export function describeNotStartedApplication(
+  run: ApplyRunContext | null | undefined,
+): string {
+  return run?.state === "paused_for_user_review"
+    ? "A safety limit stopped the batch before Job Finder got to this one. Nothing was filled in or sent."
+    : "The batch stopped before Job Finder got to this one. Nothing was filled in or sent.";
+}
+
+export const PAUSED_BEFORE_APPLICATION_SENTENCE =
+  "You paused new work before Job Finder got to this one. It carries on when you resume.";
+
+export function applyResultIsStillRunning(
+  result: ApplyResult,
+  run?: ApplyRunContext | null,
+): boolean {
+  if (result === null || !RUNNING_RESULT_STATES.has(result.state)) {
+    return false;
+  }
+  return resolvePlannedApplyStanding(result, run) !== "not_started";
 }
 
 /** "2 min" from a start timestamp, for a wait the person is watching. */
@@ -425,6 +519,11 @@ export function applyResultStoppedStructurally(result: ApplyResult): boolean {
   if (RETRYABLE_STOP_PATTERN.test(corpus)) {
     return false;
   }
+  // The same lost prepared page, reported by a continuation that found it
+  // gone (an answer given after a restart), carries no blocker code.
+  if (/\bprepared (?:application )?page\b/i.test(corpus)) {
+    return false;
+  }
 
   return STRUCTURAL_STOP_PATTERN.test(corpus);
 }
@@ -449,6 +548,8 @@ export function resolveApplicationRecoveryPresentation(input: {
   now?: number;
   /** Current record blocker after resume-state reconciliation. */
   recordLatestBlockerCode?: string | null;
+  /** What the result's run is doing; a planned job means nothing without it. */
+  run?: ApplyRunContext | null;
   visibleApplyResult: ApplyResult;
 }): ApplicationRecoveryPresentation {
   const {
@@ -477,10 +578,15 @@ export function resolveApplicationRecoveryPresentation(input: {
     visibleApplyResult?.privacyReceipt?.submissionOutcome?.outcome ===
       "outcome_uncertain";
 
+  // A sent application is terminal. Job Finder's own send carries an
+  // outcome receipt; a send the person made on the kept page is recorded as
+  // submitted with the site's confirmation (older records have no receipt
+  // outcome). Only a receipt that says otherwise keeps it from reading sent:
+  // Try again here would prepare an application that was already sent.
   if (
     visibleApplyResult?.state === "submitted" &&
-    visibleApplyResult.privacyReceipt?.submissionOutcome?.outcome ===
-      "submitted"
+    (visibleApplyResult.privacyReceipt?.submissionOutcome?.outcome ??
+      "submitted") === "submitted"
   ) {
     return {
       state: "submitted",
@@ -673,10 +779,47 @@ export function resolveApplicationRecoveryPresentation(input: {
     };
   }
 
+  // A planned job is never "filling in": it waits its turn, waits on the
+  // person's Resume, or was left behind by a batch that stopped.
+  const plannedStanding = resolvePlannedApplyStanding(
+    visibleApplyResult,
+    input.run,
+  );
+  if (plannedStanding === "not_started" && !isApplyPending) {
+    return {
+      state: "retry",
+      statusLine: "Job Finder did not get to this application",
+      reasonSentence: describeNotStartedApplication(input.run),
+      primaryAction: "try_again",
+      primaryActionLabel: TRY_AGAIN_ACTION,
+    };
+  }
+  if (plannedStanding === "paused" && !isApplyPending) {
+    return {
+      state: "preparing",
+      statusLine: "Paused before this application",
+      reasonSentence: PAUSED_BEFORE_APPLICATION_SENTENCE,
+      primaryAction: "none",
+      primaryActionLabel: null,
+    };
+  }
+  if (plannedStanding === "waiting_turn" && !isApplyPending) {
+    return {
+      state: "preparing",
+      statusLine: "Waiting its turn in this batch",
+      reasonSentence: null,
+      primaryAction: "none",
+      primaryActionLabel: null,
+    };
+  }
+
   // The run record, not a local pending flag: a seven-minute run kept the
   // flag for ninety seconds and then offered "Try again" beside itself.
-  if (isApplyPending || applyResultIsStillRunning(visibleApplyResult)) {
-    const elapsed = applyResultIsStillRunning(visibleApplyResult)
+  if (
+    isApplyPending ||
+    applyResultIsStillRunning(visibleApplyResult, input.run)
+  ) {
+    const elapsed = applyResultIsStillRunning(visibleApplyResult, input.run)
       ? formatElapsedMinutes(visibleApplyResult?.startedAt, now)
       : null;
     return {

@@ -8,6 +8,7 @@ import type {
   CandidateProfile,
   ProfileCopilotRelevantReviewItem,
 } from "@unemployed/contracts";
+import { ProfileCopilotUnfinishedError } from "./openai-compatible";
 import { ResumeGenerationStrategyPolicySchema } from "./shared";
 import {
   createEnvironment,
@@ -1831,44 +1832,51 @@ describe("openai-compatible chat and draft behavior", () => {
         createJobFinderAiClientFromEnvironment(createEnvironment());
       const request = `change my experience to only 5 years ${"conversation fact ".repeat(5000)}`;
 
-      await client.reviseCandidateProfile({
-        profile: {
-          ...createProfile(),
-          summary: `Candidate summary ${"background ".repeat(4000)}`,
-        },
-        searchPreferences: {
-          ...createPreferences(),
-          targetRoles: Array.from(
+      // The stub never calls a tool, so both runs stop without a change and
+      // the Assistant reports that it could not finish; only the payload the
+      // model received matters here.
+      await client
+        .reviseCandidateProfile({
+          profile: {
+            ...createProfile(),
+            summary: `Candidate summary ${"background ".repeat(4000)}`,
+          },
+          searchPreferences: {
+            ...createPreferences(),
+            targetRoles: Array.from(
+              { length: 20 },
+              (_, index) => `Role ${index + 1} ${"detail ".repeat(40)}`,
+            ),
+            locations: Array.from(
+              { length: 20 },
+              (_, index) => `Location ${index + 1} ${"detail ".repeat(40)}`,
+            ),
+          },
+          context: { surface: "profile", section: "preferences" },
+          relevantReviewItems: Array.from({ length: 20 }, (_, index) => ({
+            id: `review_${index + 1}`,
+            step: "essentials",
+            target: { domain: "identity", key: "headline", recordId: null },
+            label: `Review item ${index + 1}`,
+            reason: `Reason ${index + 1} ${"detail ".repeat(60)}`,
+            severity: "recommended",
+            status: "pending",
+            proposedValue: `Proposed ${index + 1}`,
+            sourceSnippet: `Snippet ${index + 1} ${"source ".repeat(40)}`,
+            sourceCandidateId: `candidate_${index + 1}`,
+            sourceRunId: `run_${index + 1}`,
+            createdAt: "2026-04-14T10:00:00.000Z",
+            resolvedAt: null,
+          })),
+          request,
+          conversationFacts: Array.from(
             { length: 20 },
-            (_, index) => `Role ${index + 1} ${"detail ".repeat(40)}`,
+            (_, index) => `Fact ${index + 1} ${"detail ".repeat(80)}`,
           ),
-          locations: Array.from(
-            { length: 20 },
-            (_, index) => `Location ${index + 1} ${"detail ".repeat(40)}`,
-          ),
-        },
-        context: { surface: "profile", section: "preferences" },
-        relevantReviewItems: Array.from({ length: 20 }, (_, index) => ({
-          id: `review_${index + 1}`,
-          step: "essentials",
-          target: { domain: "identity", key: "headline", recordId: null },
-          label: `Review item ${index + 1}`,
-          reason: `Reason ${index + 1} ${"detail ".repeat(60)}`,
-          severity: "recommended",
-          status: "pending",
-          proposedValue: `Proposed ${index + 1}`,
-          sourceSnippet: `Snippet ${index + 1} ${"source ".repeat(40)}`,
-          sourceCandidateId: `candidate_${index + 1}`,
-          sourceRunId: `run_${index + 1}`,
-          createdAt: "2026-04-14T10:00:00.000Z",
-          resolvedAt: null,
-        })),
-        request,
-        conversationFacts: Array.from(
-          { length: 20 },
-          (_, index) => `Fact ${index + 1} ${"detail ".repeat(80)}`,
-        ),
-      });
+        })
+        .catch((error: unknown) => {
+          expect(error).toBeInstanceOf(ProfileCopilotUnfinishedError);
+        });
 
       const body = JSON.parse(fetchMock.getCapturedBody()) as {
         messages?: Array<{ content?: string }>;
@@ -1954,7 +1962,12 @@ describe("openai-compatible chat and draft behavior", () => {
 
       expect(originalPayloadSize).toBeGreaterThan(1_000_000);
 
-      await client.reviseCandidateProfile(largePayload);
+      // The stub never calls a tool; see the test above.
+      await client
+        .reviseCandidateProfile(largePayload)
+        .catch((error: unknown) => {
+          expect(error).toBeInstanceOf(ProfileCopilotUnfinishedError);
+        });
 
       const body = JSON.parse(fetchMock.getCapturedBody()) as {
         messages?: Array<{ content?: string }>;

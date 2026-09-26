@@ -284,3 +284,129 @@ describe("the five apply states (ADR 0022)", () => {
     }
   });
 });
+
+describe("a job its batch stopped around", () => {
+  it("reads Could not apply with Try again, never Ready to send", () => {
+    const presentation = resolveApplyStatePresentation({
+      mode: "apply_for_me",
+      result: buildResult({
+        state: "skipped",
+        summary: "Not started.",
+        detail:
+          "You took over the browser, so Job Finder stopped this batch here. Nothing more was sent. Try again when you are ready.",
+      }),
+    });
+    expect(presentation).toMatchObject({
+      kind: "could_not_apply",
+      action: "try_again",
+    });
+    expect(presentation.sentence).toMatch(/took over the browser/);
+  });
+});
+
+describe("an answer given after the prepared page closed", () => {
+  it("reads Could not apply with Try again, not a dead end", () => {
+    const presentation = resolveApplyStatePresentation({
+      mode: "apply_for_me",
+      result: buildResult({
+        state: "failed",
+        summary: "Application retry stopped safely",
+        detail: "The exact prepared application page is no longer open.",
+      }),
+    });
+    expect(presentation).toMatchObject({
+      kind: "could_not_apply",
+      action: "try_again",
+    });
+  });
+});
+
+describe("a planned job is never Filling in", () => {
+  const planned = buildResult({
+    state: "planned",
+    startedAt: "2026-09-14T10:00:00.000Z",
+    completedAt: null,
+  });
+
+  it("waits its turn while its batch runs", () => {
+    expect(
+      resolveApplyStatePresentation({
+        mode: "fill_only",
+        now: Date.parse("2026-09-14T10:30:00.000Z"),
+        result: planned,
+        run: { state: "running", activityPaused: false, started: true },
+      }),
+    ).toMatchObject({
+      kind: "filling_in",
+      title: "Waiting its turn",
+      action: "none",
+      plannedStanding: "waiting_turn",
+    });
+  });
+
+  it("reads Paused when the person paused new work before it", () => {
+    expect(
+      resolveApplyStatePresentation({
+        mode: "fill_only",
+        result: planned,
+        run: { state: "running", activityPaused: true, started: true },
+      }),
+    ).toMatchObject({
+      kind: "filling_in",
+      title: "Paused",
+      action: "none",
+      plannedStanding: "paused",
+    });
+  });
+
+  it.each([
+    "paused_for_user_review",
+    "failed",
+    "cancelled",
+    "completed",
+  ] as const)(
+    "is retryable in one press when its batch stopped (%s)",
+    (state) => {
+      const presentation = resolveApplyStatePresentation({
+        mode: "fill_only",
+        result: planned,
+        run: { state, activityPaused: false, started: true },
+      });
+      expect(presentation).toMatchObject({
+        kind: "could_not_apply",
+        title: "Not started",
+        action: "try_again",
+        plannedStanding: "not_started",
+      });
+      expect(presentation.sentence).toContain("Nothing was filled in or sent.");
+    },
+  );
+
+  it("names the safety limit when one stopped the batch", () => {
+    expect(
+      resolveApplyStatePresentation({
+        mode: "fill_only",
+        result: planned,
+        run: {
+          state: "paused_for_user_review",
+          activityPaused: false,
+          started: true,
+        },
+      }).sentence,
+    ).toMatch(/^A safety limit stopped the batch/);
+  });
+
+  it("keeps a started job Filling in whatever its run says", () => {
+    expect(
+      resolveApplyStatePresentation({
+        mode: "fill_only",
+        now: Date.parse("2026-09-14T10:03:00.000Z"),
+        result: buildResult({
+          state: "filling",
+          startedAt: "2026-09-14T10:00:00.000Z",
+        }),
+        run: { state: "running", activityPaused: true, started: true },
+      }),
+    ).toMatchObject({ kind: "filling_in", title: "Filling in (3 min)" });
+  });
+});

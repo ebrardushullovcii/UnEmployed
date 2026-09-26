@@ -806,11 +806,30 @@ export function useJobFinderPageController() {
         return workspace;
       }
 
+      // The question is saved before the Assistant answers (so closing the
+      // app mid-answer keeps it). Once the saved copy arrives, it replaces
+      // the optimistic one instead of showing the question twice.
+      const pendingOptimisticMessages = optimisticProfileCopilotMessages.filter(
+        (optimistic) =>
+          !workspace.profileCopilotMessages.some(
+            (saved) =>
+              saved.role === "user" &&
+              saved.content === optimistic.content &&
+              JSON.stringify(saved.context) ===
+                JSON.stringify(optimistic.context) &&
+              Date.parse(saved.createdAt) >=
+                Date.parse(optimistic.createdAt) - 10_000,
+          ),
+      );
+      if (pendingOptimisticMessages.length === 0) {
+        return workspace;
+      }
+
       return {
         ...workspace,
         profileCopilotMessages: [
           ...workspace.profileCopilotMessages,
-          ...optimisticProfileCopilotMessages,
+          ...pendingOptimisticMessages,
         ],
       };
     }, [optimisticProfileCopilotMessages, workspace]);

@@ -159,6 +159,12 @@ export interface WorkspaceServiceContext {
   ) => Promise<void>;
   hasActiveBrowserWorkflow: () => boolean;
   /**
+   * A deliberate start by the person (Search now, Run now, Apply): clears a
+   * pause, tells the host so its browser stops refusing work, and lets the
+   * host lift a pause the person caused in the browser itself.
+   */
+  resumeActivityForExplicitStart: () => Promise<void>;
+  /**
    * Plain-HTTP page reader for listing bodies (see
    * `listing-detail-enrichment.ts`). Optional so tests inject a fake and the
    * desktop supplies the default fetcher.

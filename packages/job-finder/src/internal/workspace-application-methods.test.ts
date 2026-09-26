@@ -378,6 +378,7 @@ describe("apply prerequisites resolve the resume path the verifier actually read
     expect(executeApplicationFlow.mock.calls[0]?.[1].applicationAttachments).toEqual([
       {
         assetId: asset.id,
+        assetKind: "portfolio",
         questionId: null,
         prompt: "Portfolio from the person's files",
         questionKind: "portfolio",

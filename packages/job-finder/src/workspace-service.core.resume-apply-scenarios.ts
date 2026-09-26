@@ -1780,7 +1780,9 @@ describe("createJobFinderWorkspaceService", () => {
                 newBullets: [
                   {
                     ...targetBullet,
-                    text: "Maintained legacy services.",
+                    // A real change: a proposal that sets the text the
+                    // bullet already has is left out as a no-op.
+                    text: "Kept legacy services running.",
                   },
                   ...targetEntry.bullets.slice(1),
                 ],
@@ -3152,7 +3154,7 @@ describe("createJobFinderWorkspaceService", () => {
       (await repository.listApplyJobResults({ runId })).find(
         (result) => result.jobId === "job_second",
       ),
-    ).toMatchObject({ state: "planned" });
+    ).toMatchObject({ state: "failed" });
   });
 
   test("an immediate cancellation wins the startup race and remains durable", async () => {

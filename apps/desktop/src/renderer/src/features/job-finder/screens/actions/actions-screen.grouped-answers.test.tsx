@@ -244,13 +244,19 @@ describe("ActionsScreen persisted grouped reusable answers", () => {
     fireEvent.change(getByLabelText("Years of experience"), {
       target: { value: "5 years" },
     });
-    fireEvent.click(getByLabelText("Save this answer for next time"));
+    // Remembered by default, so the next application does not ask again.
+    expect(
+      (getByLabelText("Save this answer for next time") as HTMLInputElement)
+        .checked,
+    ).toBe(true);
     fireEvent.click(getByRole("button", { name: "Answer and continue" }));
 
     expect(onCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "submit_manual_answer",
         answer: "5 years",
+        // Tied to its question even when it is the only one on the card.
+        answers: [{ questionId: "question_years", answer: "5 years" }],
         requestId: "request_a",
         saveForFuture: true,
       }),
@@ -268,6 +274,74 @@ describe("ActionsScreen persisted grouped reusable answers", () => {
       /answer memory|reusable match|manual-answer step|prepare-only retry|verify the blocker|projects this draft|exact compatible/i,
     );
     expect(getByRole("button", { name: /Skip this job/ })).toBeTruthy();
+  });
+
+  it("offers a consent box as a box, and names what the profile has when it does not settle a question", () => {
+    const request = createManualAnswerRequest({ id: "request_a", jobId: "job_a" });
+    const applicationAttempts = [
+      {
+        applicationRecordId: "application_job_a",
+        jobId: "job_a",
+        blocker: { code: "missing_candidate_answer" },
+        questions: [
+          {
+            id: "question_consent",
+            prompt: "I consent to a background check",
+            kind: "other",
+            answerControlType: "boolean",
+            status: "detected",
+          },
+          {
+            id: "question_country",
+            prompt: "Are you authorized to work in the job's country?",
+            kind: "work_authorization",
+            answerControlType: "single_choice",
+            answerOptions: ["Yes", "No"],
+            note: "This asks whether you can work in Europe. Your profile says you can work in Germany, which does not settle it.",
+            status: "detected",
+          },
+        ],
+        updatedAt: "2026-08-15T09:00:00.000Z",
+      },
+    ] as unknown as JobFinderWorkspaceSnapshot["applicationAttempts"];
+    const onCommand = vi.fn();
+    const { getByLabelText, getByRole, getByTestId, getByText, queryByText } =
+      render(
+        <ActionsScreen
+          applicationAttempts={applicationAttempts}
+          discoveryJobs={createJobs()}
+          isPending={() => false}
+          onCommand={onCommand}
+          onNavigate={vi.fn()}
+          requests={[request]}
+        />,
+      );
+
+    expect(
+      queryByText("Nothing in your profile, resume, or saved answers covers this."),
+    ).toBeNull();
+    expect(getByText(/Your profile says you can work in Germany/)).toBeTruthy();
+    const box = getByTestId("needs-you-question-checkbox") as HTMLInputElement;
+    expect(box.type).toBe("checkbox");
+    expect(document.querySelector("textarea")).toBeNull();
+
+    fireEvent.change(
+      getByLabelText("Are you authorized to work in the job's country?"),
+      { target: { value: "Yes" } },
+    );
+    const answer = getByRole("button", { name: "Answer and continue" });
+    expect((answer as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(box);
+    fireEvent.click(answer);
+    expect(onCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "submit_manual_answer",
+        answers: [
+          { questionId: "question_consent", answer: "Yes" },
+          { questionId: "question_country", answer: "Yes" },
+        ],
+      }),
+    );
   });
 
   it("shows the exact unique job count and full title/company lineage with revisions", () => {
@@ -479,6 +553,36 @@ describe("Needs you question step shapes", () => {
     );
   }
 
+  it("sends a one-off answer when the person unticks Save for next time", async () => {
+    const onCommand = vi.fn<(command: UserActionCommandInput) => Promise<void>>(
+      () => Promise.resolve(),
+    );
+    const { getByLabelText, getByRole } = renderStep(
+      [
+        {
+          id: "q_phone",
+          prompt: "Phone",
+          kind: "other",
+          status: "detected",
+          isRequired: true,
+          answerOptions: [],
+        },
+      ],
+      onCommand,
+    );
+    fireEvent.change(getByLabelText("Phone"), {
+      target: { value: "+1 555 0100" },
+    });
+    fireEvent.click(getByLabelText("Save this answer for next time"));
+    fireEvent.click(getByRole("button", { name: "Answer and continue" }));
+    await waitFor(() => {
+      expect(onCommand).toHaveBeenCalledTimes(1);
+    });
+    expect(onCommand.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ saveForFuture: false }),
+    );
+  });
+
   it("renders every pending question and submits them all behind one button", async () => {
     const onCommand = vi.fn<(command: UserActionCommandInput) => Promise<void>>(
       () => Promise.resolve(),
@@ -514,7 +618,6 @@ describe("Needs you question step shapes", () => {
     fireEvent.change(getByLabelText("Will you need sponsorship?"), {
       target: { value: "No" },
     });
-    fireEvent.click(getByLabelText("Save these answers for next time"));
     expect(answerButton).toHaveProperty("disabled", false);
     fireEvent.click(answerButton);
 

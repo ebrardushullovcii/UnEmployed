@@ -1,7 +1,9 @@
 import {
   useDeferredValue,
+  useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -33,6 +35,7 @@ import { Controller, useController } from "react-hook-form";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { Checkbox } from "@renderer/components/ui/checkbox";
+import { SegmentedControl } from "@renderer/components/ui/segmented-control";
 import {
   Card,
   CardContent,
@@ -196,6 +199,10 @@ function describeImportedProfile(profile: CandidateProfile): string[] {
 
 export function ProfileSetupImportStep(props: {
   importDisabledReason?: string | null;
+  interruptedImportMessage?: string | null;
+  interruptedImportFileName?: string | null;
+  /** Imports that file again from the copy the stopped import saved. */
+  onRetryInterruptedImport?: () => void;
   isImportResumePending: boolean;
   isProfileSetupPending: boolean;
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[];
@@ -300,6 +307,31 @@ export function ProfileSetupImportStep(props: {
             {importQualityNotes.map((note) => (
               <p key={note}>{note}</p>
             ))}
+          </div>
+        ) : null}
+
+        {props.interruptedImportMessage ? (
+          <div
+            className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)"
+            data-profile-setup-import-interrupted
+            role="status"
+          >
+            <p className="min-w-0 flex-1 basis-80">
+              {props.interruptedImportMessage}
+            </p>
+            {props.onRetryInterruptedImport &&
+            props.interruptedImportFileName ? (
+              <Button
+                disabled={Boolean(props.importDisabledReason)}
+                onClick={props.onRetryInterruptedImport}
+                pending={props.isImportResumePending}
+                size="compact"
+                type="button"
+                variant="outline"
+              >
+                Import {props.interruptedImportFileName} again
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -458,6 +490,128 @@ export function ProfileSetupEssentialsStep(props: {
   );
 }
 
+/** "United States, Germany" and "United States; Germany" are two countries. */
+export function parseWorkCountriesDraft(value: string): string[] {
+  return value
+    .split(/[,;\r\n]+/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+const SPONSORSHIP_OPTIONS = [
+  { value: "no", label: "No" },
+  { value: "yes", label: "Yes" },
+] as const;
+
+/**
+ * The two answers almost every application form asks. They used to sit among
+ * six optional "facts" below the fold, so setup finished without them and the
+ * first application stopped on "Are you authorized to work here?", sending
+ * the person to Profile › Preferences to answer what setup never asked.
+ * Setup now asks them plainly and cannot finish without them; each takes one
+ * press when the resume did not already say.
+ */
+export function SetupWorkEligibilityQuestions(props: {
+  profileForm: UseFormReturn<ProfileEditorValues>;
+  /** The country the person lives in, offered as a one-press answer. */
+  suggestedCountry: string | null;
+}) {
+  const headingId = useId();
+  const sponsorshipLabelId = useId();
+  const countries = parseListInput(
+    props.profileForm.watch("eligibility.authorizedWorkCountries"),
+  );
+  const sponsorship =
+    props.profileForm.watch("eligibility.requiresVisaSponsorship") ?? "";
+  const setCountries = (values: readonly string[]) =>
+    props.profileForm.setValue(
+      "eligibility.authorizedWorkCountries",
+      joinListInput(values),
+      { shouldDirty: true, shouldTouch: true, shouldValidate: true },
+    );
+  const suggestedCountry = props.suggestedCountry?.trim() || null;
+  const answered = countries.length > 0 && sponsorship !== "";
+
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 p-4"
+      data-profile-setup-work-eligibility
+      id="profile-setup-work-eligibility"
+    >
+      <div className="grid gap-1">
+        <h3 className="text-sm font-semibold text-foreground" id={headingId}>
+          Where you can work
+        </h3>
+        <p className="max-w-2xl text-sm leading-6 text-foreground-soft">
+          {answered
+            ? "Application forms ask these two on almost every job. Every application reuses your answers."
+            : "Application forms ask these two on almost every job. Answer once here and every application reuses them; setup finishes once both are answered."}
+        </p>
+      </div>
+      <div className="grid gap-2">
+        <ProfileListEditor
+          draftParser={parseWorkCountriesDraft}
+          emptyMessage="No countries yet."
+          inputId="profile-setup-field-eligibility-authorized-work-countries"
+          label={PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.label}
+          onChange={setCountries}
+          placeholder="Add a country, e.g. Germany"
+          values={countries}
+        />
+        {countries.length === 0 && suggestedCountry ? (
+          <div className="flex flex-wrap items-center gap-2 px-1">
+            <span className="text-sm text-foreground-soft">
+              Where you live:
+            </span>
+            <Button
+              data-profile-setup-work-country-suggestion
+              onClick={() => setCountries([suggestedCountry])}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              I can work in {suggestedCountry}
+            </Button>
+          </div>
+        ) : null}
+        <p className="px-1 text-(length:--text-body) leading-6 text-foreground">
+          {PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.description} A
+          region such as European Union works too.
+        </p>
+      </div>
+      <div className="grid gap-2">
+        <p
+          className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground"
+          id={sponsorshipLabelId}
+        >
+          {PROFILE_WORK_CONSTRAINT_COPY.requiresVisaSponsorship.label}
+        </p>
+        <SegmentedControl
+          aria-labelledby={sponsorshipLabelId}
+          data-profile-setup-sponsorship
+          // A review item about sponsorship scrolls here.
+          id="profile-setup-field-eligibility-requires-visa-sponsorship"
+          label={PROFILE_WORK_CONSTRAINT_COPY.requiresVisaSponsorship.label}
+          onValueChange={(value) =>
+            props.profileForm.setValue(
+              "eligibility.requiresVisaSponsorship",
+              value as BooleanSelectValue,
+              { shouldDirty: true, shouldTouch: true, shouldValidate: true },
+            )
+          }
+          options={SPONSORSHIP_OPTIONS}
+          size="field"
+          value={sponsorship as "" | "yes" | "no"}
+        />
+        <p className="px-1 text-(length:--text-body) leading-6 text-foreground">
+          {PROFILE_WORK_CONSTRAINT_COPY.requiresVisaSponsorship.description}
+        </p>
+      </div>
+    </section>
+  );
+}
+
 export function ProfileSetupTargetingStep(props: {
   isProfileSetupPending?: boolean;
   nextStep: ProfileSetupStep | null;
@@ -471,19 +625,21 @@ export function ProfileSetupTargetingStep(props: {
   profileForm: UseFormReturn<ProfileEditorValues>;
   resumeApplicationMode?: ResumeApplicationMode;
   recentSourceDebugRuns?: readonly SourceDebugRunRecord[];
+  /**
+   * Lets the screen add a complete address typed into the source form when
+   * the person saves or finishes from the footer, instead of dropping it.
+   */
+  registerPendingSourceFlush?: (flush: (() => void) | null) => void;
   renderFooter: RenderFooter;
   savedDiscoveryTargets?: readonly JobDiscoveryTarget[];
+  suggestedWorkCountry?: string | null;
 }) {
-  const authorizedWorkCountriesId =
-    "profile-setup-field-eligibility-authorized-work-countries";
   const locationPreferencesId = useId();
   const targetRolesId = "profile-setup-field-search-preferences-target-roles";
   const locationsId = "profile-setup-field-search-preferences-locations";
   const workModesGroupId = "profile-setup-field-search-preferences-work-modes";
   const workModesDescriptionId = `${workModesGroupId}-description`;
   const workModesGuidanceId = `${workModesGroupId}-guidance`;
-  const requiresVisaSponsorshipId =
-    "profile-setup-field-eligibility-requires-visa-sponsorship";
   const remoteEligibleId = "profile-setup-field-eligibility-remote-eligible";
   const willingToRelocateId =
     "profile-setup-field-eligibility-willing-to-relocate";
@@ -509,6 +665,9 @@ export function ProfileSetupTargetingStep(props: {
   );
   const [manualSourceLabel, setManualSourceLabel] = useState("");
   const [manualSourceUrl, setManualSourceUrl] = useState("");
+  const [lastAddedSourceLabel, setLastAddedSourceLabel] = useState<
+    string | null
+  >(null);
   const manualSourceLabelId = "profile-setup-field-manual-source-label";
   const manualSourceUrlId = "profile-setup-field-manual-source-url";
   const manualSourceUrlErrorId = "profile-setup-field-manual-source-url-error";
@@ -630,13 +789,33 @@ export function ProfileSetupTargetingStep(props: {
     updateDiscoveryTargets(nextTargets);
     setManualSourceLabel("");
     setManualSourceUrl("");
-    setIsManualSourceOpen(false);
+    // The form stays open with the cursor in the address field: adding a
+    // second site used to take a press on "Add a source URL manually" first.
+    setIsManualSourceOpen(true);
+    setLastAddedSourceLabel(
+      manualSourceLabel.trim() || manualSourceDerivedLabel,
+    );
     setEditingTargetId(null);
     setSourceLibraryView("");
     setSourcePage(
       Math.floor(discoveryTargets.length / PROFILE_SETUP_SOURCE_PAGE_SIZE),
     );
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById(manualSourceUrlId)
+        ?.focus({ preventScroll: true });
+    });
   };
+  const addManualDiscoveryTargetRef = useRef(addManualDiscoveryTarget);
+  addManualDiscoveryTargetRef.current = addManualDiscoveryTarget;
+  const registerPendingSourceFlush = props.registerPendingSourceFlush;
+  useEffect(() => {
+    if (!registerPendingSourceFlush) {
+      return;
+    }
+    registerPendingSourceFlush(() => addManualDiscoveryTargetRef.current());
+    return () => registerPendingSourceFlush(null);
+  }, [registerPendingSourceFlush]);
 
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
@@ -740,36 +919,18 @@ export function ProfileSetupTargetingStep(props: {
         </div>
         {/* The resume level is chosen per job on Shortlisted (Original, Light,
             Tailored, Aggressive), so setup no longer asks for a default. */}
+        <SetupWorkEligibilityQuestions
+          profileForm={props.profileForm}
+          suggestedCountry={props.suggestedWorkCountry ?? null}
+        />
         <div className="grid gap-(--gap-content) md:grid-cols-2">
           <p
             className="text-sm leading-6 text-foreground-soft md:col-span-2"
             data-profile-setup-work-details-intro
           >
-            These are facts, not preferences — leave Not set if you don&apos;t
-            know.
+            More work details, all optional. These are facts, not preferences —
+            leave Not set if you don&apos;t know.
           </p>
-          <div className="grid min-w-0 content-start gap-(--gap-field)">
-            <FieldLabel htmlFor={authorizedWorkCountriesId}>
-              {PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.label}
-            </FieldLabel>
-            <ProfileTextarea
-              aria-describedby={`${authorizedWorkCountriesId}-help`}
-              id={authorizedWorkCountriesId}
-              placeholder={
-                PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.placeholder
-              }
-              rows={4}
-              {...props.profileForm.register(
-                "eligibility.authorizedWorkCountries",
-              )}
-            />
-            <p
-              className="text-(length:--text-body) leading-6 text-foreground"
-              id={`${authorizedWorkCountriesId}-help`}
-            >
-              {PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.description}
-            </p>
-          </div>
           <div className="grid min-w-0 content-start gap-(--gap-field)">
             <FieldLabel htmlFor={locationPreferencesId}>
               {PROFILE_WORK_CONSTRAINT_COPY.preferredRelocationRegions.label}
@@ -796,15 +957,6 @@ export function ProfileSetupTargetingStep(props: {
               }
             </p>
           </div>
-          <SetupBooleanField
-            control={props.profileForm.control}
-            description={
-              PROFILE_WORK_CONSTRAINT_COPY.requiresVisaSponsorship.description
-            }
-            id={requiresVisaSponsorshipId}
-            label={PROFILE_WORK_CONSTRAINT_COPY.requiresVisaSponsorship.label}
-            name="eligibility.requiresVisaSponsorship"
-          />
           <SetupBooleanField
             control={props.profileForm.control}
             description={
@@ -1307,18 +1459,33 @@ export function ProfileSetupTargetingStep(props: {
               <p className="text-sm font-semibold text-foreground">
                 {discoveryTargets.length === 0
                   ? "Add a job site"
-                  : "Know the exact web address?"}
+                  : isManualSourceOpen
+                    ? "Add another job site"
+                    : "Know the exact web address?"}
               </p>
-              <Button
-                aria-expanded={isManualSourceOpen}
-                onClick={() => setIsManualSourceOpen((open) => !open)}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Add a source URL manually
-              </Button>
+              {isManualSourceOpen ? null : (
+                <Button
+                  aria-expanded={false}
+                  onClick={() => setIsManualSourceOpen(true)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Add a source URL manually
+                </Button>
+              )}
             </div>
+            {lastAddedSourceLabel && isManualSourceOpen ? (
+              <p
+                aria-live="polite"
+                className="text-sm leading-6 text-foreground-soft"
+                data-profile-setup-source-added
+                role="status"
+              >
+                Added {lastAddedSourceLabel} and turned it on. Paste another
+                address to add one more.
+              </p>
+            ) : null}
             {isManualSourceOpen ? (
               <form
                 className="grid gap-3 rounded-(--radius-field) border border-border/30 bg-background/65 p-4"
@@ -1382,15 +1549,17 @@ export function ProfileSetupTargetingStep(props: {
                       setIsManualSourceOpen(false);
                       setManualSourceLabel("");
                       setManualSourceUrl("");
+                      setLastAddedSourceLabel(null);
                     }}
                     type="button"
                     variant="ghost"
                   >
-                    Cancel
+                    {lastAddedSourceLabel ? "Done adding" : "Cancel"}
                   </Button>
                   {!isManualSourceComplete && !isManualSourceUrlInvalid ? (
                     <p className="text-(length:--text-body) leading-6 text-foreground-soft">
-                      Add a short name and a complete http or https URL.
+                      Paste a complete http or https address; the name is
+                      optional.
                     </p>
                   ) : null}
                 </div>

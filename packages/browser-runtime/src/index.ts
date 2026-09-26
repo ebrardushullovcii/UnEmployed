@@ -54,6 +54,12 @@ export {
 } from "./playwright-application-flow";
 
 export {
+  classifySourceAccess,
+  collectVisibleAccessSignals,
+  type VisibleAccessSignals,
+} from "./source-access-probe";
+
+export {
   createPlaywrightApplyPageMechanics,
   readRawApplyPage,
   APPLY_ACTION_SELECTOR,

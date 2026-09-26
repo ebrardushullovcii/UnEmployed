@@ -99,6 +99,7 @@ describe("application attachment execution", () => {
     expect(result).toEqual([
       {
         assetId: asset.id,
+        assetKind: "portfolio",
         questionId: null,
         prompt: "Portfolio from the person's files",
         questionKind: "portfolio",
@@ -174,6 +175,7 @@ describe("application attachment execution", () => {
     expect(result).toEqual([
       {
         assetId: asset.id,
+        assetKind: "portfolio",
         questionId: question.id,
         prompt: question.prompt,
         questionKind: "portfolio",

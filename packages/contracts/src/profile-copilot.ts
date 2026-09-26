@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { IsoDateTimeSchema, NonEmptyStringSchema } from "./base";
+import {
+  IsoDateTimeSchema,
+  NonEmptyStringSchema,
+  ResumeApplicationModeSchema,
+  TailoringModeSchema,
+} from "./base";
 import {
   AgentTaskExecutionReceiptSchema,
   AgentTaskMessageAttributionSchema,
@@ -360,6 +365,18 @@ export const ProfileCopilotPatchOperationSchema = z.discriminatedUnion(
       value: ProfileCompensationPreferencePatchFieldsSchema,
     }),
     z.object({
+      /**
+       * The resume level for jobs shortlisted from now on, in the Settings
+       * words: keep the imported file (`original_resume`, Original) or write
+       * one at a strength (Light, Tailored, Aggressive). Applying it writes
+       * what Settings > AI behavior > Resumes writes, so the Assistant can
+       * move a person onto or off Original instead of sending them to
+       * Settings.
+       */
+      operation: z.literal("set_resume_approach"),
+      value: z.union([z.literal("original_resume"), TailoringModeSchema]),
+    }),
+    z.object({
       operation: z.literal("upsert_experience_record"),
       record: UpsertCandidateExperienceInputSchema,
     }),
@@ -500,6 +517,16 @@ export const ProfileRevisionSchema = z.object({
   snapshotProfileAfter: CandidateProfileSchema.nullable().default(null),
   snapshotSearchPreferencesAfter:
     JobSearchPreferencesSchema.nullable().default(null),
+  /**
+   * `settings.resumeApplicationMode` before and after an assistant change of
+   * the resume level. Original lives in Settings, not in the profile, so
+   * without these an Undo put the tailoring strength back and left the
+   * person off Original. Null when the change did not touch it.
+   */
+  snapshotResumeApplicationMode:
+    ResumeApplicationModeSchema.nullable().default(null),
+  snapshotResumeApplicationModeAfter:
+    ResumeApplicationModeSchema.nullable().default(null),
 });
 export type ProfileRevision = z.infer<typeof ProfileRevisionSchema>;
 

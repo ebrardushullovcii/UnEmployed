@@ -302,6 +302,39 @@ describe("job search agent", () => {
     );
   });
 
+  test("a single temporary model failure does not end the search", async () => {
+    const pages = { current: rawPage() };
+    const llm = scripted([
+      { name: "extract_jobs", args: { pageType: "search_results" } },
+      { name: "finish", args: { reason: "Two postings fit; no more pages" } },
+    ]);
+    let calls = 0;
+    const flakyLlm: LLMClient = {
+      chatWithTools: (messages, tools, options) => {
+        calls += 1;
+        if (calls === 2) {
+          const error = new Error("Service unavailable");
+          error.name = "ModelRequestHttpError";
+          Reflect.set(error, "status", 503);
+          return Promise.reject(error);
+        }
+        return llm.chatWithTools(messages, tools, options);
+      },
+    };
+
+    const result = await runJobSearchAgent({
+      hands: hands(pages),
+      config: config(),
+      llmClient: flakyLlm,
+      jobExtractor: extractor,
+    });
+
+    expect(calls).toBe(3);
+    expect(result.jobs).toHaveLength(2);
+    expect(result.incomplete).toBe(false);
+    expect(result.error).toBeUndefined();
+  });
+
   test("repairs a truncated detail title from the page's own heading before saving", async () => {
     const pages = {
       current: rawPage({

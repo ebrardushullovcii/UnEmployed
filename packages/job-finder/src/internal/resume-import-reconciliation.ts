@@ -1,6 +1,7 @@
 import { buildValuePreview } from "@unemployed/ai-providers";
 import {
   ResumeImportFieldCandidateSchema,
+  hasProfileSetupPlaceholderValue,
   isFreshStartCandidateProfile,
   type CandidateProfile,
   type JobSearchPreferences,
@@ -140,9 +141,21 @@ function existingScalarValueForCandidate(
       return searchPreferences.workModes;
     case "search_preferences.salaryCurrency":
       return searchPreferences.salaryCurrency;
+    case "work_eligibility.authorizedWorkCountries":
+      return profile.workEligibility.authorizedWorkCountries;
+    case "work_eligibility.requiresVisaSponsorship":
+      return profile.workEligibility.requiresVisaSponsorship;
     default:
       return undefined;
   }
+}
+
+function isEmptyWorkEligibilityValue(value: unknown): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    (Array.isArray(value) && value.length === 0)
+  );
 }
 
 function isPlaceholderScalarValue(
@@ -249,6 +262,26 @@ function scalarValueMatchesWorkspace(
 
   if (typeof currentValue === "string" && typeof candidate.value === "string") {
     return normalizeText(currentValue) === normalizeText(candidate.value);
+  }
+
+  if (
+    typeof currentValue === "boolean" &&
+    typeof candidate.value === "boolean"
+  ) {
+    return currentValue === candidate.value;
+  }
+
+  if (
+    candidate.target.section === "work_eligibility" &&
+    Array.isArray(currentValue) &&
+    currentValue.length > 0
+  ) {
+    return normalizedStringValuesMatch(
+      currentValue.filter(
+        (entry): entry is string => typeof entry === "string",
+      ),
+      toStringArray(candidate.value),
+    );
   }
 
   return (
@@ -391,6 +424,46 @@ function readAliasString(
   return null;
 }
 
+/** A date the model wrote as text or as a bare year number (2013). */
+function readAliasDateText(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
+    const entry = value[key];
+    if (typeof entry === "number" && Number.isInteger(entry)) {
+      return String(entry);
+    }
+    if (typeof entry === "string" && entry.trim().length > 0) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+/**
+ * "AWS Certified Solutions Architect - Associate (2022)": the year is when it
+ * was issued, not part of its name. Left in the name, the same certificate
+ * read twice (once with the year, once without) became two cards, and
+ * neither carried the date.
+ */
+export function splitCertificationNameYear(name: string | null): {
+  name: string | null;
+  year: string | null;
+} {
+  if (!name) {
+    return { name, year: null };
+  }
+  const match =
+    /^(.*?\S)\s*(?:\(\s*((?:19|20)\d{2})\s*\)|[,–—-]\s*((?:19|20)\d{2}))\s*$/u.exec(
+      name.trim(),
+    );
+  const year = match?.[2] ?? match?.[3] ?? null;
+  return match?.[1] && year
+    ? { name: match[1].trim(), year }
+    : { name, year: null };
+}
+
 function normalizeRecordCandidateValue(
   candidate: ResumeImportFieldCandidate,
 ): ResumeImportFieldCandidate["value"] {
@@ -469,16 +542,25 @@ function normalizeRecordCandidateValue(
     }
     case "education": {
       const value = parsedValue;
-      const schoolName =
-        typeof value.schoolName === "string" ? value.schoolName : null;
+      // The model names the school "institution" in some runs and the dates
+      // "startYear"/"endYear" in others. Reading only the canonical keys
+      // imported "BSc Software Engineering" with no school at all.
+      const schoolName = readAliasString(value, [
+        "schoolName",
+        "school",
+        "institution",
+        "institutionName",
+        "university",
+        "college",
+      ]);
       const degree = normalizeSupportedEducationValue(
         candidate,
-        value.degree,
+        readAliasString(value, ["degree", "qualification", "degreeName"]),
         "degree",
       );
       const fieldOfStudy = normalizeSupportedEducationValue(
         candidate,
-        value.fieldOfStudy,
+        readAliasString(value, ["fieldOfStudy", "field", "major", "subject"]),
         "fieldOfStudy",
       );
       const location = normalizeSupportedEducationValue(
@@ -486,8 +568,7 @@ function normalizeRecordCandidateValue(
         value.location,
         "location",
       );
-      const rawSummary =
-        typeof value.summary === "string" ? value.summary : null;
+      const rawSummary = readAliasString(value, ["summary", "description"]);
       return {
         schoolName,
         degree,
@@ -498,8 +579,19 @@ function normalizeRecordCandidateValue(
           normalizeText(location) === normalizeText(schoolName)
             ? null
             : location,
-        startDate: typeof value.startDate === "string" ? value.startDate : null,
-        endDate: typeof value.endDate === "string" ? value.endDate : null,
+        startDate: canonicalizeRecordDateText(
+          readAliasDateText(value, ["startDate", "start", "from", "startYear"]),
+        ),
+        endDate: canonicalizeRecordDateText(
+          readAliasDateText(value, [
+            "endDate",
+            "end",
+            "to",
+            "endYear",
+            "graduationDate",
+            "graduationYear",
+          ]),
+        ),
         summary:
           rawSummary &&
           candidate.evidenceText &&
@@ -510,14 +602,43 @@ function normalizeRecordCandidateValue(
     }
     case "certification": {
       const value = parsedValue;
+      const { name, year } = splitCertificationNameYear(
+        readAliasString(value, [
+          "name",
+          "title",
+          "certification",
+          "certificate",
+        ]),
+      );
       return {
-        name: typeof value.name === "string" ? value.name : null,
-        issuer: typeof value.issuer === "string" ? value.issuer : null,
-        issueDate: typeof value.issueDate === "string" ? value.issueDate : null,
-        expiryDate:
-          typeof value.expiryDate === "string" ? value.expiryDate : null,
-        credentialUrl:
-          typeof value.credentialUrl === "string" ? value.credentialUrl : null,
+        name,
+        issuer: readAliasString(value, [
+          "issuer",
+          "issuingOrganization",
+          "organization",
+          "authority",
+          "provider",
+        ]),
+        issueDate:
+          canonicalizeRecordDateText(
+            readAliasDateText(value, [
+              "issueDate",
+              "issued",
+              "issuedAt",
+              "dateIssued",
+              "date",
+              "year",
+            ]),
+          ) ?? year,
+        expiryDate: canonicalizeRecordDateText(
+          readAliasDateText(value, [
+            "expiryDate",
+            "expires",
+            "expirationDate",
+            "validUntil",
+          ]),
+        ),
+        credentialUrl: readAliasString(value, ["credentialUrl", "url", "link"]),
       };
     }
     case "link": {
@@ -609,6 +730,218 @@ function normalizeRecordCandidateForReconciliation(
   });
 }
 
+export const FOLDED_INTO_RECORD_REASON = "folded_into_record_candidate";
+
+/** Keys that name the thing a record is about, per section. */
+const LOOSE_RECORD_IDENTITY_KEYS: Readonly<Record<string, readonly string[]>> =
+  {
+    experience: [
+      "companyName",
+      "company",
+      "employer",
+      "organization",
+      "title",
+      "role",
+      "position",
+      "jobTitle",
+    ],
+    education: [
+      "schoolName",
+      "school",
+      "institution",
+      "institutionName",
+      "university",
+      "college",
+      "degree",
+      "qualification",
+      "degreeName",
+    ],
+    certification: ["name", "title", "certification", "certificate"],
+    project: ["name", "title"],
+    language: ["language"],
+    link: ["url"],
+  };
+
+const LOOSE_RECORD_SECTIONS = new Set(Object.keys(LOOSE_RECORD_IDENTITY_KEYS));
+
+/** A role or degree is never one field; a link or a language can be. */
+const LOOSE_RECORD_MINIMUM_FIELDS: Readonly<Record<string, number>> = {
+  experience: 2,
+  education: 2,
+};
+
+function isLooseRecordFieldCandidate(
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  return (
+    LOOSE_RECORD_SECTIONS.has(candidate.target.section) &&
+    candidate.target.key !== "record" &&
+    Boolean(candidate.target.recordId?.trim()) &&
+    candidate.value !== null &&
+    !isObject(candidate.value)
+  );
+}
+
+function looseRecordLabel(
+  section: string,
+  value: Record<string, unknown>,
+): string | null {
+  const text = (keys: readonly string[]) =>
+    keys
+      .map((key) => value[key])
+      .find(
+        (entry): entry is string =>
+          typeof entry === "string" && entry.trim().length > 0,
+      )
+      ?.trim() ?? null;
+  const parts =
+    section === "experience"
+      ? [
+          text(["companyName", "company", "employer", "organization"]),
+          text(["title", "role", "position", "jobTitle"]),
+        ]
+      : section === "education"
+        ? [
+            text(["schoolName", "school", "institution", "university"]),
+            text(["degree", "qualification", "degreeName"]),
+          ]
+        : [text(LOOSE_RECORD_IDENTITY_KEYS[section] ?? [])];
+  const label = parts.filter(Boolean).join(" — ");
+  return label.length > 0 ? label : null;
+}
+
+/**
+ * The model is asked for one object per role, but some runs return a role as
+ * loose fields instead: experience.companyName, experience.title and so on,
+ * sharing one recordId. Each loose field became its own required setup item
+ * ("Confirm acme title"), none of them could be applied, and none matched the
+ * saved role, so importing the same resume again asked the person to confirm
+ * twenty-three values already on their profile. Loose fields from one source
+ * that share a section and recordId are one record: fold them into it, so
+ * the record is matched, merged or reviewed like any other. The loose fields
+ * are kept, rejected with the fold as the reason.
+ */
+function foldLooseRecordFieldCandidates(
+  candidates: readonly ResumeImportFieldCandidate[],
+): {
+  candidates: ResumeImportFieldCandidate[];
+  foldedAway: ResumeImportFieldCandidate[];
+} {
+  const groups = new Map<string, ResumeImportFieldCandidate[]>();
+  const kept: ResumeImportFieldCandidate[] = [];
+
+  for (const candidate of candidates) {
+    if (!isLooseRecordFieldCandidate(candidate)) {
+      kept.push(candidate);
+      continue;
+    }
+    const groupKey = [
+      candidate.runId,
+      candidate.sourceKind,
+      candidate.target.section,
+      candidate.target.recordId?.trim(),
+    ].join("|");
+    groups.set(groupKey, [...(groups.get(groupKey) ?? []), candidate]);
+  }
+
+  const existingIds = new Set(candidates.map((candidate) => candidate.id));
+  const folded: ResumeImportFieldCandidate[] = [];
+  const foldedAway: ResumeImportFieldCandidate[] = [];
+
+  for (const group of groups.values()) {
+    const first = group[0];
+    if (!first) {
+      continue;
+    }
+    const section = first.target.section;
+    const value: Record<string, ResumeImportFieldCandidate["value"]> = {};
+    let ambiguous = false;
+    for (const candidate of group) {
+      const key = candidate.target.key;
+      const previous = value[key];
+      if (
+        previous !== undefined &&
+        JSON.stringify(previous) !== JSON.stringify(candidate.value)
+      ) {
+        ambiguous = true;
+        break;
+      }
+      value[key] = candidate.value;
+    }
+    const hasIdentity = (LOOSE_RECORD_IDENTITY_KEYS[section] ?? []).some(
+      (key) => {
+        const entry = value[key];
+        return typeof entry === "string" && entry.trim().length > 0;
+      },
+    );
+    const fieldCount = Object.keys(value).length;
+    if (
+      ambiguous ||
+      !hasIdentity ||
+      fieldCount < (LOOSE_RECORD_MINIMUM_FIELDS[section] ?? 1)
+    ) {
+      kept.push(...group);
+      continue;
+    }
+
+    const recordId = first.target.recordId?.trim() ?? "record";
+    const foldedId =
+      `${first.runId}_${first.sourceKind}_${section}_record_${recordId}_folded`
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "_");
+    foldedAway.push(...group);
+    // The second reconciliation pass sees the record the first pass made.
+    if (existingIds.has(foldedId)) {
+      continue;
+    }
+    existingIds.add(foldedId);
+    const lowest = group.reduce((current, candidate) =>
+      candidateOverallConfidence(candidate) <
+      candidateOverallConfidence(current)
+        ? candidate
+        : current,
+    );
+    const evidenceText = uniqueStrings(
+      group.flatMap((candidate) =>
+        candidate.evidenceText ? [candidate.evidenceText] : [],
+      ),
+    ).join(" | ");
+    folded.push(
+      ResumeImportFieldCandidateSchema.parse({
+        id: foldedId,
+        runId: first.runId,
+        target: { section, key: "record", recordId },
+        label: looseRecordLabel(section, value) ?? first.label,
+        sourceKind: first.sourceKind,
+        value,
+        normalizedValue: null,
+        valuePreview: buildValuePreview(value),
+        evidenceText: evidenceText.length > 0 ? evidenceText : null,
+        sourceBlockIds: uniqueStrings(
+          group.flatMap((candidate) => candidate.sourceBlockIds),
+        ),
+        confidence: Math.min(...group.map((candidate) => candidate.confidence)),
+        confidenceBreakdown: lowest.confidenceBreakdown ?? null,
+        notes: uniqueStrings([
+          ...group.flatMap((candidate) => candidate.notes),
+          "Read as separate fields; combined into one record.",
+        ]),
+        alternatives: [],
+        conflictChoices: [],
+        visualEvidence: group.flatMap(
+          (candidate) => candidate.visualEvidence ?? [],
+        ),
+        resolution: "needs_review",
+        resolutionReason: null,
+        createdAt: first.createdAt,
+        resolvedAt: null,
+      }),
+    );
+  }
+
+  return { candidates: [...kept, ...folded], foldedAway };
+}
+
 /**
  * Two extractions of the same record rarely agree on which fields they
  * filled: the model reads the summary and dates, the text reader finds the
@@ -635,6 +968,9 @@ const RECORD_FILLABLE_FIELDS = new Set([
   "projectType",
   "role",
   "issuer",
+  "issueDate",
+  "expiryDate",
+  "credentialUrl",
   "achievements",
   "skills",
   "isCurrent",
@@ -752,6 +1088,60 @@ function hasMeaningfulRecordValue(candidate: ResumeImportFieldCandidate): boolea
   );
 }
 
+/**
+ * A profile an import may fill without asking: the first-run seed with none
+ * of the person's own details in it yet. The seed keeps its reserved id after
+ * the first import, so the id alone said "fresh" forever: importing again
+ * (Replace resume, Import again) overwrote an email the person had changed,
+ * dropped a certificate the Assistant had added, and re-added roles they had
+ * merged or split, as second cards beside the edited ones.
+ */
+export function isUntouchedFreshStartProfile(
+  profile: CandidateProfile,
+): boolean {
+  if (!isFreshStartCandidateProfile(profile)) {
+    return false;
+  }
+  const hasOwnText = (value: string | null | undefined) =>
+    typeof value === "string" && value.trim().length > 0;
+  const hasOwnName =
+    hasOwnText(profile.fullName) &&
+    !hasProfileSetupPlaceholderValue("fullName", profile.fullName);
+  return !(
+    hasOwnName ||
+    hasOwnText(profile.email) ||
+    hasOwnText(profile.phone) ||
+    profile.experiences.length > 0 ||
+    profile.education.length > 0 ||
+    profile.certifications.length > 0 ||
+    profile.projects.length > 0 ||
+    profile.spokenLanguages.length > 0 ||
+    profile.skills.length > 0
+  );
+}
+
+function isEmptyRecordSection(
+  profile: CandidateProfile,
+  section: ResumeImportFieldCandidate["target"]["section"],
+): boolean {
+  switch (section) {
+    case "experience":
+      return profile.experiences.length === 0;
+    case "education":
+      return profile.education.length === 0;
+    case "certification":
+      return profile.certifications.length === 0;
+    case "link":
+      return profile.links.length === 0;
+    case "project":
+      return profile.projects.length === 0;
+    case "language":
+      return profile.spokenLanguages.length === 0;
+    default:
+      return false;
+  }
+}
+
 const SHARED_MEMORY_SECTIONS = new Set([
   "narrative",
   "proof_point",
@@ -773,7 +1163,7 @@ function promoteImportCandidatesIntoEmptyProfile(
   searchPreferences: JobSearchPreferences,
   candidates: readonly ResumeImportFieldCandidate[],
 ): ResumeImportFieldCandidate[] {
-  const freshStart = isFreshStartCandidateProfile(profile);
+  const freshStart = isUntouchedFreshStartProfile(profile);
   const emptySections = new Set<string>(
     (
       [
@@ -1008,7 +1398,12 @@ function canAutoApplyDespiteWorkspaceConflict(
     return true;
   }
 
+  // A literal the resume states (an email, a phone) may replace a stored
+  // value only on a profile nobody has touched yet. Importing again used to
+  // put the resume's old email back over the one the person had just
+  // changed; now the difference waits for review, as the import promises.
   return (
+    isUntouchedFreshStartProfile(profile) &&
     candidate.sourceKind === "parser_literal" &&
     isAutoApplyLiteralField(candidate) &&
     hasSufficientEvidence(candidate)
@@ -1223,6 +1618,18 @@ function shouldAutoApply(
     return true;
   }
 
+  // A sentence the resume states outright fills an empty eligibility answer.
+  // It never replaces one the person saved; that difference waits for review.
+  if (candidate.target.section === "work_eligibility") {
+    return (
+      candidate.sourceKind === "parser_literal" &&
+      hasSufficientEvidence(candidate) &&
+      isEmptyWorkEligibilityValue(
+        existingScalarValueForCandidate(profile, searchPreferences, candidate),
+      )
+    );
+  }
+
   if (candidate.target.section === "narrative") {
     return false;
   }
@@ -1282,6 +1689,107 @@ function shouldAutoApply(
   return false;
 }
 
+/** A record date as a month count; a bare year spans its whole year. */
+function recordMonth(value: unknown, edge: "start" | "end"): number | null {
+  const text = canonicalizeRecordDateText(value);
+  const match = text ? /^(\d{4})(?:-(\d{2}))?$/.exec(text) : null;
+  if (!match) {
+    return null;
+  }
+  const month = match[2] ? Number(match[2]) : edge === "start" ? 1 : 12;
+  return Number(match[1]) * 12 + month - 1;
+}
+
+/** The months a role covers; null when its dates cannot be read. */
+function roleSpan(value: {
+  startDate?: unknown;
+  endDate?: unknown;
+  isCurrent?: unknown;
+}): { start: number; end: number } | null {
+  const start = recordMonth(value.startDate, "start");
+  if (start === null) {
+    return null;
+  }
+  const endText =
+    typeof value.endDate === "string" ? value.endDate.trim().toLowerCase() : "";
+  if (
+    value.isCurrent === true ||
+    endText === "present" ||
+    endText === "current"
+  ) {
+    return { start, end: Number.POSITIVE_INFINITY };
+  }
+  const end = recordMonth(value.endDate, "end");
+  return end === null ? null : { start, end };
+}
+
+const COMPANY_SUFFIX_WORDS = new Set([
+  "inc",
+  "ltd",
+  "llc",
+  "plc",
+  "gmbh",
+  "ag",
+  "sa",
+  "bv",
+  "co",
+  "corp",
+  "corporation",
+  "company",
+  "limited",
+]);
+
+function companyWords(value: unknown): string {
+  return typeof value === "string"
+    ? normalizeText(value)
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .split(" ")
+        .filter((word) => word && !COMPANY_SUFFIX_WORDS.has(word))
+        .join(" ")
+    : "";
+}
+
+function sameCompany(left: string, right: string): boolean {
+  if (!left || !right) {
+    return true;
+  }
+  return (
+    left === right ||
+    ` ${left} `.includes(` ${right} `) ||
+    ` ${right} `.includes(` ${left} `)
+  );
+}
+
+/**
+ * True when a role the import read cannot be a saved role the person merged,
+ * split or retitled: it has a company and readable dates, and no saved card
+ * at that company covers any of those months. Anything unclear is treated as
+ * an overlap, so it waits for review.
+ */
+function overlapsNoSavedRole(
+  profile: CandidateProfile,
+  value: ResumeImportFieldCandidate["value"],
+): boolean {
+  if (!isObject(value)) {
+    return false;
+  }
+  const company = companyWords(value.companyName);
+  const span = roleSpan(value);
+  if (!company || !span) {
+    return false;
+  }
+  return profile.experiences.every((saved) => {
+    if (!sameCompany(companyWords(saved.companyName), company)) {
+      return true;
+    }
+    const savedSpan = roleSpan(saved);
+    return (
+      savedSpan !== null &&
+      (savedSpan.end < span.start || span.end < savedSpan.start)
+    );
+  });
+}
+
 function shouldMergeRecordCandidate(
   profile: CandidateProfile,
   candidate: ResumeImportFieldCandidate,
@@ -1291,6 +1799,26 @@ function shouldMergeRecordCandidate(
   }
 
   if (!isObject(candidate.value)) {
+    return false;
+  }
+
+  // Roles and schools the person already has are theirs: one the import
+  // reads that matches none of them may be a role they merged, split or
+  // retitled, so it waits for review instead of landing beside the edited
+  // card. A role at a company none of their cards covers for those dates
+  // cannot be one of those, so it is added like on a first import.
+  // Certificates, links, projects and languages are only ever added (see
+  // profile-merge), so a new one can still land on its own.
+  if (
+    (candidate.target.section === "experience" ||
+      candidate.target.section === "education") &&
+    !isUntouchedFreshStartProfile(profile) &&
+    !isEmptyRecordSection(profile, candidate.target.section) &&
+    !(
+      candidate.target.section === "experience" &&
+      overlapsNoSavedRole(profile, candidate.value)
+    )
+  ) {
     return false;
   }
 
@@ -1408,7 +1936,10 @@ function shouldAutoApplyAdditionalFreshStartRecordCandidate(
     return false;
   }
 
-  if (candidate.target.section !== "experience") {
+  if (
+    candidate.target.section !== "experience" ||
+    profile.experiences.length > 0
+  ) {
     return false;
   }
 
@@ -1865,13 +2396,80 @@ function resolveRedundantFreshStartNamePartCandidates(
   });
 }
 
+export const DUPLICATE_LINK_REASON = "duplicate_link_candidate";
+
+const GENERIC_LINK_KEYS = new Set(["portfolioUrl", "personalWebsiteUrl"]);
+const NAMED_LINK_KEYS = ["linkedinUrl", "githubUrl"] as const;
+
+function normalizeLinkForComparison(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed
+    .replace(/^https?:\/\//u, "")
+    .replace(/^www\./u, "")
+    .replace(/\/+$/u, "");
+}
+
+/**
+ * The model sometimes copies the GitHub or LinkedIn address into the generic
+ * portfolio or personal-website slot as well, so Profile > Links showed the
+ * same URL under two labels. A generic link that matches a named link, either
+ * one already saved or one proposed in the same run, is not a second link.
+ */
+function isDuplicateLinkCandidate(
+  profile: CandidateProfile,
+  candidate: ResumeImportFieldCandidate,
+  candidates: readonly ResumeImportFieldCandidate[],
+): boolean {
+  if (
+    candidate.target.section !== "contact" ||
+    !GENERIC_LINK_KEYS.has(candidate.target.key)
+  ) {
+    return false;
+  }
+  const value = normalizeLinkForComparison(candidate.value);
+  if (!value) {
+    return false;
+  }
+  for (const key of NAMED_LINK_KEYS) {
+    if (normalizeLinkForComparison(profile[key]) === value) {
+      return true;
+    }
+  }
+  return candidates.some(
+    (other) =>
+      other.id !== candidate.id &&
+      other.target.section === "contact" &&
+      (NAMED_LINK_KEYS as readonly string[]).includes(other.target.key) &&
+      normalizeLinkForComparison(other.value) === value,
+  );
+}
+
 export function reconcileCandidates(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
   candidates: readonly ResumeImportFieldCandidate[],
 ): ResumeImportFieldCandidate[] {
   const resolved: ResumeImportFieldCandidate[] = [];
-  const normalizedCandidates = candidates.map(
+  const { candidates: foldedCandidates, foldedAway } =
+    foldLooseRecordFieldCandidates(candidates);
+  for (const candidate of foldedAway) {
+    resolved.push(
+      applyCandidateResolution(
+        profile,
+        searchPreferences,
+        candidate,
+        "rejected",
+        FOLDED_INTO_RECORD_REASON,
+      ),
+    );
+  }
+  const normalizedCandidates = foldedCandidates.map(
     normalizeRecordCandidateForReconciliation,
   );
   const identityConflicts = findResumeImportIdentityConflicts(
@@ -1905,6 +2503,19 @@ export function reconcileCandidates(
           candidate,
           "rejected",
           "invalid_phone_candidate",
+        ),
+      );
+      continue;
+    }
+
+    if (isDuplicateLinkCandidate(profile, candidate, normalizedCandidates)) {
+      resolved.push(
+        applyCandidateResolution(
+          profile,
+          searchPreferences,
+          candidate,
+          "rejected",
+          DUPLICATE_LINK_REASON,
         ),
       );
       continue;

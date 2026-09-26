@@ -36,6 +36,13 @@ import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigat
 import { buildResumeWorkspaceRoute } from "../../lib/resume-workspace-route";
 import { listApplicationsAwaitingUser } from "../../lib/needs-you-count";
 import {
+  APPLICATION_FILE_CONTINUES_NOTE,
+  APPLICATION_SIGN_IN_CONTINUES_NOTE,
+  OPEN_PROFILE_FILES_ACTION,
+  applicationSignInContinuesOnItsOwn,
+} from "../../lib/application-sign-in-handoff";
+import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
+import {
   getApplicationNextStepLabel,
   listPendingApplicationQuestions,
 } from "../applications/applications-status";
@@ -330,6 +337,8 @@ function ActionCard(props: {
    */
   onCommand: (command: UserActionCommandInput) => void | Promise<void>;
   onOpenScope: () => void;
+  /** Opens Profile > Files, where a file question is answered. */
+  onOpenFiles?: () => void;
   onProjectGroupedManualAnswer: (
     command: ProjectGroupedManualAnswerCommand,
   ) => void;
@@ -377,6 +386,17 @@ function ActionCard(props: {
     }
   })();
   const attemptsExhausted = request.attemptCount >= request.maxAttempts;
+  const continuesAfterSignIn = applicationSignInContinuesOnItsOwn(request);
+  // A file question is answered in Profile > Files: adding or restoring a
+  // fitting file there carries the application on by itself.
+  const waitsForFile =
+    request.kind === "manual_upload" &&
+    request.scope.type === "application" &&
+    Boolean(props.onOpenFiles) &&
+    questions.some(
+      (question) =>
+        question.answerControlType === "file" && question.kind !== "resume",
+    );
   const presentation = userActionKindPresentations[request.kind];
   const actionPresentation = isLegacyCredentialQuestion
     ? userActionKindPresentations.login
@@ -445,10 +465,21 @@ function ActionCard(props: {
               right here. */}
           <p className="max-w-3xl text-sm leading-6 text-foreground-soft">
             {isQuestionStep
-              ? "Nothing in your profile, resume, or saved answers covers this."
+              ? // A question that came back with a reason (for example the
+                // saved work countries do not settle the job's region) says
+                // what Job Finder did find under the question; the heading
+                // must not claim the profile has nothing.
+                questions.some((question) => Boolean(question.note))
+                ? "Your saved details do not settle this. The note under the question says why."
+                : "Nothing in your profile, resume, or saved answers covers this."
               : isLegacyCredentialQuestion
                 ? "This older step cannot collect a password. Open the exact job page to sign in there, or cancel it and try the application again."
-                : stripScrapedGlyphs(summaryParts.message)}
+                : isVerifying
+                  ? // Being checked (or answered from a saved answer): saying
+                    // "do it in the browser, then come back and confirm" here
+                    // told the person to do what Job Finder was doing.
+                    "Job Finder is checking this step and carries on by itself once it is done. Nothing is needed from you unless it asks again."
+                  : stripScrapedGlyphs(summaryParts.message)}
           </p>
         </div>
         <Button
@@ -518,9 +549,9 @@ function ActionCard(props: {
               ...createCommand(request, "confirm_done"),
               action: "submit_manual_answer",
               answer: first.answer,
-              ...(answers.length > 1 || questions.length > 1
-                ? { answers: answers.map((entry) => ({ ...entry })) }
-                : {}),
+              // Always tied to its question: an application keeps earlier
+              // questions on record, so a bare answer can be ambiguous.
+              answers: answers.map((entry) => ({ ...entry })),
               saveForFuture,
             });
           }}
@@ -541,7 +572,25 @@ function ActionCard(props: {
       {/* The boxed treatment framed the boundary as fine print and repeated
           the steps above it inside a grey rectangle. The per-kind sentence
           and the one no-submit sentence stay; the box does not. */}
-      {isQuestionStep || isBlockerStep ? null : (
+      {continuesAfterSignIn ? (
+        <p
+          className="text-xs leading-5 text-muted-foreground"
+          data-testid="needs-you-sign-in-continues-note"
+        >
+          {APPLICATION_SIGN_IN_CONTINUES_NOTE}
+        </p>
+      ) : isQuestionStep || isBlockerStep ? null : waitsForFile ? (
+        // Requests written before the file hand-off carried this sentence
+        // still get it once; newer ones already say it above.
+        request.summary.includes("Profile › Files") ? null : (
+          <p
+            className="text-xs leading-5 text-muted-foreground"
+            data-testid="needs-you-file-continues-note"
+          >
+            {APPLICATION_FILE_CONTINUES_NOTE}
+          </p>
+        )
+      ) : (
         <p className="text-xs leading-5 text-muted-foreground">
           {presentation.guidance} Confirming here cannot create an account or
           submit an application.
@@ -553,6 +602,16 @@ function ActionCard(props: {
         role="group"
         aria-label={`Actions for ${displayedTitle}`}
       >
+        {waitsForFile && props.onOpenFiles ? (
+          <Button
+            data-testid="needs-you-open-files"
+            onClick={props.onOpenFiles}
+            size="compact"
+            type="button"
+          >
+            <ArrowUpRight aria-hidden="true" /> {OPEN_PROFILE_FILES_ACTION}
+          </Button>
+        ) : null}
         {isQuestionStep ? null : request.actionUrl ? (
           <Button
             onClick={() => {
@@ -575,7 +634,9 @@ function ActionCard(props: {
             <ArrowUpRight aria-hidden="true" /> Review {scopeLabel}
           </Button>
         )}
-        {!isQuestionStep ? (
+        {/* A sign-in on a kept application page is watched: the run goes
+            on by itself once the wall is gone, so no check press. */}
+        {!isQuestionStep && !continuesAfterSignIn ? (
           <Button
             disabled={isVerifying || attemptsExhausted}
             onClick={() => {
@@ -1054,7 +1115,7 @@ export function ActionsScreen(props: {
         // action it offers; the page header owns the credential boundary
         // only, so the promise is stated once per card instead of three
         // times on the same screen.
-        description={`Steps only you can do. Answer here, or finish in ${JOB_FINDER_BROWSER_NAME} and confirm. Passwords and security codes stay with you.`}
+        description={`Steps only you can do. Answer here, or finish in ${JOB_FINDER_BROWSER_NAME}; Job Finder notices when a step is done and carries on by itself. Passwords and security codes stay with you.`}
         title="Needs you"
       />
 
@@ -1273,6 +1334,11 @@ export function ActionsScreen(props: {
                                 ),
                               )
                             }
+                            onOpenFiles={() =>
+                              props.onNavigate(
+                                JOB_FINDER_ROUTE_PATHS.profileFiles,
+                              )
+                            }
                             request={request}
                           />
                         );
@@ -1318,7 +1384,9 @@ export function QuestionAnswerForm(props: {
 }) {
   const { isPending, onAnswer, questions, requestId } = props;
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [saveForFuture, setSaveForFuture] = useState(false);
+  // Remembered by default: the same question on the next application is
+  // answered without asking again. The person unticks it for a one-off.
+  const [saveForFuture, setSaveForFuture] = useState(true);
   const [working, setWorking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const saveId = `${requestId}-save-answer`;
@@ -1430,6 +1498,25 @@ export function QuestionAnswerForm(props: {
                   </option>
                 ))}
               </select>
+            ) : question.answerControlType === "boolean" ? (
+              // A box on the form (a consent or declaration) is a box here
+              // too, not a text field asking the person to type "Yes".
+              <label className="flex items-start gap-2 text-sm leading-6 text-foreground">
+                <input
+                  checked={readAnswer(question.id) === "Yes"}
+                  className="mt-1 size-4 shrink-0 accent-(--primary)"
+                  data-testid="needs-you-question-checkbox"
+                  id={answerId}
+                  onChange={(event) =>
+                    setAnswers((current) => ({
+                      ...current,
+                      [question.id]: event.target.checked ? "Yes" : "",
+                    }))
+                  }
+                  type="checkbox"
+                />
+                Tick this box on the form
+              </label>
             ) : (
               <Textarea
                 id={answerId}

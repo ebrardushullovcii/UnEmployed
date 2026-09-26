@@ -1722,6 +1722,101 @@ describe("playwright browser runtime", () => {
     }
   });
 
+  test("runAgentDiscovery keeps a dedicated page the agent parked for the person open", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-agent-parked-page-"),
+    );
+    vi.doMock("@unemployed/browser-agent", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@unemployed/browser-agent")>()),
+      runJobSearchAgent: vi.fn().mockResolvedValue({
+        jobs: [],
+        steps: 3,
+        incomplete: true,
+        transcriptMessageCount: 4,
+        accessBlockerReason: "auth_required",
+        parkedPageUrl: "https://example.com/sign-in",
+        warning: "This site needs a sign-in.",
+      }),
+    }));
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 54648 });
+      let pageUrl = "about:blank";
+      const page = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        evaluate: vi.fn().mockResolvedValue(200),
+        goto: vi.fn((url: string) => {
+          pageUrl = url;
+          return Promise.resolve({ status: () => 200 });
+        }),
+        isClosed: () => false,
+        url: () => pageUrl,
+      };
+      const fakeContext = {
+        newPage: vi.fn().mockResolvedValue(page),
+        pages: () => [page],
+      };
+      const fakeBrowser = {
+        close: vi.fn(),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({}),
+        } as Response),
+      );
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+        jobExtractor: vi.fn().mockResolvedValue([]),
+      });
+      const claimed: unknown[] = [];
+
+      const result = await runtime.runAgentDiscovery!("target_site", {
+        maxSteps: 3,
+        targetJobCount: 1,
+        userProfile: createTestProfile(),
+        searchPreferences: { targetRoles: [], locations: [] },
+        startingUrls: ["https://example.com/jobs"],
+        navigationHostnames: ["example.com"],
+        siteLabel: "Sign-in Jobs",
+        dedicatedPage: true,
+        onAutomationPage: (claimedPage) => claimed.push(claimedPage),
+      });
+
+      expect(result.agentMetadata?.parkedTab).toEqual({
+        tabId: null,
+        url: "https://example.com/sign-in",
+        title: null,
+      });
+      // The host binds this exact page to the sign-in request; closing it
+      // here left the request pointing at a tab that no longer existed.
+      expect(page.close).not.toHaveBeenCalled();
+      expect(claimed).toEqual([page]);
+    } finally {
+      vi.doUnmock("@unemployed/browser-agent");
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
   test("runAgentDiscovery reuses an already-open matching page instead of navigating a blank tab", async () => {
     const userDataDir = await mkdtemp(
       join(tmpdir(), "unemployed-browser-runtime-agent-ready-blank-"),
@@ -2666,6 +2761,87 @@ describe("managed context service worker blocking", () => {
     }
   });
 
+  test("a browser that cannot open another tab reports a failed result with a plain sentence, not a Needs-you pause", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-tab-limit-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const approvedResumePath = join(userDataDir, "alex-vanguard.pdf");
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 63637 });
+      const { fakeContext } = createRecordingContext({
+        pages: [],
+        serviceWorkers: () => [],
+      });
+      Object.assign(fakeContext, {
+        newPage: vi.fn(() =>
+          Promise.reject(
+            new Error(
+              "browserContext.newPage: Protocol error (Target.createTarget): Close a browser tab before opening another one.",
+            ),
+          ),
+        ),
+      });
+      const fakeBrowser = {
+        close: vi.fn().mockResolvedValue(undefined),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      stubDebuggerEndpointFetch({ debugPort });
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      const result = await runtime.executeApplicationFlow("target_site", {
+        job: createTestJob(),
+        resumeArtifact: {
+          ...createTestResumeArtifact(),
+          filePath: approvedResumePath,
+        },
+        profile: createTestProfile(),
+        settings: createTestSettings(),
+        mode: "prepare_only",
+        prepareApplicationForm: createStubFormPreparer(),
+        submitAuthorized: false,
+      });
+
+      expect(result.state).toBe("failed");
+      expect(result.blocker?.code).toBe("application_page_unreachable");
+      expect(result.summary).toBe(
+        "The Job Finder browser has too many tabs open",
+      );
+      expect(result.detail).toContain("Nothing was sent");
+      const userVisibleText = [
+        result.summary,
+        result.detail,
+        result.blocker?.summary ?? "",
+        result.blocker?.detail ?? "",
+        result.checkpoints.map((checkpoint) => checkpoint.detail).join(" "),
+      ].join("\n");
+      expect(userVisibleText).not.toMatch(
+        /Protocol error|Target\.createTarget|newPage/,
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
   test("warm reconnect to an already-running debugger endpoint blocks service workers without relaunching Chrome", async () => {
     const userDataDir = await mkdtemp(
       join(tmpdir(), "unemployed-browser-runtime-sw-block-warm-attach-"),
@@ -3412,6 +3588,10 @@ describe("managed context active service worker gate", () => {
         activeServiceWorkers: () => [
           { url: () => "https://example.com/service-worker.js" },
         ],
+      });
+      // Reusing the open starting page first reads its navigation status.
+      Object.assign(harness.fakePage, {
+        evaluate: vi.fn().mockResolvedValue(null),
       });
       const mockAiClient = {
         chatWithTools: vi

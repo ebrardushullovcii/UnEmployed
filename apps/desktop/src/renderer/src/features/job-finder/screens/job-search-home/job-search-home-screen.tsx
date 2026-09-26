@@ -44,6 +44,10 @@ export interface JobSearchHomeScreenProps {
   resumeImportProgress?: ResumeImportProgressEvent | null;
   tailoredDraftPreparation?: TailoredDraftPreparationViewState | null;
   onApplyToJobs?: (jobIds: readonly string[]) => Promise<unknown> | void;
+  /** Send for me: Job Finder presses Send on each filled-in form. */
+  onSendPreparedApplications?: (
+    jobIds: readonly string[],
+  ) => Promise<unknown> | void;
   onCreateResumes?: () => void;
   onMarkAllCampaignNotificationsRead?: () => void;
   onMarkCampaignNotificationRead?: (notificationId: string) => void;
@@ -57,6 +61,36 @@ export interface JobSearchHomeScreenProps {
   onStopApply?: (runId: string) => void;
   onStopResumes?: () => void;
   onStopSearch?: (runId: string) => void;
+}
+
+/**
+ * Unread notifications that still say something true. A "Failed" or
+ * "Blocked" note about a job that has since been sent is history, not news:
+ * Home kept four "could not open the application page" notes for jobs every
+ * other screen showed as Applied.
+ */
+export function listCurrentUnreadNotifications(
+  notifications: readonly CampaignNotification[],
+  workspace: Pick<JobFinderWorkspaceSnapshot, "applicationRecords">,
+): CampaignNotification[] {
+  const sentJobIds = new Set(
+    (workspace.applicationRecords ?? [])
+      .filter(
+        (record) =>
+          record.status === "submitted" ||
+          record.lastAttemptState === "submitted",
+      )
+      .map((record) => record.jobId),
+  );
+  return notifications.filter(
+    (notification) =>
+      notification.unread &&
+      !(
+        notification.kind === "blocked_work" &&
+        notification.jobId &&
+        sentJobIds.has(notification.jobId)
+      ),
+  );
 }
 
 const PANEL_CLASS =
@@ -89,12 +123,40 @@ export function JobSearchHomeScreen(props: JobSearchHomeScreenProps) {
     /Starting page returned HTTP (404|410)/iu.test(
       props.discoveryRunFeedback?.detail ?? "",
     );
+  // A search that stopped at a sign-in carries on by itself once the person
+  // signs in; the press that started it failed, but a later search of the
+  // same plan finished. That completion replaces the failure, as it does on
+  // Find jobs.
+  const failureRecordedAtMs =
+    props.discoveryRunFeedback?.status === "failed"
+      ? props.discoveryRunFeedback.recordedAtMs
+      : undefined;
+  const failureSupersededByCompletedRun =
+    failureRecordedAtMs !== undefined &&
+    (props.workspace.recentDiscoveryRuns ?? []).some(
+      (run) =>
+        run.campaignId === props.workspace.activeCampaignId &&
+        run.state === "completed" &&
+        run.completedAt !== null &&
+        Date.parse(run.completedAt) > failureRecordedAtMs,
+    );
   const unresolvedFeedback =
     props.discoveryRunFeedback &&
     props.discoveryRunFeedback.targetLabel === null &&
     props.discoveryRunFeedback.status !== "succeeded" &&
     props.discoveryRunFeedback.status !== "started" &&
-    !missingStartingPageCoveredBySourceFix
+    // The person's own Stop: the line under the title already says the
+    // last search stopped early, and nothing needs fixing.
+    props.discoveryRunFeedback.status !== "cancelled" &&
+    !failureSupersededByCompletedRun &&
+    !missingStartingPageCoveredBySourceFix &&
+    // The next step already names the broken source and where to fix it.
+    model.next.id !== "source_failed" &&
+    model.next.id !== "sources" &&
+    // A source to correct is Home's card or problem line, which follow the
+    // sources as they are now; this callout kept naming a source the person
+    // had already removed.
+    props.discoveryRunFeedback.recovery?.kind !== "source_setup"
       ? props.discoveryRunFeedback
       : null;
   const applicationsAwaitingUser = new Set(
@@ -167,6 +229,16 @@ export function JobSearchHomeScreen(props: JobSearchHomeScreenProps) {
           props.onNavigate(JOB_FINDER_ROUTE_PATHS.reviewQueue);
         }
         return;
+      case "send_prepared":
+        if (props.onSendPreparedApplications) {
+          setApplyPending(true);
+          void Promise.resolve(
+            props.onSendPreparedApplications(action.jobIds),
+          ).finally(() => setApplyPending(false));
+        } else {
+          props.onNavigate(JOB_FINDER_ROUTE_PATHS.applications);
+        }
+        return;
       case "stop_search":
         props.onStopSearch?.(action.runId);
         return;
@@ -188,13 +260,16 @@ export function JobSearchHomeScreen(props: JobSearchHomeScreenProps) {
   const isButtonPending = (button: HomeButton): boolean =>
     (button.action.kind === "run_search" &&
       Boolean(props.discoveryRunPending)) ||
-    (button.action.kind === "apply_all" && applyPending) ||
+    ((button.action.kind === "apply_all" ||
+      button.action.kind === "send_prepared") &&
+      applyPending) ||
     ((button.action.kind === "pause_activity" ||
       button.action.kind === "resume_activity") &&
       props.activityPending);
 
-  const unreadNotifications = (props.campaignNotifications ?? []).filter(
-    (notification) => notification.unread,
+  const unreadNotifications = listCurrentUnreadNotifications(
+    props.campaignNotifications ?? [],
+    props.workspace,
   );
   const showNotifications =
     unreadNotifications.length > 0 &&
@@ -370,6 +445,21 @@ export function JobSearchHomeScreen(props: JobSearchHomeScreenProps) {
         </h2>
         <p className="min-w-0 max-w-[68ch] break-words text-sm text-foreground-soft">
           {model.next.detail}
+          {model.next.detailLink ? (
+            <>
+              {" "}
+              <button
+                className="inline cursor-pointer rounded-sm text-primary underline underline-offset-2 outline-none hover:text-primary/80 focus-visible:ring-2 focus-visible:ring-ring"
+                data-testid="home-next-step-detail-link"
+                onClick={() =>
+                  model.next.detailLink && run(model.next.detailLink.action)
+                }
+                type="button"
+              >
+                {model.next.detailLink.label}
+              </button>
+            </>
+          ) : null}
         </p>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Button

@@ -8,6 +8,7 @@ import type {
 } from "@unemployed/contracts";
 import { JOB_FINDER_BROWSER_NAME } from "../../lib/job-finder-browser-handoff-copy";
 import {
+  AI_UNAVAILABLE_RESUME_RESULT_MESSAGE,
   getApplyReadinessStatus,
   hasResumeGenerationFailure,
   isResumeGenerationInProgress,
@@ -101,10 +102,33 @@ export function describeApplyOutcome(
   }
 }
 
+/**
+ * The same promise for the list's "Apply to all" row, which starts several
+ * applications at once in the mode saved in Settings. A person about to send
+ * five applications reads which mode they will run in before pressing.
+ */
+export function describeApplyAllOutcome(
+  mode: ApplicationAutomationMode,
+): string {
+  switch (mode) {
+    case "autonomous_submit":
+      return "Apply to all fills in and sends each application, and stops only for one that needs you.";
+    case "confirm_before_submit":
+      return "Apply to all fills in each form, then waits for your go-ahead before sending each one.";
+    default:
+      return "Apply to all fills in each form and attaches its resume; you press Send on each one.";
+  }
+}
+
 export function getPrimaryApplicationAction(input: {
   applySupportState: ApplySupportState;
   browserSession: BrowserSessionState;
   hasGenerationFailure: boolean;
+  /**
+   * Why the last attempt failed, in the words the service recorded. The box
+   * used to print a generic "did not finish" above the actual reason.
+   */
+  generationFailureDetail?: string | null;
   hasReadyApprovedAsset: boolean;
   isApplyPending: boolean;
   isGenerating: boolean;
@@ -160,8 +184,12 @@ export function getPrimaryApplicationAction(input: {
   }
 
   if (hasGenerationFailure) {
+    const failureDetail = input.generationFailureDetail?.trim()
+      ? stripInternalCodeParenthetical(input.generationFailureDetail)
+      : "";
     return {
-      blocker: "The last attempt to write this resume did not finish.",
+      blocker:
+        failureDetail || "The last attempt to write this resume did not finish.",
       enabled: !isSelectedJobPending,
       kind: "generate_resume",
       label: "Try again",
@@ -421,11 +449,15 @@ export function buildMissionPanelState(input: {
       selectedItem?.resumeAssetId === selectedAsset.id &&
       approvedResumeReview !== null &&
       selectedAsset.storagePath === approvedResumeReview.approvedFilePath;
-  const draftNeedsPersonReview = needsPersonResumeReview(selectedItem);
+  const draftNeedsPersonReview = needsPersonResumeReview(
+    selectedItem,
+    selectedAsset,
+  );
   const primaryApplicationAction = getPrimaryApplicationAction({
     applySupportState,
     browserSession,
     hasGenerationFailure,
+    generationFailureDetail: selectedAsset?.failureMessage ?? null,
     hasReadyApprovedAsset,
     isApplyPending,
     isGenerating,
@@ -457,7 +489,12 @@ export function buildMissionPanelState(input: {
   const readinessDescription =
     primaryApplicationAction.kind === "open_safeguards"
       ? (primaryApplicationAction.blocker ?? null)
-      : getReadinessDescription({
+      : hasGenerationFailure && selectedAsset?.failureMessage?.trim()
+        ? // The failure box names the cause; a generic "could not be
+          // written… open it to see what happened" above it sent people
+          // looking for a reason that was already on screen.
+          null
+        : getReadinessDescription({
           selectedItem,
           selectedJob,
           hasGenerationFailure,
@@ -487,4 +524,27 @@ export function buildMissionPanelState(input: {
     readinessDescription,
     usesOriginalResume,
   };
+}
+
+/**
+ * Whether the Next step box repeats the last action's result line. It is
+ * left out when the box already says the same thing: the failure cause, or
+ * the "AI was unavailable" result under the line that already explains the
+ * resume keeps the saved wording.
+ */
+export function shouldShowMissionActionMessage(input: {
+  actionMessage: string | null | undefined;
+  blocker: string | null | undefined;
+  aiUnavailableLine: string | null | undefined;
+}): boolean {
+  const message = input.actionMessage?.trim();
+  if (!message) {
+    return false;
+  }
+  if (message === input.blocker?.trim()) {
+    return false;
+  }
+  return !(
+    input.aiUnavailableLine && message === AI_UNAVAILABLE_RESUME_RESULT_MESSAGE
+  );
 }

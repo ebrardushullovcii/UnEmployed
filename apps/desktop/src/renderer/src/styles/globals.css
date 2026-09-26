@@ -138,7 +138,9 @@
      control boundary. WCAG 2.2 1.4.11 governs boundaries needed to identify a
      component or its state - fields, checkboxes, buttons, toggles, selected
      and focus indicators - and those live on --control-border,
-     --field-border and --row-selected-bar, which do clear 3:1. A panel
+     --field-border-hover, --field-focus-border and --row-selected-bar, which
+     do clear 3:1 (the resting --field-border sits just above this band and
+     below 3:1; hover and focus carry the floor). A panel
      outline, a row divider and a card edge are structure, not state.
      Raising this token to 3:1 turned 78 single-edge divider consumers into
      rules: light Find jobs read as a ruled table, four to five parallel
@@ -202,9 +204,16 @@
   --foreground-soft: #b8bdc3;
   --field: #171a1d;
   --field-strong: #242a31;
-  --field-border: #677480;
+  /* Fields read as a quiet well, not an outlined box: a softened resting
+     border (2.74:1 on the card, one step above the inert panel band so the
+     ladder panel < field < control still holds), a hairline inner highlight,
+     and a hover that restores the former 3.5:1 boundary. Focus is stronger
+     still. */
+  --field-border: #5a636d;
+  --field-border-hover: #677480;
+  --field-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   --field-focus-border: #8aa0bf;
-  --field-focus-shadow: 0 0 0 2px rgba(138, 160, 191, 0.34);
+  --field-focus-shadow: 0 0 0 3px rgba(138, 160, 191, 0.22);
   --panel-surface-muted: #1b1e21;
   --shell-header-bg: rgba(21, 23, 25, 0.97);
   --focus-inset-highlight: rgba(255, 255, 255, 0.08);
@@ -447,13 +456,18 @@
   --foreground-soft: #4f575f;
   --field: #fcfcfd;
   --field-strong: #ffffff;
-  /* The field fill is within 1.05:1 of the card, so this border is the only
-     thing that identifies an editable control. At #8a939c it measured
-     2.91:1 on the card and 2.54:1 on the canvas - below the 3:1 non-text
-     floor with no fill fallback. Dark already cleared it at 3.50/3.89. */
-  --field-border: #7a828b;
+  /* Fields read as a quiet well, not an outlined box. The resting border is
+     softened to 2.79:1 on the card and 2.44:1 on the canvas, one step above
+     the inert panel band so the ladder panel < field < control still holds,
+     and a faint drop shadow plus the lighter fill carry the rest of the
+     identification. Hover restores the former #7a828b boundary (3.63:1 on
+     the card, 3.17:1 on the canvas) and focus is stronger still, so the 3:1
+     non-text floor is met by every state a person interacts with. */
+  --field-border: #8e969f;
+  --field-border-hover: #7a828b;
+  --field-shadow: 0 1px 2px rgba(22, 27, 33, 0.06);
   --field-focus-border: #3a5274;
-  --field-focus-shadow: 0 0 0 2px rgba(58, 82, 116, 0.3);
+  --field-focus-shadow: 0 0 0 3px rgba(58, 82, 116, 0.18);
   --panel-surface-muted: #f6f7f8;
   --shell-header-bg: rgba(230, 232, 235, 0.97);
   --focus-inset-highlight: rgba(255, 255, 255, 0.28);

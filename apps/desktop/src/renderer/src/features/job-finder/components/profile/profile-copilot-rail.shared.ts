@@ -2,8 +2,10 @@ import type {
   JobFinderWorkspaceSnapshot,
   ProfileCopilotContext,
   ProfileCopilotPatchOperation,
+  ResumeApproach,
 } from "@unemployed/contracts";
 import { formatStatusLabel } from "../../lib/job-finder-utils";
+import { formatProfileSetupStepLabel } from "./setup/profile-setup-steps";
 
 function getDiscoveryTargetCount(
   operation: ProfileCopilotPatchOperation,
@@ -140,7 +142,8 @@ export function getProfileCopilotContextLabel(
   context: ProfileCopilotContext,
 ): string {
   if (context.surface === "setup") {
-    return `Setup - ${formatStatusLabel(context.step)}`;
+    // Name the step the way the step tabs do ("Basics", not "Essentials").
+    return `Setup - ${formatProfileSetupStepLabel(context.step)}`;
   }
 
   if (context.surface === "profile") {
@@ -159,6 +162,17 @@ export function getPatchGroupBadgeVariant(
 
   return applyMode === "rejected" ? "destructive" : "outline";
 }
+
+/**
+ * The resume level in the words Settings > AI behavior > Resumes uses, so a
+ * card that changes it reads like the choice it changes.
+ */
+const RESUME_LEVEL_CARD_LABEL: Record<ResumeApproach, string> = {
+  original_resume: "Original (your imported file, unchanged)",
+  conservative: "Light (small edits, every fact kept)",
+  balanced: "Tailored (a fuller rewrite, every fact kept)",
+  aggressive: "Aggressive (may stretch, with your say-so)",
+};
 
 export function describePatchOperation(
   operation: ProfileCopilotPatchOperation,
@@ -325,6 +339,8 @@ export function describePatchOperation(
       return `Remove reusable answer ${operation.recordId}`;
     case "resolve_review_items":
       return `Resolve ${operation.reviewItemIds.length} review item${operation.reviewItemIds.length === 1 ? "" : "s"} as ${formatStatusLabel(operation.resolutionStatus)}`;
+    case "set_resume_approach":
+      return `Resume level for new jobs: ${RESUME_LEVEL_CARD_LABEL[operation.value]}`;
   }
 
   return "Update profile data";

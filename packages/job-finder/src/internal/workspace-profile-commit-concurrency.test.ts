@@ -161,6 +161,8 @@ describe("profile copilot commit concurrency", () => {
       snapshotProfileSetupState: seed.profileSetupState,
       snapshotProfileAfter: null,
       snapshotSearchPreferencesAfter: null,
+      snapshotResumeApplicationMode: null,
+      snapshotResumeApplicationModeAfter: null,
     };
     await base.upsertProfileRevision(undoTarget);
     await base.saveProfile({
@@ -371,6 +373,8 @@ describe("profile copilot preference and sibling-flag races", () => {
       snapshotProfileSetupState: seed.profileSetupState,
       snapshotProfileAfter: null,
       snapshotSearchPreferencesAfter: null,
+      snapshotResumeApplicationMode: null,
+      snapshotResumeApplicationModeAfter: null,
     };
     await base.upsertProfileRevision(undoTarget);
 

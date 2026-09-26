@@ -35,6 +35,7 @@ import type {
   SharedAgentCompactionPolicy,
   SavedJob,
 } from "@unemployed/contracts";
+import type { Page } from "playwright";
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import type {
   ApplicationFinalActionResult,
@@ -50,6 +51,17 @@ export interface OpenBrowserSessionOptions {
   reuseExistingPage?: boolean;
   targetUrl?: string | null;
   targetId?: string | null;
+  /**
+   * The host's id for a tab parked for this request. A host that still has
+   * that tab shows it instead of opening the address in a second tab.
+   */
+  tabId?: string | null;
+  /**
+   * The page is a step parked for the person (a source sign-in or check).
+   * When its tab is gone, the host opens the address again as a parked tab
+   * under the same `tabId`, so the request stays bound to it.
+   */
+  parkedFor?: "sign_in" | "challenge";
 }
 
 export interface ExecuteEasyApplyInput {
@@ -277,6 +289,15 @@ export interface BrowserSessionRuntime {
     source: JobSource,
     pageBindingKey: string,
   ): Promise<RawApplyPage>;
+  /**
+   * Reload the exact retained application page once: the person signed in
+   * to the same site in another tab, and this page still shows the sign-in
+   * it loaded before that.
+   */
+  reloadApplicationPageBinding?(
+    source: JobSource,
+    pageBindingKey: string,
+  ): Promise<void>;
   /** Arm one native POST action on the exact retained page for a person. */
   armApplicationFormAction?(
     source: JobSource,
@@ -284,6 +305,35 @@ export interface BrowserSessionRuntime {
   ): Promise<void>;
   /** Re-lock a retained handoff when the run resumes or another action opens. */
   closeApplicationFormAction?(
+    source: JobSource,
+    pageBindingKey: string,
+  ): Promise<void>;
+  /**
+   * The person opened a prepared application to finish it themselves: let
+   * their own submit and requests through on that exact page. Job Finder is
+   * not working on the page then; `closeApplicationFormAction` locks it again
+   * whenever a run picks the page back up.
+   */
+  handApplicationPageToPerson?(
+    source: JobSource,
+    pageBindingKey: string,
+  ): Promise<void>;
+  /**
+   * Reads a prepared application page only while it is handed to the person
+   * (after `handApplicationPageToPerson`, before it is locked again). Null
+   * otherwise, so Job Finder's own send is never mistaken for the person's.
+   */
+  readApplicationPageWithPerson?(
+    source: JobSource,
+    pageBindingKey: string,
+  ): Promise<RawApplyPage | null>;
+  /**
+   * Forget the retained page of an application that is finished (the
+   * employer confirmed receipt). The tab stays open for the person but is no
+   * longer protected, so later runs can reuse or close it instead of
+   * counting it against the browser's tab limit.
+   */
+  releaseApplicationPageBinding?(
     source: JobSource,
     pageBindingKey: string,
   ): Promise<void>;
@@ -331,8 +381,16 @@ export interface BrowserSessionRuntime {
   ): Promise<DiscoveryRunResult>;
 }
 
+/**
+ * Told about every page a run starts working in, so a host that shares its
+ * browser between runs knows which run a tab belongs to (a person stepping
+ * into that tab then stops only that run).
+ */
+export type AutomationPageListener = (page: Page) => void;
+
 export interface BrowserApplicationExecutionOptions {
   signal?: AbortSignal;
+  onAutomationPage?: AutomationPageListener;
 }
 
 export interface AgentDiscoveryOptions {
@@ -396,6 +454,7 @@ export interface AgentDiscoveryOptions {
   captureVisualSnapshots?: boolean;
   aiClient?: JobFinderAiClient;
   onProgress?: (progress: AgentDiscoveryProgress) => void;
+  onAutomationPage?: AutomationPageListener;
   signal?: AbortSignal;
 }
 

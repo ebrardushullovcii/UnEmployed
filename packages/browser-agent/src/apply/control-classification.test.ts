@@ -58,6 +58,27 @@ describe("application prose questions", () => {
   });
 });
 
+describe("file questions", () => {
+  test.each([
+    ["Academic transcript", "other"],
+    ["Upload your certificate", "other"],
+    ["Work sample", "other"],
+    ["Attachment", "other"],
+    ["Resume/CV", "resume"],
+    ["Cover letter", "cover_letter"],
+    ["Portfolio", "portfolio"],
+  ])("reads a file control labelled %s as %s", (label, kind) => {
+    expect(
+      inferQuestionKind({
+        kind: "file",
+        label,
+        groupLabel: "",
+        placeholder: "",
+      }),
+    ).toBe(kind);
+  });
+});
+
 describe("experience questions", () => {
   test("recognizes an overall professional-experience select", () => {
     expect(

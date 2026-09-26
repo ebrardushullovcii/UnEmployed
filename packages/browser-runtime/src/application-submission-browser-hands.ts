@@ -455,6 +455,22 @@ function sameControlIdentity(
   return left.ref === right.ref && left.signature === right.signature;
 }
 
+/**
+ * True only when Playwright's click timed out during its actionability
+ * waits: its call log never reached "performing click action", the point at
+ * which it dispatches input to the page. Any other failure may have clicked.
+ */
+function clickWasNeverDispatched(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const isTimeout =
+    error.name === "TimeoutError" ||
+    /Timeout \d+ms exceeded/.test(error.message);
+  return (
+    isTimeout &&
+    !/performing click action|click action done/i.test(error.message)
+  );
+}
+
 function blockedResult(input: {
   reason: ApplicationFinalActionBlockReason;
   observation: ApplicationFormObservation | null;
@@ -984,9 +1000,34 @@ export async function executeExactlyOneFinalAction(
         timeout: input.clickTimeoutMs ?? DEFAULT_CLICK_TIMEOUT_MS,
       });
       actionCompleted = true;
-    } catch {
+    } catch (clickError) {
       const pageAfterError = readSafePageUrl(page.url());
       page.off("request", requestListener);
+      if (
+        clickWasNeverDispatched(clickError) &&
+        requestsObservedDuringAction === 0 &&
+        pageAfterError.origin === pageBefore.origin &&
+        pageAfterError.safePath === pageBefore.safePath
+      ) {
+        // Playwright gave up while waiting for the control to be clickable
+        // (for example a cookie banner over it), so no click reached the
+        // page. Nothing was sent; the prepared form stays for another try
+        // instead of an "uncertain" outcome that blocks every retry.
+        return blockedResult({
+          reason: "action_error",
+          observation: finalObservation,
+          control: finalControl,
+          facts: {
+            actionAttempted: true,
+            actionIssued: false,
+            actionCompleted: false,
+            pageBefore,
+            pageAfter: pageAfterError,
+            urlChanged: false,
+            requestsObservedDuringAction,
+          },
+        });
+      }
       return {
         outcome: "outcome_uncertain",
         reason: "action_error",

@@ -195,6 +195,8 @@ const PROFILE_SETUP_READINESS_BLOCKER_LABELS: Record<
   identity_contact: "Add your name and an email or phone",
   work_mode_preference:
     "Pick where you want to work (remote, hybrid, onsite, or flexible)",
+  work_eligibility_answers:
+    "Say where you can work and whether you need visa sponsorship",
 };
 
 export function getProfileSetupReadinessBlockerLabel(
@@ -213,6 +215,7 @@ const PROFILE_SETUP_READINESS_BLOCKER_STEPS: Record<
   eligibility_preferences: "targeting",
   identity_contact: "essentials",
   work_mode_preference: "targeting",
+  work_eligibility_answers: "targeting",
 };
 
 export function getProfileSetupReadinessBlockerStep(
@@ -236,6 +239,7 @@ export function buildProfileSetupReadinessPresentation(input: {
     | "hasEligibilityPreferences"
     | "hasWorkModePreference"
     | "hasDiscoverySource"
+    | "hasWorkEligibilityAnswers"
   >;
   reviewItems: readonly ProfileSetupFinishGateReviewItem[];
 }): ProfileSetupReadinessPresentation {
@@ -806,6 +810,7 @@ export type ProfileSetupPathStepReadiness = Pick<
   | "hasEligibilityPreferences"
   | "hasMeaningfulBackground"
   | "hasNarrative"
+  | "hasWorkEligibilityAnswers"
   | "hasWorkModePreference"
 >;
 
@@ -839,6 +844,7 @@ function hasProfileSetupPathStepEvidence(input: {
     case "targeting":
       return (
         input.readiness.hasEligibilityPreferences &&
+        input.readiness.hasWorkEligibilityAnswers &&
         input.readiness.hasWorkModePreference &&
         input.readiness.hasDiscoverySource
       );

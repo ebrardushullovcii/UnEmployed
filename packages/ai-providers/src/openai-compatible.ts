@@ -847,6 +847,43 @@ function buildProviderFailureProvenance(error: unknown) {
   };
 }
 
+/** Why a stage used the built-in reader when no model is available at all. */
+export const NO_AI_PROVIDER_REASON = "No AI model is available right now.";
+
+export const PROFILE_ASSISTANT_UNFINISHED_MESSAGE =
+  "The Assistant stopped before it could finish this request, so nothing was changed. Your question is kept; ask it again or say it another way.";
+
+/** The Assistant ran twice without finishing and the built-in editor had nothing either. */
+export class ProfileCopilotUnfinishedError extends Error {
+  constructor() {
+    super(PROFILE_ASSISTANT_UNFINISHED_MESSAGE);
+    this.name = "ProfileCopilotUnfinishedError";
+  }
+}
+
+/**
+ * Stops a fresh run can plausibly get past: the model circled without a
+ * change, or ran out of turns. A time-budget stop already used the whole
+ * wait, and a refused external action or a question for the person would
+ * stop the same way again.
+ */
+function shouldRetryUnfinishedProfileRun(reply: ProfileCopilotReply): boolean {
+  const stopReason = reply.executionReceipt?.stopReason;
+  return (
+    stopReason === "no_progress" ||
+    stopReason === "emergency_ceiling" ||
+    stopReason === "cost_budget"
+  );
+}
+
+/** The built-in editor's reply when it could not make a change either. */
+function isProfileCopilotNonAnswer(reply: ProfileCopilotReply): boolean {
+  return (
+    reply.patchGroups.length === 0 &&
+    /could not turn it into a safe structured profile edit/i.test(reply.content)
+  );
+}
+
 export function createJobFinderAiClientFromEnvironment(
   env: StringMap = process.env,
 ): JobFinderAiClient {
@@ -879,6 +916,45 @@ export function createJobFinderAiClientFromEnvironment(
 
     return {
       ...deterministicClient,
+      // The model ships with the product, so a missing one is an outage, not
+      // a setup step. Without these markers an import finished "Ready" and
+      // the Assistant answered "I could not turn it into a safe edit", and
+      // nobody could tell the AI had never been asked.
+      async extractResumeImportStage(input) {
+        const result =
+          await deterministicClient.extractResumeImportStage(input);
+        return input.stage === "shared_memory"
+          ? result
+          : {
+              ...result,
+              fallback: {
+                kind: "provider_error" as const,
+                reason: NO_AI_PROVIDER_REASON,
+              },
+            };
+      },
+      async reviseCandidateProfile(input) {
+        const reply = await deterministicClient.reviseCandidateProfile(input);
+        const timestamp = new Date().toISOString();
+        return {
+          ...reply,
+          executionReceipt: AgentTaskExecutionReceiptSchema.parse({
+            taskId: `profile_copilot_unavailable_${Date.now()}`,
+            capability: "profile_copilot",
+            startedAt: timestamp,
+            completedAt: timestamp,
+            durationMs: 0,
+            model: null,
+            reasoningEffort: null,
+            providerCalls: 0,
+            repairAttempts: 0,
+            fallbackUsed: true,
+            stopReason: "permanent_failure",
+            finalValidationIssues: [],
+            toolReceipts: [],
+          }),
+        };
+      },
       analyzeBrowserVisualSnapshot: (input) =>
         browserVisualProvider.analyzeBrowserVisualSnapshot(input),
     };
@@ -1210,6 +1286,18 @@ export function createJobFinderAiClientFromEnvironment(
           request: input,
         });
         if (reply.executionReceipt?.stopReason === "completed") return reply;
+        // Names and outcomes only, never content: without this a stopped
+        // Assistant run left no trace of what it spent its budget on.
+        console.warn(
+          `[AI Provider] reviseResumeDraft stopped (${reply.executionReceipt?.stopReason ?? "unknown"}) after ${reply.executionReceipt?.providerCalls ?? 0} model calls: ${(
+            reply.executionReceipt?.toolReceipts ?? []
+          )
+            .map(
+              (receipt) =>
+                `${receipt.toolName}:${receipt.outcome}${receipt.durationMs >= 5_000 ? `(${Math.round(receipt.durationMs / 1_000)}s)` : ""}`,
+            )
+            .join(", ")}`,
+        );
         // A run that stopped on its time or progress budget may still have
         // produced the answer: a grounded patch, or a plain explanation of
         // what could not be done. Throwing that away for the deterministic
@@ -1223,13 +1311,22 @@ export function createJobFinderAiClientFromEnvironment(
           return reply;
         }
         const fallback = await fallbackClient.reviseResumeDraft(input);
+        const timedOut = reply.executionReceipt?.stopReason === "time_budget";
         return {
           ...fallback,
+          // The built-in reply "could not safely turn that request into a
+          // grounded patch" blamed the request when the AI had only been too
+          // slow to answer ("the second one", two model calls of 61 s and
+          // 110 s).
+          ...(timedOut && fallback.patches.length === 0
+            ? {
+                content:
+                  "The AI took too long to answer this time, so nothing was changed. Send the request again.",
+              }
+            : {}),
           executionReceipt: createFallbackExecutionReceipt(
             "resume_guided_edit",
-            reply.executionReceipt?.stopReason === "time_budget"
-              ? "time_budget"
-              : "no_progress",
+            timedOut ? "time_budget" : "no_progress",
           ),
         };
       } catch (error) {
@@ -1267,13 +1364,39 @@ export function createJobFinderAiClientFromEnvironment(
       }
 
       try {
-        const primaryReply = await runProfileCopilotAgentTask({
+        let primaryReply = await runProfileCopilotAgentTask({
           client: primaryClient,
           request: input,
         });
 
+        // A run that stops short of finish_task used to be thrown away whole,
+        // proposals included, and the built-in editor answered "I could not
+        // turn it into a safe structured profile edit" with no card (a live
+        // "add a target role" run). A run that stopped with nothing prepared
+        // gets one fresh attempt; one that prepared cards keeps them, and its
+        // receipt tells the service it stopped early.
+        if (
+          shouldRetryUnfinishedProfileRun(primaryReply) &&
+          primaryReply.patchGroups.length === 0
+        ) {
+          primaryReply = await runProfileCopilotAgentTask({
+            client: primaryClient,
+            request: input,
+          });
+        }
+
         if (primaryReply.executionReceipt?.stopReason !== "completed") {
+          if (primaryReply.patchGroups.length > 0) {
+            return primaryReply;
+          }
           const fallback = await fallbackClient.reviseCandidateProfile(input);
+          if (isProfileCopilotNonAnswer(fallback)) {
+            // Neither the model nor the built-in editor has anything to show.
+            // Recording the editor's "could not turn it into a safe edit" as
+            // the answer left a dead end; failing keeps the question on
+            // screen with Ask again under it.
+            throw new ProfileCopilotUnfinishedError();
+          }
           return {
             ...fallback,
             executionReceipt: createFallbackExecutionReceipt(
@@ -1300,6 +1423,9 @@ export function createJobFinderAiClientFromEnvironment(
 
         return primaryReply;
       } catch (error) {
+        if (error instanceof ProfileCopilotUnfinishedError) {
+          throw error;
+        }
         logFallbackError("reviseCandidateProfile", error);
         const fallback = await fallbackClient.reviseCandidateProfile(input);
         return {

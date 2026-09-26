@@ -35,6 +35,10 @@ import {
   type ListingSignalInput,
 } from "./safeguard-operations";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
+import {
+  PERSON_TOOK_OVER_SUMMARY,
+  PREPARED_PAGE_CLOSED_SUMMARY,
+} from "./workspace-application-user-action";
 
 /** The replay window used for automatically-derived source/discovery pauses. */
 export const AUTOMATIC_FAILURE_WINDOW_DAYS = 7;
@@ -612,8 +616,20 @@ export function deriveApplicationFailureEvidence(input: {
   for (const rawResult of input.results) {
     const result = parseApplyJobResult(rawResult);
     if (!result || result.completedAt === null) continue;
-    if (result.state !== "failed" && result.state !== "blocked") continue;
-    if (applicationResultIsUserOwnedBlocker(result)) continue;
+    // A failure rate needs the attempts that worked in its sample too;
+    // counting only failures made every sample 100% failed, so a handful of
+    // failures in the window paused applying however many had been sent.
+    const succeeded =
+      result.state === "submitted" ||
+      (result.state === "awaiting_review" && !result.blockerReason);
+    if (!succeeded && result.state !== "failed" && result.state !== "blocked") {
+      continue;
+    }
+    if (!succeeded && applicationResultIsUserOwnedBlocker(result)) continue;
+    // A filled form whose page closed on restart did not fail on the site.
+    if (result.blockerSummary === PREPARED_PAGE_CLOSED_SUMMARY) continue;
+    // Nor did an application the person stepped into.
+    if (result.summary === PERSON_TOOK_OVER_SUMMARY) continue;
 
     const run = runsById.get(result.runId);
     if (
@@ -626,7 +642,7 @@ export function deriveApplicationFailureEvidence(input: {
     if (run?.state === "cancelled") continue;
     evidence.push({
       attemptId: `apply:${result.id}`,
-      failed: true,
+      failed: !succeeded,
       occurredAt: result.completedAt ?? result.updatedAt,
     });
   }
@@ -1203,6 +1219,46 @@ async function persistAutomaticSimultaneousConflicts(input: {
       }),
     );
   });
+}
+
+/**
+ * Re-measures every standing application failure pause from the evidence on
+ * record. A pause is otherwise only re-measured when a run ends, and a pause
+ * stops runs from starting, so one measured on stale evidence could never
+ * lift by itself.
+ */
+export async function refreshAutomaticApplicationFailurePauses(input: {
+  ctx: WorkspaceServiceContext;
+  now: string;
+}): Promise<void> {
+  const [intelligence, campaignState, runs, results] = await Promise.all([
+    input.ctx.repository.getIntelligenceState(),
+    input.ctx.repository.getCampaignState(),
+    input.ctx.repository.listApplyRuns(),
+    input.ctx.repository.listApplyJobResults(),
+  ]);
+  for (const campaign of campaignState?.campaigns ?? []) {
+    const pauseId = `${AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID}:${campaign.id}`;
+    if (
+      !intelligence.safeguards.abnormalFailurePauses.some(
+        (pause) => pause.id === pauseId,
+      )
+    ) {
+      continue;
+    }
+    await persistAutomaticFailurePause({
+      ctx: input.ctx,
+      campaign,
+      pauseId,
+      evidence: deriveApplicationFailureEvidence({
+        runs,
+        results,
+        campaignId: campaign.id,
+      }),
+      workKind: "application",
+      now: input.now,
+    });
+  }
 }
 
 /** Applies cap/failure evidence and campaign notifications after terminal apply persistence. */

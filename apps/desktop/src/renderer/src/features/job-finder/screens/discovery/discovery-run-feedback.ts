@@ -227,6 +227,8 @@ const SIGN_IN_WALL_FAILURE_RE =
   /asks you to sign in before it shows job listings/i;
 const NO_PROGRESS_FAILURE_RE =
   /repeated actions produced no new jobs|no new jobs, page evidence|showed nothing new after several tries/i;
+const MISSING_PAGE_FAILURE_RE =
+  /\b(?:page|address|url)\b[^.]*?\bHTTP (?:404|410)\b/i;
 const AI_TOOL_CALLING_FAILURE_RE =
   /does not support tool calling|chatWithTools|tool calling|Cannot run agent discovery/i;
 
@@ -278,6 +280,18 @@ export function getDiscoveryRunFailureRecovery(
       headline: "This plan has no job sites to search.",
       actionLabel: "Review job sources",
       nextStep: "Add a job site in Profile, then run this plan again.",
+    };
+  }
+
+  // A source address that leads to a missing page stays missing however
+  // often the search is repeated; the address is what needs changing.
+  if (MISSING_PAGE_FAILURE_RE.test(detail)) {
+    return {
+      kind: "source_setup",
+      headline: "A job source's address leads to a page that does not exist.",
+      actionLabel: "Review job sources",
+      nextStep:
+        "Correct or remove that address in Profile › Job sources, then search again.",
     };
   }
 

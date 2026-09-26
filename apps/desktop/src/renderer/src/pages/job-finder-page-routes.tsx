@@ -2,6 +2,7 @@ import { lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { projectPlanSafeguardPauses } from "@unemployed/job-finder/plan-safeguard-pauses";
 import type { ReactNode } from "react";
 import { jobFinderPendingActions } from "./job-finder-pending-actions";
+import { describeSavedResumeLevel } from "@renderer/features/job-finder/screens/review-queue/review-queue-status";
 import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/cn";
 import { JobFinderRouteErrorBoundary } from "./job-finder-route-error-boundary";
@@ -17,7 +18,10 @@ import {
   useOutletContext,
   useParams,
 } from "react-router-dom";
-import { isProfileSetupJustFinished } from "./use-job-finder-page-controller-actions";
+import {
+  consumeFirstSearchRequest,
+  isProfileSetupJustFinished,
+} from "./use-job-finder-page-controller-actions";
 import {
   markGuidedSetupAutoOpenSpent,
   shouldAutoOpenGuidedSetup,
@@ -65,6 +69,7 @@ import {
   RESUME_WORKSPACE_REQUIRED_COLLECTIONS,
   resolveResumeWorkspaceRouteState,
 } from "@renderer/features/job-finder/lib/resume-workspace-route-state";
+import { applicationSignInContinuesOnItsOwn } from "@renderer/features/job-finder/lib/application-sign-in-handoff";
 
 // The canonical workflow surfaces (Profile, Find jobs, Shortlisted,
 // Applications) are part of the initial-route bundle so their real headings
@@ -633,6 +638,7 @@ export function JobFinderHomeRoute() {
         )
       }
       onCreateResumes={context.onPrepareTailoredDrafts}
+      onSendPreparedApplications={context.onSendPreparedApplications}
       onResumeSetup={context.onResumeProfileSetup}
       onMarkAllCampaignNotificationsRead={
         context.onMarkAllCampaignNotificationsRead
@@ -900,6 +906,9 @@ export function JobFinderProfileRoute() {
       }
       onGetSourceDebugRunDetails={context.onGetSourceDebugRunDetails}
       onImportResume={context.onImportResume}
+      onRetryInterruptedImport={() =>
+        context.onImportResume({ retryInterrupted: true })
+      }
       onOpenBrowserSessionForTarget={(targetId) => {
         void context.onOpenBrowserSession({ targetId });
       }}
@@ -984,6 +993,13 @@ export function JobFinderProfileSetupRoute() {
       onApplyProfileSetupReviewAction={context.onApplyProfileSetupReviewAction}
       onContinueToProfile={context.onOpenProfile}
       onImportResume={context.onImportResume}
+      onRetryInterruptedImport={() =>
+        context.onImportResume({ retryInterrupted: true })
+      }
+      onAnalyzeProfileFromResume={context.onAnalyzeProfileFromResume}
+      isAnalyzeProfilePending={context.isPending(
+        jobFinderPendingActions.profileAnalyze(),
+      )}
       onCancelImportResume={context.onCancelImportResume}
       onProfileSurfaceDirtyChange={context.onProfileSurfaceDirtyChange}
       onProfileSurfaceDraftEdited={context.onProfileSurfaceDraftEdited}
@@ -1019,6 +1035,15 @@ export function JobFinderDiscoveryRoute() {
   const rapidReviewReturnRoute = readJobFinderReturnRoute(searchParams);
   const [activityPausePending, setActivityPausePending] = useState(false);
   const [planSwitchPending, setPlanSwitchPending] = useState(false);
+  const { onRunAgentDiscovery } = context;
+
+  // Finishing guided setup lands here with the first search requested: start
+  // it once, the same request Search now sends.
+  useEffect(() => {
+    if (consumeFirstSearchRequest()) {
+      onRunAgentDiscovery?.({ intent: "", freshness: "any", sourceIds: "all" });
+    }
+  }, [onRunAgentDiscovery]);
 
   const handleResumeActivity = () => {
     setActivityPausePending(true);
@@ -1548,6 +1573,19 @@ export function JobFinderResumeWorkspaceRoute() {
         onRefresh={() => context.onRefreshResumeWorkspace(jobId)}
         onRegenerateDraft={context.onRegenerateResumeDraft}
         onRestoreRevision={context.onRestoreResumeDraftRevision}
+        onUndoAiEdit={context.onUndoResumeAssistantEdit}
+        originalResumeRoute={
+          context.workspace.reviewQueue.find((item) => item.jobId === jobId)
+            ?.resumeApplicationMode === "original_resume"
+            ? {
+                levelLabel: describeSavedResumeLevel(
+                  context.workspace.searchPreferences.tailoringMode,
+                ),
+                onWriteEditableResume:
+                  context.onWriteEditableResumeForOriginalJob,
+              }
+            : null
+        }
         onSaveDraft={context.onSaveResumeDraft}
         onSaveDraftAndThen={context.onSaveResumeDraftAndThen}
         onSendAssistantMessage={context.onSendResumeAssistantMessage}
@@ -1995,6 +2033,7 @@ export function JobFinderApplicationsRoute() {
       workspace={context.workspace}
     >
       <ApplicationsScreen
+        activityControl={context.workspace.activityControl}
         userActionRequests={context.workspace.userActionRequests}
         actionMessage={startingApplicationNote ?? context.actionState.message}
         applicationAttempts={applicationAttempts}
@@ -2082,6 +2121,7 @@ export function JobFinderApplicationsRoute() {
         onOpenSafeguards={() =>
           context.onNavigateSafely("/job-finder/safeguards")
         }
+        onOpenOutcomes={() => context.onNavigateSafely("/job-finder/analytics")}
         onOpenNeedsYou={() => context.onNavigateSafely("/job-finder/actions")}
         onPerformUserAction={(command) => {
           void context.onPerformUserAction(command);
@@ -2127,7 +2167,14 @@ export function JobFinderApplicationsRoute() {
             target: input,
           })
         }
-        canConfirmFinishedInBrowser={pendingBrowserStepRequest !== null}
+        canConfirmFinishedInBrowser={
+          pendingBrowserStepRequest !== null &&
+          !applicationSignInContinuesOnItsOwn(pendingBrowserStepRequest)
+        }
+        browserStepContinuesOnItsOwn={
+          pendingBrowserStepRequest !== null &&
+          applicationSignInContinuesOnItsOwn(pendingBrowserStepRequest)
+        }
         confirmFinishedInBrowserStatus={confirmFinishedInBrowserStatus}
         confirmFinishedInBrowserBlockerText={
           confirmFinishedInBrowserBlockerText

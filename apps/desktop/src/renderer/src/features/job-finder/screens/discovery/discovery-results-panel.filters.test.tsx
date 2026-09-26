@@ -309,6 +309,22 @@ describe("DiscoveryResultsPanel triage filters", () => {
     expect(screen.getByText("1 of 2 jobs")).toBeTruthy();
   });
 
+  it("sizes filter columns to the groups shown, so a lone Source group gets the row", () => {
+    // Same fit and work mode: only the Source facet has more than one value.
+    renderResults([
+      createJob("specialist", "strong_fit", ["remote"], longSource),
+      createJob("generalist", "strong_fit", ["remote"], primarySource),
+    ]);
+    openFilters();
+
+    const groups = screen.getByTestId("discovery-results-filter-groups");
+    expect(groups.querySelectorAll("fieldset")).toHaveLength(1);
+    expect(groups.className).toContain(
+      "grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]",
+    );
+    expect(groups.className).not.toContain("xl:grid-cols-4");
+  });
+
   it("resets pagination and retains a selected job that matches the filter", () => {
     const jobs = Array.from({ length: 55 }, (_, index) =>
       createJob(

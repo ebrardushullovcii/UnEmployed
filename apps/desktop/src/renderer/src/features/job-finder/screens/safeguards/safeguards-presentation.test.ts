@@ -228,10 +228,12 @@ describe("buildSafeguardsPresentationModel", () => {
     expect(reviewRows).toHaveLength(1);
     expect(reviewRows[0]?.title).toBe("Quality sample review");
     expect(reviewRows[0]?.blocked).toBe(true);
-    expect(reviewRows[0]?.sampleLinks?.[0]).toMatchObject({
-      label: "Senior Product Designer · Signal Systems",
-      href: expect.stringContaining("applicationRecordId=application_a"),
-    });
+    expect(reviewRows[0]?.sampleLinks?.[0]?.label).toBe(
+      "Senior Product Designer · Signal Systems",
+    );
+    expect(reviewRows[0]?.sampleLinks?.[0]?.href).toContain(
+      "applicationRecordId=application_a",
+    );
     const increment = reviewRows[0]?.controls.find(
       (control) => control.kind === "review_increment",
     );
@@ -498,6 +500,61 @@ describe("filterSafeguardRows", () => {
     expect(model.counts.blockers).toBe(1);
     expect(model.counts.pauses).toBe(1);
     expect(model.counts.total).toBe(1);
+  });
+
+  it("does not list a finished or filled-in run as a safety pause", () => {
+    const model = buildSafeguardsPresentationModel({
+      safeguards: emptySafeguards(),
+      workspace: workspaceWith({
+        applyRuns: [
+          {
+            id: "apply_run_sent",
+            state: "paused_for_user_review",
+            jobIds: ["job_sent"],
+            totalJobs: 1,
+            pendingJobs: 1,
+            updatedAt: now,
+            summary: "The site wants you signed in first.",
+          },
+          {
+            id: "apply_run_ready",
+            state: "paused_for_user_review",
+            jobIds: ["job_ready"],
+            totalJobs: 1,
+            pendingJobs: 0,
+            updatedAt: now,
+            summary: "Filled in and ready to send.",
+          },
+        ] as unknown as JobFinderWorkspaceSnapshot["applyRuns"],
+        applyJobResults: [
+          {
+            id: "result_sent",
+            runId: "apply_run_sent",
+            jobId: "job_sent",
+            applicationRecordId: "record_sent",
+            state: "submitted",
+            updatedAt: now,
+          },
+          {
+            id: "result_ready",
+            runId: "apply_run_ready",
+            jobId: "job_ready",
+            applicationRecordId: "record_ready",
+            state: "awaiting_review",
+            blockerReason: null,
+            latestQuestionCount: 0,
+            pendingConsentRequestCount: 0,
+            reviewCard: { waitingOnYou: [] },
+            updatedAt: now,
+          },
+        ] as unknown as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
+    });
+
+    expect(
+      model.rows.filter((entry) => entry.key.startsWith("apply-run-pause-")),
+    ).toEqual([]);
+    expect(model.counts.blockers).toBe(0);
   });
 
   it("filters by tab and search text", () => {

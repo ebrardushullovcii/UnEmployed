@@ -491,6 +491,14 @@ async function readStreamedPayload(
     ) {
       throw new ModelStreamIncompleteError("no completion arrived");
     }
+    if (!sawDone && !chat.finished && chat.toolCalls.size > 0) {
+      // A stream that stops in the middle of a tool call has cut-off
+      // arguments. Handing them back makes the run fail on broken JSON;
+      // ask again instead (ADR 0020: streams closed before completion retry).
+      throw new ModelStreamIncompleteError(
+        "the reply stopped in the middle of a tool call",
+      );
+    }
     return buildChatPayloadFromStream(chat);
   }
 

@@ -716,18 +716,20 @@ describe("editable field versus read-only well tokens", () => {
     expect(readToken(LIGHT_THEME, "--surface-well-border")).toBe("#b1b8bf");
   });
 
-  it("keeps the editable field fill while raising its resting boundary", () => {
+  it("keeps the editable field fill with a softened resting boundary that hover restores", () => {
     expect(readToken(DARK_THEME, "--field")).toBe("#171a1d");
     expect(readToken(LIGHT_THEME, "--field")).toBe("#fcfcfd");
-    expect(readToken(DARK_THEME, "--field-border")).toBe("#677480");
-    // Raised from #8a939c by the r15 contrast review: that value measured
-    // 2.91:1 on the light card and 2.54:1 on the light canvas, below the 3:1
-    // non-text floor, with only a 1.05:1 field-vs-card fill to fall back on.
-    // Dark already cleared it at 3.50/3.89 and is unchanged.
-    expect(readToken(LIGHT_THEME, "--field-border")).toBe("#7a828b");
+    // The resting border was softened from the r15 values (#677480 dark,
+    // #7a828b light, both >=3:1) because fields read as heavy outlined boxes.
+    // It now sits one step above the inert panel band (2.74:1 dark, 2.79:1
+    // light on the card) so the ladder panel < field < control holds, and the
+    // former values return on hover, so every interacted state clears 3:1.
+    expect(readToken(DARK_THEME, "--field-border")).toBe("#5a636d");
+    expect(readToken(LIGHT_THEME, "--field-border")).toBe("#8e969f");
+    expect(readToken(DARK_THEME, "--field-border-hover")).toBe("#677480");
+    expect(readToken(LIGHT_THEME, "--field-border-hover")).toBe("#7a828b");
 
-    // The stronger resting boundary must stay quieter than the focus
-    // indicator so focus remains the strongest field state.
+    // Focus remains the strongest field state.
     expect(readToken(DARK_THEME, "--field-focus-border")).toBe("#8aa0bf");
     expect(readToken(LIGHT_THEME, "--field-focus-border")).toBe("#3a5274");
   });
@@ -1573,20 +1575,33 @@ describe("non-text boundary and state contrast (r15)", () => {
     }
   });
 
-  it("clears 3:1 for the editable field boundary on every surface a field sits on", () => {
-    // The field fill is within 1.05:1 of the card in light and 1.2:1 in dark,
-    // so this border has no fill fallback to lean on.
+  it("clears 3:1 for the hovered and focused field boundary on every surface a field sits on", () => {
+    // The resting border is deliberately softened below 3:1 (see globals.css)
+    // and carries a shadow and a lighter fill instead; the boundary the
+    // person interacts with, hover and focus, must still clear the 3:1
+    // non-text floor everywhere a field sits, and the resting border must
+    // not drift into invisibility.
     for (const [themeName, theme, surfaces] of [
       ["dark", DARK_THEME, DARK_FIELD_SURFACES],
       ["light", LIGHT_THEME, LIGHT_FIELD_SURFACES],
     ] as const) {
-      const border = readToken(theme, "--field-border");
+      const hoverBorder = readToken(theme, "--field-border-hover");
+      const focusBorder = readToken(theme, "--field-focus-border");
+      const restingBorder = readToken(theme, "--field-border");
 
       for (const [surfaceName, surface] of Object.entries(surfaces)) {
         expect(
-          contrastRatio(border, surface),
-          `${themeName} --field-border on ${surfaceName}`,
+          contrastRatio(hoverBorder, surface),
+          `${themeName} --field-border-hover on ${surfaceName}`,
         ).toBeGreaterThanOrEqual(3);
+        expect(
+          contrastRatio(focusBorder, surface),
+          `${themeName} --field-focus-border on ${surfaceName}`,
+        ).toBeGreaterThanOrEqual(3);
+        expect(
+          contrastRatio(restingBorder, surface),
+          `${themeName} resting --field-border on ${surfaceName} (softened, never invisible)`,
+        ).toBeGreaterThanOrEqual(2.3);
       }
     }
   });

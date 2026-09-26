@@ -13,11 +13,16 @@ import {
   applyResultHasQuestionForPerson,
   applyResultNeedsSecurityCheck,
   applyResultStoppedStructurally,
+  describeNotStartedApplication,
   formatElapsedMinutes,
   getApplicationStopReasonSentence,
   looksLikeAccountWall,
   looksLikeSignInWall,
+  PAUSED_BEFORE_APPLICATION_SENTENCE,
+  resolvePlannedApplyStanding,
   TRY_AGAIN_ACTION,
+  type ApplyRunContext,
+  type PlannedApplyStanding,
 } from "./applications-recovery-state";
 
 type ApplyResult = JobFinderWorkspaceSnapshot["applyJobResults"][number] | null;
@@ -51,6 +56,11 @@ export interface ApplyStatePresentation {
   actionLabel: string | null;
   /** "1 question left for you", when the run handed one back. */
   questionsLeftLabel: string | null;
+  /**
+   * For a job its batch has not started yet: waiting its turn, held by the
+   * person's pause, or left behind by a batch that stopped. Null otherwise.
+   */
+  plannedStanding?: PlannedApplyStanding | null;
 }
 
 function formatQuestionsLeft(count: number): string | null {
@@ -80,12 +90,52 @@ export function resolveApplyStatePresentation(input: {
     lastUpdatedAt: string;
   } | null;
   result: ApplyResult;
+  /**
+   * What the result's run is doing. Without it a planned job of a stopped
+   * batch read "Filling in (N min)" for ever.
+   */
+  run?: ApplyRunContext | null;
 }): ApplyStatePresentation {
   const { mode, now = Date.now(), pendingQuestionCount = 0, result } = input;
   const questionsLeftLabel = formatQuestionsLeft(pendingQuestionCount);
   const reason = getApplicationStopReasonSentence(result);
 
-  if (applyResultIsStillRunning(result)) {
+  const plannedStanding = resolvePlannedApplyStanding(result, input.run);
+  if (plannedStanding === "not_started") {
+    return {
+      kind: "could_not_apply",
+      title: "Not started",
+      sentence: describeNotStartedApplication(input.run),
+      action: "try_again",
+      actionLabel: TRY_AGAIN_ACTION,
+      questionsLeftLabel: null,
+      plannedStanding,
+    };
+  }
+  if (plannedStanding === "paused") {
+    return {
+      kind: "filling_in",
+      title: "Paused",
+      sentence: PAUSED_BEFORE_APPLICATION_SENTENCE,
+      action: "none",
+      actionLabel: null,
+      questionsLeftLabel: null,
+      plannedStanding,
+    };
+  }
+  if (plannedStanding === "waiting_turn") {
+    return {
+      kind: "filling_in",
+      title: "Waiting its turn",
+      sentence: null,
+      action: "none",
+      actionLabel: null,
+      questionsLeftLabel: null,
+      plannedStanding,
+    };
+  }
+
+  if (applyResultIsStillRunning(result, input.run)) {
     const elapsed = formatElapsedMinutes(result?.startedAt, now);
     return {
       kind: "filling_in",
@@ -210,6 +260,19 @@ export function resolveApplyStatePresentation(input: {
       action: retryCanDiffer ? "try_again" : "open_browser",
       actionLabel: retryCanDiffer ? TRY_AGAIN_ACTION : OPEN_THE_BROWSER_ACTION,
       questionsLeftLabel,
+    };
+  }
+
+  // A job its batch stopped around (or one the person skipped) was never
+  // filled in; it read "Ready to send" with nothing to send.
+  if (result?.state === "skipped") {
+    return {
+      kind: "could_not_apply",
+      title: "Could not apply",
+      sentence: reason ?? "Job Finder did not get to this application.",
+      action: "try_again",
+      actionLabel: TRY_AGAIN_ACTION,
+      questionsLeftLabel: null,
     };
   }
 

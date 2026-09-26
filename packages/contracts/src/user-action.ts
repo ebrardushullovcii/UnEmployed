@@ -117,6 +117,12 @@ export type BrowserSourceAccessProbeSignal = z.infer<
 export const BrowserSourceAccessProbeInputSchema = z
   .object({
     expectedOrigin: UserActionBrowserOriginSchema,
+    /**
+     * The host's id for the exact tab parked for this request. When given,
+     * only that tab is read; another tab on the same origin never stands in
+     * for it.
+     */
+    tabId: z.string().trim().min(1).max(200).optional(),
   })
   .strict();
 export type BrowserSourceAccessProbeInput = z.infer<

@@ -82,14 +82,15 @@ describe("guided setup readiness, stated once", () => {
       draftSearchPreferences: buildSearchPreferences(),
     });
 
-    // Finishing needs a name with a contact and one job source; the rest are
-    // hints, not gates.
+    // Finishing needs a name with a contact, one job source, and the two
+    // answers every application form asks; the rest are hints, not gates.
     expect(presentation.blockers.map((blocker) => blocker.id)).toEqual([
       "identity_contact",
       "discovery_source",
+      "work_eligibility_answers",
     ]);
     expect(text).toBe(
-      "Still needed to finish: Add your name and an email or phone · Add a job source.",
+      "Still needed to finish: Add your name and an email or phone · Add a job source · Say where you can work and whether you need visa sponsorship.",
     );
   });
 
@@ -124,6 +125,10 @@ describe("guided setup readiness, stated once", () => {
           isCurrent: true,
         },
       ],
+      workEligibility: {
+        authorizedWorkCountries: ["United Kingdom"],
+        requiresVisaSponsorship: false,
+      },
     });
     const searchPreferencesWithoutWorkMode = buildSearchPreferences({
       targetRoles: ["Principal Designer"],
@@ -155,6 +160,43 @@ describe("guided setup readiness, stated once", () => {
     });
     // The work mode is a hint on Job targets, no longer a gate.
     expect(blocked.text).toBe("Everything required is in. You can finish setup.");
+
+    // The two eligibility answers are: without them the first application
+    // stopped on "Are you authorized to work here?".
+    const withoutEligibility = buildReadinessLine({
+      draftProfile: CandidateProfileSchema.parse({
+        ...profile,
+        workEligibility: {
+          ...profile.workEligibility,
+          authorizedWorkCountries: [],
+          requiresVisaSponsorship: null,
+        },
+      }),
+      draftSearchPreferences: searchPreferencesWithoutWorkMode,
+    });
+    expect(withoutEligibility.text).toBe(
+      "Still needed to finish: Say where you can work and whether you need visa sponsorship.",
+    );
+    // A saved answer-bank sentence answers the question too.
+    const answeredInWords = buildReadinessLine({
+      draftProfile: CandidateProfileSchema.parse({
+        ...profile,
+        workEligibility: {
+          ...profile.workEligibility,
+          authorizedWorkCountries: [],
+          requiresVisaSponsorship: null,
+        },
+        answerBank: {
+          ...profile.answerBank,
+          workAuthorization: "Yes, I hold a UK work permit.",
+          visaSponsorship: "No",
+        },
+      }),
+      draftSearchPreferences: searchPreferencesWithoutWorkMode,
+    });
+    expect(answeredInWords.text).toBe(
+      "Everything required is in. You can finish setup.",
+    );
 
     const ready = buildReadinessLine({
       draftProfile: profile,
@@ -210,9 +252,10 @@ describe("guided setup readiness, stated once", () => {
     // answer and no longer counts against the essentials.
     expect(presentation.blockers.map((blocker) => blocker.id)).toEqual([
       "discovery_source",
+      "work_eligibility_answers",
     ]);
     expect(text).toBe(
-      "Still needed to finish: Add a job source.",
+      "Still needed to finish: Add a job source · Say where you can work and whether you need visa sponsorship.",
     );
     // One readiness system: the footer primary is gated by the same
     // presentation the line above is written from.

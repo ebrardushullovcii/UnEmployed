@@ -4,7 +4,10 @@ import type {
   MatchAssessment,
   SavedJob,
 } from "@unemployed/contracts";
-import { assessLocationCompatibility } from "./matching";
+import {
+  assessLocationCompatibility,
+  readLocationMatchOptions,
+} from "./matching";
 
 const REMOTE_LISTING_PATTERN =
   /\b(?:remote|anywhere|worldwide|work from home|wfh|global|distributed)\b/iu;
@@ -78,8 +81,11 @@ export function correctRemoteOnlyLocationAlignment(
   // generic remote word elsewhere in the page must never overturn it.
   if (
     !hasNoNamedLocation(posting.location) &&
-    assessLocationCompatibility(posting.location, preferences.locations) ===
-      "compatible"
+    assessLocationCompatibility(
+      posting.location,
+      preferences.locations,
+      readLocationMatchOptions(preferences),
+    ) === "compatible"
   ) {
     return assessment.locationReach === "in_area"
       ? assessment

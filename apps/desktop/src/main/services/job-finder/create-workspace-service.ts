@@ -1,5 +1,6 @@
 import { getEmbeddedBrowser } from "../browser/embedded-browser";
 import { publishJobFinderWorkspaceUpdate } from "./workspace-updates";
+import { continueApplicationsAfterHandback } from "./continue-after-browser-handback";
 import { withEmbeddedBrowserActivity } from "../browser/embedded-browser-runtime";
 import {
   type BrowserVisualAnalysisInput,
@@ -61,7 +62,12 @@ import { migrateLegacyResumeSource } from "./migrate-resume-source";
 import { recoverInterruptedDiscoveryRuns } from "./recover-interrupted-discovery-runs";
 import { recoverPendingJobFinderWorkspaceReset } from "./reset-workspace";
 import { getCandidateAssetLibrary } from "./candidate-asset-library-instance";
+import { installAutomaticApplicationAccessResume } from "./automatic-application-access-resume";
 import { installAutomaticSourceAccessResume } from "./automatic-source-access-resume";
+import {
+  createSessionListingHtmlFetcher,
+  withBrowserSignInRetry,
+} from "./listing-html-with-browser-session";
 import type {
   JobFinderStartupDatabaseRecoveryBlockedFact,
   JobFinderStartupDatabaseRecoveryFact,
@@ -73,6 +79,7 @@ import type {
 // instance without retaining a shut-down workspace in process memory.
 const repositoryByWorkspaceService = new WeakMap<object, JobFinderRepository>();
 let disposeAutomaticSourceAccessResume: (() => void) | null = null;
+let disposeAutomaticApplicationAccessResume: (() => void) | null = null;
 
 export function getJobFinderRepositoryForWorkspaceService(
   workspaceService: object,
@@ -597,7 +604,16 @@ export async function createJobFinderWorkspaceServiceAsync(
     ...(researchAdapter ? { researchAdapter } : {}),
     // Listing bodies are read over plain HTTP from the main process; the
     // package only reads when a host hands it a reader, so tests stay offline.
-    fetchListingHtml: createDefaultListingHtmlFetcher(),
+    // A source the person signed in to in the Job Finder browser is read
+    // again with that sign-in when the plain read meets its sign-in page.
+    fetchListingHtml: withBrowserSignInRetry(
+      createDefaultListingHtmlFetcher(),
+      usesEmbeddedBrowser
+        ? createSessionListingHtmlFetcher(() =>
+            getEmbeddedBrowser().getSession(),
+          )
+        : null,
+    ),
     onDetachedApplyRunFinished: () => publishJobFinderWorkspaceUpdate(),
     // The embedded browser keeps its own pause flag. Every activity-control
     // change (Home's button, or an explicit click resuming paused work) is
@@ -613,12 +629,46 @@ export async function createJobFinderWorkspaceServiceAsync(
               control.paused && control.pauseBehavior !== "finish_current",
             );
           },
+          // A deliberate start after the person closed the browser mid-run
+          // may open it again.
+          onExplicitUserStart: () => getEmbeddedBrowser().clearPersonPause(),
         }
       : {}),
   });
   repositoryByWorkspaceService.set(workspaceService, jobFinderRepository);
   disposeAutomaticSourceAccessResume?.();
   disposeAutomaticSourceAccessResume = null;
+  disposeAutomaticApplicationAccessResume?.();
+  // A step confirmed by a watcher (the person signed in) runs its whole
+  // continuation in this process, with no renderer call to answer. Keep the
+  // screens current while it runs and when it ends, as a press would.
+  const performWatchedUserAction = async (
+    command: Parameters<typeof workspaceService.performUserAction>[0],
+  ) => {
+    publishJobFinderWorkspaceUpdate();
+    const heartbeat = setInterval(
+      () => publishJobFinderWorkspaceUpdate(),
+      3_000,
+    );
+    try {
+      return await workspaceService.performUserAction(command);
+    } finally {
+      clearInterval(heartbeat);
+      publishJobFinderWorkspaceUpdate();
+    }
+  };
+  disposeAutomaticApplicationAccessResume =
+    installAutomaticApplicationAccessResume({
+      ...(usesEmbeddedBrowser ? { browser: getEmbeddedBrowser() } : {}),
+      browserRuntime,
+      repository: jobFinderRepository,
+      performUserAction: performWatchedUserAction,
+      afterCheck: async () => {
+        if ((await workspaceService.recordApplicationsSentByPerson()) > 0) {
+          publishJobFinderWorkspaceUpdate();
+        }
+      },
+    });
   if (usesEmbeddedBrowser) {
     const browser = getEmbeddedBrowser();
     const savedControl = await jobFinderRepository.getActivityControl();
@@ -632,13 +682,36 @@ export async function createJobFinderWorkspaceServiceAsync(
       resume: async () => {
         await workspaceService.setActivityControl({ paused: false });
       },
+      // Handing back a tab the person stepped into carries on the
+      // applications that stepping in stopped, with no Try again to find.
+      handback: async (owners) => {
+        await continueApplicationsAfterHandback({
+          resultIds: owners,
+          repository: jobFinderRepository,
+          startBatch: async (jobIds) => {
+            // The same start as "Try again for all" (saved mode, resumes
+            // approved, permission issued); loaded lazily because the routes
+            // module reads this service.
+            const { startSavedModeApplyBatch } =
+              await import("../../routes/job-finder");
+            await startSavedModeApplyBatch(jobIds, () =>
+              publishJobFinderWorkspaceUpdate(),
+            );
+          },
+        }).catch((error: unknown) => {
+          console.error(
+            "Could not carry on after the browser was handed back.",
+            error,
+          );
+        });
+        publishJobFinderWorkspaceUpdate();
+      },
     });
     disposeAutomaticSourceAccessResume = installAutomaticSourceAccessResume({
       browser,
       browserRuntime,
       repository: jobFinderRepository,
-      performUserAction: (command) =>
-        workspaceService.performUserAction(command),
+      performUserAction: performWatchedUserAction,
     });
   }
 

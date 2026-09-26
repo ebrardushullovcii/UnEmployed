@@ -357,6 +357,22 @@ async function commitApplicationActionSuperseded(input: {
   }
 }
 
+/**
+ * Written on a prepared application whose page closed (usually because Job
+ * Finder was restarted). The form had been filled; nothing went wrong on the
+ * site, so it is not a failed attempt for the failure-rate safeguard.
+ */
+export const PREPARED_PAGE_CLOSED_SUMMARY =
+  "The prepared application page is no longer open.";
+
+/**
+ * Written on an application the person stepped into while it was being
+ * filled. Nothing went wrong on the site; it carries on when they hand the
+ * browser back, and it is not a failed attempt for the failure-rate
+ * safeguard.
+ */
+export const PERSON_TOOK_OVER_SUMMARY = "You took over this application.";
+
 async function keepOnlyLatestApplicationActionable(input: {
   repository: JobFinderRepository;
   applicationRecordId: string;
@@ -531,14 +547,29 @@ export async function persistApplicationUserAction(input: {
           expectedPageFingerprint: null,
         },
     title: `${copy.titleVerb} to continue the ${input.job.company} application`,
-    summary: `${describeApplicationBlockerReason(input.blocker)} Complete this ${copy.summaryStep} step in the ${JOB_FINDER_BROWSER_LABEL}, then come back here and confirm so Job Finder can check the page again.`,
-    instructions: [
-      copy.instruction,
-      "Return to Needs you and confirm completion only after the browser step is complete.",
-      isApplicationAuthenticationUserActionKind(kind)
-        ? "After access verification, Job Finder retries this exact application once."
-        : "After confirmation, Job Finder runs one exact prepare-only retry to verify the blocker.",
-    ],
+    // A sign-in on the kept application page is watched and carries on by
+    // itself (ADR 0027); every other step still ends with the person's
+    // confirmation.
+    summary: isApplicationAuthenticationUserActionKind(kind)
+      ? `${describeApplicationBlockerReason(input.blocker)} Complete this ${copy.summaryStep} step in the ${JOB_FINDER_BROWSER_LABEL}; Job Finder carries on with this application by itself once you're in.`
+      : kind === "manual_upload"
+        ? `${describeApplicationBlockerReason(input.blocker)} Add or restore the file in Profile › Files and Job Finder attaches it and carries on by itself.`
+        : `${describeApplicationBlockerReason(input.blocker)} Complete this ${copy.summaryStep} step in the ${JOB_FINDER_BROWSER_LABEL}, then come back here and confirm so Job Finder can check the page again.`,
+    instructions: isApplicationAuthenticationUserActionKind(kind)
+      ? [
+          copy.instruction,
+          "Job Finder watches this page and carries on with this exact application once the sign-in is done.",
+        ]
+      : kind === "manual_upload"
+        ? [
+            "Add or restore the file in Profile › Files; Job Finder attaches it and carries on by itself.",
+            `Or attach it yourself in the ${JOB_FINDER_BROWSER_LABEL}, then choose Check whether this step is done.`,
+          ]
+        : [
+            copy.instruction,
+            "Return to Needs you and confirm completion only after the browser step is complete.",
+            "After confirmation, Job Finder checks the page again and carries on in your saved apply mode.",
+          ],
     actionUrl: browserTarget?.actionUrl ?? null,
     displayOrigin: browserTarget?.expectedOrigin ?? null,
     credentialsPolicy: "browser_only",
@@ -560,6 +591,37 @@ export async function persistApplicationUserAction(input: {
   });
 }
 export const persistApplicationLoginUserAction = persistApplicationUserAction;
+
+/**
+ * A sign-in, account, or verification step is the person's to do on the kept
+ * application page (ADR 0012, 0027). The page's prepare-only guard blocks
+ * every form post, which also blocked the person's own "Create account" or
+ * "Sign in" press there unless one exact sign-in button had been armed. While
+ * such a step waits on the person, the page is theirs: posts they make go
+ * through. The next continuation locks it again
+ * (`closeApplicationFormAction`) before Job Finder touches it.
+ */
+export async function handApplicationPageToPersonForAccessStep(input: {
+  browserRuntime: {
+    handApplicationPageToPerson?: (
+      source: SavedJob["source"],
+      pageBindingKey: string,
+    ) => Promise<void>;
+  };
+  source: SavedJob["source"];
+  resultId: string | null;
+  blocker: ApplicationAttemptBlocker | null;
+}): Promise<void> {
+  if (!input.resultId || !input.blocker) return;
+  if (isApplicationTechnicalFailureBlocker(input.blocker)) return;
+  const kind = mapApplicationBlockerToUserActionKind(input.blocker);
+  if (!isApplicationAuthenticationUserActionKind(kind)) return;
+  // No kept page (for example after a restart) means nothing to hand over;
+  // the step then opens a fresh page as before.
+  await input.browserRuntime
+    .handApplicationPageToPerson?.(input.source, input.resultId)
+    .catch(() => {});
+}
 
 /**
  * Marks one exact prepared application as retryable when its in-memory page
@@ -654,13 +716,13 @@ export async function terminalizeApplicationAfterPreparedPageLost(input: {
   const terminalResult = ApplyJobResultSchema.parse({
     ...result,
     state: "failed",
-    summary: "The prepared application page is no longer open.",
+    summary: PREPARED_PAGE_CLOSED_SUMMARY,
     detail:
       "The exact prepared page could not be reopened. Nothing was sent; choose Try again to prepare this application again.",
     updatedAt: input.occurredAt,
     completedAt: input.occurredAt,
     blockerReason: "unexpected_navigation",
-    blockerSummary: "The prepared application page is no longer open.",
+    blockerSummary: PREPARED_PAGE_CLOSED_SUMMARY,
     latestQuestionCount: 0,
   });
   await input.repository.upsertApplyJobResult(terminalResult);
@@ -709,6 +771,17 @@ export async function releaseApplicationRecordAfterDismissedUserAction(input: {
   eventId: string;
   dismissal: "cancelled" | "skipped";
   unavailablePreparedPage?: boolean;
+  /**
+   * Said instead of "you cancelled the step" when Job Finder closed a step
+   * that was never the person's to do.
+   */
+  closedBecause?: {
+    lastActionLabel: string;
+    eventTitle: string;
+    eventDetail: string;
+    resultSummary: string;
+    resultDetail: string;
+  };
 }): Promise<void> {
   const { request } = input;
   if (request.scope.type !== "application") return;
@@ -755,7 +828,9 @@ export async function releaseApplicationRecordAfterDismissedUserAction(input: {
       // Closing the step is not the end of the application: the person can
       // press Try again later, or finish it on the site themselves.
       lastAttemptState: "failed",
-      lastActionLabel: `You ${closedWord} the step Job Finder was waiting on.`,
+      lastActionLabel:
+        input.closedBecause?.lastActionLabel ??
+        `You ${closedWord} the step Job Finder was waiting on.`,
       nextActionLabel: "Try again, or finish it yourself on the job site.",
       lastUpdatedAt: input.occurredAt,
       questionSummary: {
@@ -769,8 +844,9 @@ export async function releaseApplicationRecordAfterDismissedUserAction(input: {
         {
           id: input.eventId,
           at: input.occurredAt,
-          title: `Step ${closedWord}`,
+          title: input.closedBecause?.eventTitle ?? `Step ${closedWord}`,
           detail:
+            input.closedBecause?.eventDetail ??
             "Job Finder stopped working on this application. Nothing was sent, and you can still finish it yourself on the job site.",
           emphasis: "warning",
         },
@@ -796,8 +872,11 @@ export async function releaseApplicationRecordAfterDismissedUserAction(input: {
   const terminalResult = ApplyJobResultSchema.parse({
     ...result,
     state: input.dismissal === "skipped" ? "skipped" : "failed",
-    summary: `The person ${closedWord} the step Job Finder was waiting on.`,
+    summary:
+      input.closedBecause?.resultSummary ??
+      `The person ${closedWord} the step Job Finder was waiting on.`,
     detail:
+      input.closedBecause?.resultDetail ??
       "Job Finder stopped working on this application. Nothing was sent; choose Try again to prepare it again.",
     updatedAt: input.occurredAt,
     completedAt: input.occurredAt,

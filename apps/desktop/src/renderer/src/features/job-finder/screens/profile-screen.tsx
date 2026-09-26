@@ -102,6 +102,8 @@ export function ProfileScreen(props: {
   onAnalyzeProfileFromResume: () => void;
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   onImportResume: () => void;
+  /** Imports again the file a stopped import saved; no file picker. */
+  onRetryInterruptedImport?: () => void;
   onApplyResumeTimelineRepairAction: (
     runId: string,
     proposalId: string,
@@ -546,6 +548,7 @@ export function ProfileScreen(props: {
             // outcome so invalid input cannot look successfully saved.
             actionMessage={validationMessage ? null : props.actionState.message}
             hasUnsavedChanges={hasUnsavedChanges}
+            hasUserEdits={hasUserDraftChanges}
             isSavePending={
               pendingActions.profileMutation || resumeAnalysisPending
             }
@@ -649,6 +652,12 @@ export function ProfileScreen(props: {
                       );
                     }}
                     onImportResume={onImportResume}
+                    {...(props.onRetryInterruptedImport
+                      ? {
+                          onRetryInterruptedImport:
+                            props.onRetryInterruptedImport,
+                        }
+                      : {})}
                     onReviewImportSuggestion={handleReviewImportSuggestion}
                     profileForm={profileForm}
                     profile={overviewProfile}

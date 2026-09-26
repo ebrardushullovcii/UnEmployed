@@ -260,7 +260,7 @@ describe("apply run cancellation and application record concurrency", () => {
     const results = (await repository.listApplyJobResults()).filter(
       (result) => result.runId === runId,
     );
-    expect(results.every((result) => result.state === "planned")).toBe(true);
+    expect(results.every((result) => result.state === "failed")).toBe(true);
     expect(results).toHaveLength(1);
     expect(results[0]?.applicationPreparationStartedAt).toBeTruthy();
     expect(results[0]?.applicationPreparationStartedLocalDate).toMatch(
@@ -1061,7 +1061,7 @@ describe("apply run cancellation and application record concurrency", () => {
       "awaiting_review",
     );
     expect(results.find((result) => result.jobId === "job_second")?.state).toBe(
-      "planned",
+      "failed",
     );
 
     const finishedRecord = (await repository.listApplicationRecords()).find(
@@ -1830,5 +1830,187 @@ describe("apply run cancellation and application record concurrency", () => {
         (job) => job.id === "job_pending_hidden",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("one queued job's error does not end the batch", () => {
+  function createThreeJobHarness(failure: Error) {
+    const seed = createSeed();
+    stageReadyTailoredJob(seed, "job_ready", "linkedin_signal_ready", {
+      filePath: "/tmp/job-ready-resume.pdf",
+    });
+    stageReadyTailoredJob(seed, "job_second", "linkedin_signal_second");
+    stageReadyTailoredJob(seed, "job_third", "linkedin_signal_third");
+    const baseRuntime = createBrowserRuntime();
+    const flowedJobIds: string[] = [];
+    const executeApplicationFlow: ExecuteFlow = async (
+      source,
+      input,
+      options,
+    ) => {
+      flowedJobIds.push(input.job.id);
+      if (input.job.id === "job_second") throw failure;
+      return baseRuntime.executeApplicationFlow(source, input, options);
+    };
+    const harness = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: { ...baseRuntime, executeApplicationFlow },
+    });
+    return { ...harness, flowedJobIds };
+  }
+
+  test("a failure on one job is written on that job and the next job still runs", async () => {
+    const { workspaceService, repository, flowedJobIds } =
+      createThreeJobHarness(new Error("The employer page did not load."));
+    const staged = await workspaceService.startAutoApplyQueueRun([
+      "job_ready",
+      "job_second",
+      "job_third",
+    ]);
+    const runId = staged.applyRuns[0]?.id;
+    if (!runId) throw new Error("Expected a staged queue run.");
+
+    await workspaceService.approveApplyRun(runId);
+
+    expect(flowedJobIds).toEqual(["job_ready", "job_second", "job_third"]);
+    const results = (await repository.listApplyJobResults()).filter(
+      (result) => result.runId === runId,
+    );
+    const second = results.find((result) => result.jobId === "job_second");
+    expect(second).toMatchObject({
+      state: "failed",
+      summary: "Could not apply.",
+    });
+    expect(second?.detail).toContain("The employer page did not load.");
+    expect(results.find((result) => result.jobId === "job_third")?.state).toBe(
+      "awaiting_review",
+    );
+    const run = (await repository.listApplyRuns()).find(
+      (entry) => entry.id === runId,
+    );
+    expect(run?.state).not.toBe("failed");
+    expect(run).toMatchObject({ pendingJobs: 0, failedJobs: 1 });
+  });
+
+  test("stepping into one job's tab stops only that job; the batch carries on", async () => {
+    const { workspaceService, repository, flowedJobIds } =
+      createThreeJobHarness(
+        new DOMException(
+          "Stopped because you stepped into the browser. Hand it back with Resume agent and Job Finder carries on, or press Try again.",
+          "AbortError",
+        ),
+      );
+    const staged = await workspaceService.startAutoApplyQueueRun([
+      "job_ready",
+      "job_second",
+      "job_third",
+    ]);
+    const runId = staged.applyRuns[0]?.id;
+    if (!runId) throw new Error("Expected a staged queue run.");
+    await workspaceService.approveApplyRun(runId);
+
+    expect(flowedJobIds).toEqual(["job_ready", "job_second", "job_third"]);
+    const second = (await repository.listApplyJobResults()).find(
+      (result) => result.runId === runId && result.jobId === "job_second",
+    );
+    // Recorded as the person's takeover, which carries on at hand-back and
+    // is not a failed attempt for the failure-rate safeguard.
+    expect(second).toMatchObject({
+      state: "failed",
+      summary: "You took over this application.",
+    });
+    expect(
+      (await repository.listApplyRuns()).find((entry) => entry.id === runId)
+        ?.state,
+    ).not.toBe("failed");
+  });
+
+  test("a browser the person took over stops the batch and leaves no job filling in", async () => {
+    const { workspaceService, repository, flowedJobIds } =
+      createThreeJobHarness(
+        new Error(
+          "Browser activity is paused. Resume it from the browser toolbar.",
+        ),
+      );
+    const staged = await workspaceService.startAutoApplyQueueRun([
+      "job_ready",
+      "job_second",
+      "job_third",
+    ]);
+    const runId = staged.applyRuns[0]?.id;
+    if (!runId) throw new Error("Expected a staged queue run.");
+
+    await expect(workspaceService.approveApplyRun(runId)).rejects.toThrow(
+      /Browser activity is paused/,
+    );
+
+    expect(flowedJobIds).toEqual(["job_ready", "job_second"]);
+    const results = (await repository.listApplyJobResults()).filter(
+      (result) => result.runId === runId,
+    );
+    expect(
+      results.filter((result) =>
+        ["planned", "filling", "question_capture", "submitting"].includes(
+          result.state,
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      results.find((result) => result.jobId === "job_third"),
+    ).toMatchObject({ state: "skipped", summary: "Not started." });
+    expect(
+      (await repository.listApplyRuns()).find((entry) => entry.id === runId),
+    ).toMatchObject({
+      state: "failed",
+      summary: "Stopped because you took over the browser.",
+    });
+  });
+});
+
+describe("a new attempt for a job", () => {
+  test("closes that job's older one-job run that was only waiting on the person", async () => {
+    const seed = createSeed();
+    stageReadyTailoredJob(seed, "job_ready", "linkedin_signal_ready", {
+      filePath: "/tmp/job-ready-resume.pdf",
+    });
+    const pausedAt = "2026-09-23T22:42:31.000Z";
+    seed.applyRuns = [
+      ...(seed.applyRuns ?? []),
+      ApplyRunSchema.parse({
+        id: "run_waiting_on_sign_in",
+        mode: "copilot",
+        campaignId: null,
+        state: "paused_for_user_review",
+        jobIds: ["job_ready"],
+        currentJobId: "job_ready",
+        createdAt: pausedAt,
+        updatedAt: pausedAt,
+        completedAt: null,
+        summary: "The site wants you signed in first.",
+        detail: "The site wants you signed in first.",
+        totalJobs: 1,
+        pendingJobs: 1,
+      }),
+    ];
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: createBrowserRuntime(),
+    });
+
+    await workspaceService.startApplyCopilotRun("job_ready");
+
+    const runs = await repository.listApplyRuns();
+    expect(
+      runs.find((run) => run.id === "run_waiting_on_sign_in"),
+    ).toMatchObject({
+      state: "cancelled",
+      summary: "Replaced by a newer attempt for this job.",
+    });
+    expect(
+      runs.filter(
+        (run) =>
+          run.id !== "run_waiting_on_sign_in" && run.jobIds[0] === "job_ready",
+      ),
+    ).toHaveLength(1);
   });
 });

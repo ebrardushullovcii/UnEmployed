@@ -48,6 +48,8 @@ import {
   createApplicationRunServiceWorkerSentinel,
   ensurePrepareOnlyMutationGuard,
   closePrepareOnlyAuthorizedFormActionWindow,
+  closePrepareOnlyFinalActionWindow,
+  openPrepareOnlyFinalActionWindow,
   installServiceWorkerRegisterGuardInPage,
   type ServiceWorkerSafetyFinding,
 } from "./playwright-application-flow";
@@ -1189,6 +1191,13 @@ export function createDiscoveryPageAbortBinding(signal?: AbortSignal): {
   };
 }
 
+/**
+ * How long a prepared page stays open to the person's own submit after they
+ * open it to finish it themselves. Job Finder locks it again as soon as it
+ * works on that page.
+ */
+const PERSON_HANDOFF_WINDOW_MS = 12 * 60 * 60 * 1000;
+
 export function createBrowserAgentRuntime(
   options: BrowserAgentRuntimeOptions,
 ): BrowserSessionRuntime {
@@ -1203,6 +1212,105 @@ export function createBrowserAgentRuntime(
   // A person can prepare several Ask-before-sending forms or open unrelated
   // tabs. Keep every final action bound to its exact preparation identity.
   const preparedApplicationPages = new Map<string, Page>();
+  // Every prepared page carries its own binding key (a window variable and
+  // the tab's sessionStorage, which survives same-origin navigation). A
+  // takeover or pause drops the automation connection, and every Page handle
+  // with it, while the tab itself stays open on the filled form; the key the
+  // tab carries finds that exact tab again. No URL is ever compared.
+  const PREPARED_PAGE_MARK = "__unemployedPreparedApplication";
+  // Pages a run is working in right now. A host may share one browser
+  // between runs (the desktop app searches several sources and fills an
+  // application at once); a run must never reuse, navigate or close a page
+  // another run is using.
+  const pagesInUse = new Map<Page, number>();
+  function usePage(page: Page): () => void {
+    pagesInUse.set(page, (pagesInUse.get(page) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const count = (pagesInUse.get(page) ?? 1) - 1;
+      if (count <= 0) pagesInUse.delete(page);
+      else pagesInUse.set(page, count);
+    };
+  }
+  const pagesInUseByOtherRuns = (): Page[] =>
+    [...pagesInUse.keys()].filter((page) => !page.isClosed());
+  const markedPreparedApplicationKeys = new Set<string>();
+  // Prepared pages the person was handed to finish themselves, until the
+  // next continuation or send locks them again.
+  const preparedPagesWithPerson = new Set<string>();
+
+  async function markPreparedPage(key: string, page: Page): Promise<void> {
+    if (typeof page.evaluate !== "function") return;
+    await page
+      .evaluate(
+        ({ mark, value }) => {
+          (window as unknown as Record<string, unknown>)[mark] = value;
+          try {
+            window.sessionStorage.setItem(mark, value);
+          } catch {
+            // Storage can be unavailable on some pages; the variable stays.
+          }
+        },
+        { mark: PREPARED_PAGE_MARK, value: key },
+      )
+      .catch(() => undefined);
+  }
+
+  async function readPreparedPageMark(page: Page): Promise<string | null> {
+    if (typeof page.evaluate !== "function") return null;
+    return page
+      .evaluate((mark) => {
+        const value = (window as unknown as Record<string, unknown>)[mark];
+        if (typeof value === "string") return value;
+        try {
+          return window.sessionStorage.getItem(mark);
+        } catch {
+          return null;
+        }
+      }, PREPARED_PAGE_MARK)
+      .catch(() => null);
+  }
+
+  function bindPreparedApplicationPage(key: string, page: Page): void {
+    preparedApplicationPages.set(key, page);
+    markedPreparedApplicationKeys.add(key);
+    void markPreparedPage(key, page);
+  }
+
+  /**
+   * Finds the exact tab of a prepared application again after the automation
+   * connection was dropped (the person took over or paused the browser), by
+   * the key that tab carries, and only on a browser that is already open.
+   */
+  async function rebindPreparedApplicationPage(key: string): Promise<void> {
+    const current = preparedApplicationPages.get(key);
+    if (current && !current.isClosed()) {
+      // Keep the mark fresh across the form's own navigations.
+      await markPreparedPage(key, current);
+      return;
+    }
+    if (!markedPreparedApplicationKeys.has(key) || !options.browserHost) return;
+    const browser = await options.browserHost
+      .getOpenBrowser()
+      .catch(() => null);
+    if (!browser) return;
+    for (const context of browser.contexts()) {
+      for (const page of context.pages()) {
+        if (page.isClosed()) continue;
+        if ((await readPreparedPageMark(page)) !== key) continue;
+        preparedApplicationPages.set(key, page);
+        // The in-page half of the prepare-only guard lives in the tab and
+        // survived; its network half went with the old connection.
+        await ensurePrepareOnlyMutationGuard(page, false).catch(
+          () => undefined,
+        );
+        return;
+      }
+    }
+  }
+
   const getLivePreparedApplicationPages = (): Page[] => [
     ...new Set(
       [...preparedApplicationPages.values()].filter((page) => !page.isClosed()),
@@ -1620,6 +1728,7 @@ export function createBrowserAgentRuntime(
     pageBindingKey?: string,
   ): Promise<Page> {
     if (pageBindingKey) {
+      await rebindPreparedApplicationPage(pageBindingKey);
       return selectPreparedApplicationPage(
         preparedApplicationPages,
         pageBindingKey,
@@ -1654,8 +1763,14 @@ export function createBrowserAgentRuntime(
             ),
           }
         : {}),
-      ...(retainedApplicationPages.length > 0
-        ? { protectedPages: retainedApplicationPages }
+      ...(retainedApplicationPages.length > 0 ||
+      pagesInUseByOtherRuns().length > 0
+        ? {
+            protectedPages: [
+              ...retainedApplicationPages,
+              ...pagesInUseByOtherRuns(),
+            ],
+          }
         : {}),
       ...(agentOptions.signal ? { signal: agentOptions.signal } : {}),
       ...(onPageResolved ? { onPageResolved } : {}),
@@ -1689,8 +1804,14 @@ export function createBrowserAgentRuntime(
           : {}),
         bringToFront: true,
         closeOtherPages: true,
-        ...(retainedApplicationPages.length > 0
-          ? { protectedPages: retainedApplicationPages }
+        ...(retainedApplicationPages.length > 0 ||
+        pagesInUseByOtherRuns().length > 0
+          ? {
+              protectedPages: [
+                ...retainedApplicationPages,
+                ...pagesInUseByOtherRuns(),
+              ],
+            }
           : {}),
         navigationTimeoutMs: 8_000,
         acceptTargetOriginAfterTimeout: true,
@@ -2033,21 +2154,24 @@ export function createBrowserAgentRuntime(
         : createInconclusiveSourceAccessProbeResult(input);
     },
     observeApplicationForm: observeApplicationFormForSource,
-    hasApplicationPageBinding(_source, pageBindingKey) {
+    async hasApplicationPageBinding(_source, pageBindingKey) {
+      await rebindPreparedApplicationPage(pageBindingKey);
       try {
         selectPreparedApplicationPage(preparedApplicationPages, pageBindingKey);
-        return Promise.resolve(true);
+        return true;
       } catch {
-        return Promise.resolve(false);
+        return false;
       }
     },
     async focusApplicationPageBinding(_source, pageBindingKey) {
+      await rebindPreparedApplicationPage(pageBindingKey);
       return focusPreparedApplicationPage(
         preparedApplicationPages,
         pageBindingKey,
       );
     },
     async readApplicationPageBinding(_source, pageBindingKey) {
+      await rebindPreparedApplicationPage(pageBindingKey);
       const page = selectPreparedApplicationPage(
         preparedApplicationPages,
         pageBindingKey,
@@ -2062,7 +2186,16 @@ export function createBrowserAgentRuntime(
         ),
       };
     },
+    async reloadApplicationPageBinding(_source, pageBindingKey) {
+      await rebindPreparedApplicationPage(pageBindingKey);
+      const page = selectPreparedApplicationPage(
+        preparedApplicationPages,
+        pageBindingKey,
+      );
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 });
+    },
     async armApplicationFormAction(_source, input) {
+      await rebindPreparedApplicationPage(input.pageBindingKey);
       const page = selectPreparedApplicationPage(
         preparedApplicationPages,
         input.pageBindingKey,
@@ -2088,9 +2221,33 @@ export function createBrowserAgentRuntime(
       await armPlaywrightApplicationFormAction(page, input.ref);
     },
     async closeApplicationFormAction(_source, pageBindingKey) {
+      preparedPagesWithPerson.delete(pageBindingKey);
+      await rebindPreparedApplicationPage(pageBindingKey);
       const page = preparedApplicationPages.get(pageBindingKey);
       if (!page || page.isClosed()) return;
       await closePrepareOnlyAuthorizedFormActionWindow(page);
+      await closePrepareOnlyFinalActionWindow(page);
+    },
+    async handApplicationPageToPerson(_source, pageBindingKey) {
+      await rebindPreparedApplicationPage(pageBindingKey);
+      const page = selectPreparedApplicationPage(
+        preparedApplicationPages,
+        pageBindingKey,
+      );
+      await openPrepareOnlyFinalActionWindow(page, PERSON_HANDOFF_WINDOW_MS);
+      preparedPagesWithPerson.add(pageBindingKey);
+    },
+    async readApplicationPageWithPerson(_source, pageBindingKey) {
+      if (!preparedPagesWithPerson.has(pageBindingKey)) return null;
+      const page = preparedApplicationPages.get(pageBindingKey);
+      if (!page || page.isClosed()) return null;
+      return readRawApplyPage(page);
+    },
+    releaseApplicationPageBinding(_source, pageBindingKey) {
+      preparedApplicationPages.delete(pageBindingKey);
+      markedPreparedApplicationKeys.delete(pageBindingKey);
+      preparedPagesWithPerson.delete(pageBindingKey);
+      return Promise.resolve();
     },
     applyPageMechanics: applyPageMechanicsForSource,
     installApplyPrepareOnlyGuard: installApplyPrepareOnlyGuardForSource,
@@ -2155,6 +2312,9 @@ export function createBrowserAgentRuntime(
         // written. Requiring the binding also prevents restart recovery from
         // creating a fresh, empty same-URL form and calling it continuation.
         const isContinuation = isHttpUrlLike(input.startingUrl ?? "");
+        if (isContinuation && input.applicationPageBindingKey) {
+          await rebindPreparedApplicationPage(input.applicationPageBindingKey);
+        }
         const retainedContinuationPage =
           isContinuation && input.applicationPageBindingKey
             ? selectPreparedApplicationPage(
@@ -2225,6 +2385,7 @@ export function createBrowserAgentRuntime(
           const browserPreparationStartedAtMs = Date.now();
           let formPreparationStartedAtMs: number | null = null;
           let workingPage: Page | null = null;
+          let releaseWorkingPageUse: (() => void) | null = null;
           const closeWorkingPageOnAbort = () => {
             if (workingPage) {
               void workingPage.close().catch(() => undefined);
@@ -2276,6 +2437,9 @@ export function createBrowserAgentRuntime(
                 const protectedPreparedPages = [
                   ...otherPreparedPages,
                   ...(boundPage && !boundPageMatchesTarget ? [boundPage] : []),
+                  ...pagesInUseByOtherRuns().filter(
+                    (page) => page !== boundPage,
+                  ),
                 ];
                 const exactTargetOwnedByAnotherPreparation =
                   !boundPageMatchesTarget &&
@@ -2299,6 +2463,9 @@ export function createBrowserAgentRuntime(
                   ...(options?.signal ? { signal: options.signal } : {}),
                   onPageResolved: (page) => {
                     workingPage = page;
+                    releaseWorkingPageUse?.();
+                    releaseWorkingPageUse = usePage(page);
+                    options?.onAutomationPage?.(page);
                     runSentinel.attachPage(page);
                     if (options?.signal?.aborted) {
                       closeWorkingPageOnAbort();
@@ -2314,7 +2481,7 @@ export function createBrowserAgentRuntime(
                   },
                 });
                 if (input.applicationPageBindingKey) {
-                  preparedApplicationPages.set(
+                  bindPreparedApplicationPage(
                     input.applicationPageBindingKey,
                     prepared.page,
                   );
@@ -2418,6 +2585,38 @@ export function createBrowserAgentRuntime(
                 now: new Date().toISOString(),
                 nextActionLabel: "Retry preparation",
               });
+            } else if (
+              (workingPage as Page | null) === null &&
+              /Close a browser tab before opening another/i.test(errorDetail)
+            ) {
+              // The embedded browser refused a new tab for this application,
+              // so no page ever opened and there is nothing for the person
+              // to look at: a failure to try again, not a Needs-you step.
+              const summary = "The Job Finder browser has too many tabs open";
+              const unopenedDetail =
+                "Job Finder could not open this application because its browser already has as many tabs as it allows. Nothing was sent. Close tabs you no longer need, then try again.";
+              executionResult = buildPreparationResult({
+                executionInput: input,
+                state: "failed",
+                summary,
+                detail: unopenedDetail,
+                questions: [],
+                blocker: {
+                  code: "application_page_unreachable",
+                  summary: `${summary}.`,
+                  detail: unopenedDetail,
+                  questionIds: [],
+                  sourceDebugEvidenceRefIds: [],
+                  url: isHttpUrlLike(targetUrl) ? targetUrl : null,
+                },
+                checkpoints: [],
+                checkpointLabel: "Failed before the application page opened",
+                checkpointDetail: unopenedDetail,
+                checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
+                lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
+                now: new Date().toISOString(),
+                nextActionLabel: "Retry preparation",
+              });
             } else {
               const detail = `The runtime stopped without submitting after browser preparation failed: ${errorDetail}`;
               executionResult = buildPreparationResult({
@@ -2443,6 +2642,7 @@ export function createBrowserAgentRuntime(
               });
             }
           } finally {
+            (releaseWorkingPageUse as (() => void) | null)?.();
             options?.signal?.removeEventListener(
               "abort",
               closeWorkingPageOnAbort,
@@ -2537,6 +2737,10 @@ export function createBrowserAgentRuntime(
       );
 
       let page: Page | null = null;
+      // Set when the agent stopped on a page only the person can continue
+      // (a sign-in, a check). That page is the parked tab: it stays open.
+      let pageParkedForPerson = false;
+      let releaseDiscoveryPageUse: (() => void) | null = null;
       const pageAbortBinding = createDiscoveryPageAbortBinding(
         agentOptions.signal,
       );
@@ -2544,6 +2748,9 @@ export function createBrowserAgentRuntime(
       try {
         page = await getAgentRunPage(source, agentOptions, (resolvedPage) => {
           page = resolvedPage;
+          releaseDiscoveryPageUse?.();
+          releaseDiscoveryPageUse = usePage(resolvedPage);
+          agentOptions.onAutomationPage?.(resolvedPage);
           pageAbortBinding.onPageResolved(resolvedPage);
         });
 
@@ -2781,6 +2988,7 @@ export function createBrowserAgentRuntime(
             : {}),
           ...(agentOptions.signal ? { signal: agentOptions.signal } : {}),
         });
+        pageParkedForPerson = Boolean(result.parkedPageUrl);
 
         return DiscoveryRunResultSchema.parse({
           source,
@@ -2861,6 +3069,7 @@ export function createBrowserAgentRuntime(
           agentMetadata: null,
         });
       } finally {
+        (releaseDiscoveryPageUse as (() => void) | null)?.();
         pageAbortBinding.dispose();
         if (page && !page.isClosed() && !agentOptions.signal?.aborted) {
           setSessionState(
@@ -2870,11 +3079,12 @@ export function createBrowserAgentRuntime(
             "The dedicated browser profile is open and ready for target-specific discovery.",
           );
         }
-        // A tab opened for this run alone is closed with it; a tab parked for
-        // the person (sign-in, a challenge) stays because the run never gets
-        // here with the page still open in that case.
+        // A tab opened for this run alone is closed with it. A page the agent
+        // parked for the person (sign-in, a challenge) stays open: the host
+        // binds it to the request, and closing the request closes it.
         if (
           agentOptions.dedicatedPage &&
+          !pageParkedForPerson &&
           page &&
           !page.isClosed() &&
           !agentOptions.signal?.aborted

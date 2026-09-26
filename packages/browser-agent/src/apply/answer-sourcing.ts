@@ -17,6 +17,7 @@ import type {
   ApplyAnswerSources,
   ApplyFormControl,
 } from "./types";
+import { judgeWorkCountry, type WorkCountryVerdict } from "./work-country";
 
 /**
  * Where an answer comes from, in the order Job Finder trusts.
@@ -36,6 +37,23 @@ export type ApplyAnswerResolution =
   | { status: "write_free_text"; grounding: string[] }
   /** Nothing here can answer it truthfully. Ask the person. */
   | { status: "needs_you"; reason: string; suggestion: ApplyAnswer | null };
+
+/** The reason given when nothing stored bears on a question at all. */
+export const NO_STORED_ANSWER_REASON =
+  "Nothing in your profile, resume, or saved answers answers this.";
+
+/**
+ * The reason worth showing the person beside the question: one that names
+ * what Job Finder did find (for example the countries saved in the profile)
+ * and why it does not settle this question. The bare "nothing answers this"
+ * adds nothing to the card's own heading, so it is not repeated.
+ */
+export function personFacingNeedsYouReason(reason: string): string | null {
+  const trimmed = reason.trim();
+  return trimmed.length > 0 && trimmed !== NO_STORED_ANSWER_REASON
+    ? trimmed
+    : null;
+}
 
 function trimmedOrNull(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
@@ -491,9 +509,32 @@ function linkAnswer(
   return null;
 }
 
+/**
+ * Whether the saved countries cover the country this question or job is
+ * about. Null when the profile lists no countries.
+ */
+function workCountryVerdict(
+  control: ApplyFormControl,
+  profile: CandidateProfile,
+  posting: ApplyAnswerSources["posting"] | null,
+): WorkCountryVerdict | null {
+  const countries = profile.workEligibility.authorizedWorkCountries.filter(
+    (country) => country.trim().length > 0,
+  );
+  if (countries.length === 0) {
+    return null;
+  }
+  return judgeWorkCountry({
+    questionText: `${control.groupLabel} ${control.label}`,
+    postingLocation: posting?.location ?? "",
+    authorizedWorkCountries: countries,
+  });
+}
+
 function eligibilityAnswer(
   control: ApplyFormControl,
   profile: CandidateProfile,
+  posting: ApplyAnswerSources["posting"] | null,
 ): ApplyAnswer | null {
   const eligibility = profile.workEligibility;
   const bank = profile.answerBank;
@@ -508,9 +549,20 @@ function eligibilityAnswer(
           "your saved work-eligibility answer",
         );
       }
-      if (eligibility.authorizedWorkCountries.length > 0) {
+      // The list answers only for the country this job or question is
+      // about. A list that does not settle it hands the question back.
+      const verdict = workCountryVerdict(control, profile, posting);
+      if (verdict?.kind === "covered") {
         return profileAnswer(
-          `Yes — authorised to work in ${eligibility.authorizedWorkCountries.join(", ")}`,
+          `Yes — authorised to work in ${verdict.country}`,
+          control.questionKind,
+          "profile.workEligibility.authorizedWorkCountries",
+          "the countries you can work in",
+        );
+      }
+      if (verdict?.kind === "not_covered") {
+        return profileAnswer(
+          `No — not authorised to work in ${verdict.country}`,
           control.questionKind,
           "profile.workEligibility.authorizedWorkCountries",
           "the countries you can work in",
@@ -527,6 +579,15 @@ function eligibilityAnswer(
           "profile.answerBank.visaSponsorship",
           "your saved sponsorship answer",
         );
+      }
+      // "No sponsorship needed" is only true where the person can already
+      // work; for a job in a country their list clearly leaves out it goes
+      // back to them.
+      if (
+        eligibility.requiresVisaSponsorship === false &&
+        workCountryVerdict(control, profile, posting)?.kind === "not_covered"
+      ) {
+        return null;
       }
       const value = yesNo(eligibility.requiresVisaSponsorship);
       return value
@@ -666,16 +727,17 @@ const ELIGIBILITY_QUESTION_KINDS: ReadonlySet<string> = new Set([
 export function resolveExactProfileAnswer(
   control: ApplyFormControl,
   profile: CandidateProfile,
+  posting: ApplyAnswerSources["posting"] | null = null,
 ): ApplyAnswer | null {
   if (ELIGIBILITY_QUESTION_KINDS.has(control.questionKind)) {
-    return eligibilityAnswer(control, profile);
+    return eligibilityAnswer(control, profile, posting);
   }
   return (
     personalInfoAnswer(control, profile) ??
     locationAnswer(control, profile) ??
     linkAnswer(control, profile) ??
     technicalSkillsAnswer(control, profile) ??
-    eligibilityAnswer(control, profile)
+    eligibilityAnswer(control, profile, posting)
   );
 }
 
@@ -930,7 +992,7 @@ export function resolveApplyAnswer(input: {
     postingLocationAnswer(control, sources.posting) ??
     (asksForPostingLocation(control)
       ? null
-      : resolveExactProfileAnswer(control, sources.profile)) ??
+      : resolveExactProfileAnswer(control, sources.profile, sources.posting)) ??
     workHistoryAnswer(control, sources.profile) ??
     resolveResumeAnswer(control, sources.resumeText) ??
     resolveReusableAnswer(control, sources.reusableAnswers);
@@ -971,6 +1033,54 @@ export function resolveApplyAnswer(input: {
     };
   }
 
+  // A legal answer the saved countries do not settle is never written as
+  // free text either.
+  if (
+    control.questionKind === "work_authorization" ||
+    control.questionKind === "visa_sponsorship"
+  ) {
+    const verdict = workCountryVerdict(
+      control,
+      sources.profile,
+      sources.posting,
+    );
+    if (
+      control.questionKind === "work_authorization" &&
+      verdict?.kind === "unknown"
+    ) {
+      return { status: "needs_you", reason: verdict.reason, suggestion: null };
+    }
+    if (
+      control.questionKind === "visa_sponsorship" &&
+      verdict?.kind === "not_covered"
+    ) {
+      return {
+        status: "needs_you",
+        reason: `This asks whether you need sponsorship to work in ${verdict.country}. Your profile says you need none, but it does not list ${verdict.country} among the countries you can work in.`,
+        suggestion: null,
+      };
+    }
+  }
+
+  // A notice period or start date is a fact about the person, not prose to
+  // compose. With nothing saved it goes to them the first time it is seen.
+  // Letting the model write one meant a sentence like "happy to discuss"
+  // went in on one pass, and the same question came back on a later pass
+  // when the written-answer check refused it.
+  if (
+    control.questionKind === "notice_period" ||
+    control.questionKind === "availability"
+  ) {
+    return {
+      status: "needs_you",
+      reason:
+        control.questionKind === "notice_period"
+          ? "This asks for your notice period, and your profile does not say."
+          : "This asks when you can start, and your profile does not say.",
+      suggestion: null,
+    };
+  }
+
   if (acceptsWrittenAnswer(control)) {
     const grounding = [
       sources.resumeText ? "the resume sent with this application" : null,
@@ -982,7 +1092,7 @@ export function resolveApplyAnswer(input: {
 
   return {
     status: "needs_you",
-    reason: "Nothing in your profile, resume, or saved answers answers this.",
+    reason: NO_STORED_ANSWER_REASON,
     suggestion: null,
   };
 }

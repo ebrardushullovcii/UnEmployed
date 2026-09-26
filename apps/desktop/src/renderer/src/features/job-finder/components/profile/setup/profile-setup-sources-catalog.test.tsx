@@ -490,14 +490,15 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
     render(<SetupCatalogHarness targets={[]} />);
 
     expect(screen.getByText(/Add at least one site to search/)).toBeTruthy();
-    // With nothing saved, adding a site is the step: the form is already open
-    // and the toggle only closes it.
+    // With nothing saved, adding a site is the step: the form is already open,
+    // so there is no button to open it, and Cancel closes it.
     expect(
       document.querySelector("[data-profile-setup-manual-source-form]"),
     ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Add a source URL manually" }),
-    );
+    expect(
+      screen.queryByRole("button", { name: "Add a source URL manually" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
       document.querySelector("[data-profile-setup-manual-source-form]"),
     ).toBeNull();
@@ -531,8 +532,20 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
 
     fireEvent.click(addButton);
 
+    // The form stays open for the next address: adding a second site used to
+    // take a press on "Add a source URL manually" first.
+    expect(
+      document.querySelector("[data-profile-setup-manual-source-form]"),
+    ).toBeTruthy();
+    expect(
+      document.querySelector("[data-profile-setup-source-added]")?.textContent,
+    ).toContain("Added Acme careers and turned it on.");
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Careers or job-board URL").value,
+    ).toBe("");
+
     const acmeRowCandidate = screen
-      .getByText("Acme careers")
+      .getByText("Acme careers", { selector: "article *" })
       .closest("article");
     expect(acmeRowCandidate).toBeTruthy();
     const acmeRow = assertIsHTMLElement(
@@ -560,6 +573,34 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
         .getAttribute("aria-checked"),
     ).toBe("false");
     expect(getDiscoveryReady()).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Done adding" }));
+    expect(
+      document.querySelector("[data-profile-setup-manual-source-form]"),
+    ).toBeNull();
+  });
+
+  it("adds a second site with one press because the address form stays open", () => {
+    render(<SetupCatalogHarness targets={[]} />);
+
+    const urlInput = () =>
+      screen.getByLabelText<HTMLInputElement>("Careers or job-board URL");
+    fireEvent.change(urlInput(), {
+      target: { value: "http://127.0.0.1:47950/board/" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add and turn on" }));
+    fireEvent.change(urlInput(), {
+      target: { value: "http://127.0.0.1:47950/greenhouse/" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add and turn on" }));
+
+    expect(
+      screen.queryByRole("button", { name: "Add a source URL manually" }),
+    ).toBeNull();
+    expect(document.querySelectorAll("article").length).toBeGreaterThanOrEqual(
+      2,
+    );
+    expect(getDiscoveryReady()).toBe(true);
   });
 
   it("explains unsupported guidance and blocks enabling sources without valid URLs", () => {

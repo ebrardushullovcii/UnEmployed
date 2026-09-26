@@ -15,7 +15,6 @@ import {
   collectPublicProviderJobs,
   inferSourceIntelligenceFromTarget,
   resolveRouteKindForReuse,
-  selectLowYieldTechnicalFallbackPostings,
 } from "./workspace-source-intelligence";
 import {
   createSeed,
@@ -2130,183 +2129,81 @@ describe("applyDiscoveryTitleTriage", () => {
   });
 });
 
-describe("selectLowYieldTechnicalFallbackPostings", () => {
-  test("rescues clearly technical jobs when strict triage would otherwise return zero", () => {
+describe("strict triage and the remote setting", () => {
+  const remotePostings = [
+    ["Frontend Engineer, Cedar", "Remote, Europe"],
+    ["Frontend Engineer, Spruce", "Remote, Worldwide"],
+    ["Frontend Engineer, Paper", "Remote, Americas"],
+  ] as const;
+
+  function triageAll(remoteCountsAsAnyLocation: boolean | undefined) {
     const seed = createSeed();
     const searchPreferences = createSearchPreferences({
-      targetRoles: ["Senior Full-Stack Software Engineer"],
-      locations: ["Prishtina, Kosovo"],
+      targetRoles: ["Frontend Engineer"],
+      locations: ["Berlin, Germany"],
+      discovery: {
+        targets: [],
+        historyLimit: 5,
+        collectOnlyHardCriteriaMatches: true,
+        ...(remoteCountsAsAnyLocation === undefined
+          ? {}
+          : { remoteCountsAsAnyLocation }),
+      },
     });
-    const rescued = selectLowYieldTechnicalFallbackPostings({
-      skippedPostings: [
-        createPosting({
-          title: "Frontend Engineer",
-          company: "Odiin",
-          canonicalUrl: "https://example.com/jobs/frontend-engineer",
-          providerKey: null,
-          sourceIntelligence: null,
-          location: "Kosovo (Remote)",
+    return remotePostings.map(([title, location]) => [
+      location,
+      applyDiscoveryTitleTriage({
+        posting: createPosting({
+          title,
+          location,
           workMode: ["remote"],
-          keySkills: ["React", "TypeScript"],
-          description:
-            "Build frontend product experiences with React and TypeScript.",
-          titleTriageOutcome: "skip_title",
+          description: "Build frontend product experiences with React.",
         }),
-        createPosting({
-          title: "Operations Manager",
-          company: "Example Ops",
-          canonicalUrl: "https://example.com/jobs/operations-manager",
-          providerKey: null,
-          sourceIntelligence: null,
-          location: "Kosovo (Remote)",
-          workMode: ["remote"],
-          keySkills: ["Planning"],
-          description: "Lead cross-functional operations planning.",
-          titleTriageOutcome: "skip_title",
-        }),
-      ],
-      searchPreferences,
-      profile: seed.profile,
-    });
+        profile: seed.profile,
+        searchPreferences,
+      }).outcome,
+    ]);
+  }
 
-    expect(rescued).toHaveLength(1);
-    expect(rescued[0]?.title).toBe("Frontend Engineer");
-    expect(rescued[0]?.titleTriageOutcome).toBe("pass");
+  test("remote on (and unset) keeps remote roles whose region covers a saved place", () => {
+    const expected = [
+      ["Remote, Europe", "pass"],
+      ["Remote, Worldwide", "pass"],
+      ["Remote, Americas", "skip_location"],
+    ];
+    expect(triageAll(true)).toEqual(expected);
+    expect(triageAll(undefined)).toEqual(expected);
   });
 
-  test("rescues technical URL jobs even when provider metadata is missing", () => {
-    const seed = createSeed();
-    const searchPreferences = createSearchPreferences({
-      targetRoles: ["Senior Full-Stack Software Engineer"],
-      locations: ["Prishtina, Kosovo"],
-    });
-    const rescued = selectLowYieldTechnicalFallbackPostings({
-      skippedPostings: [
-        createPosting({
-          title:
-            ".NET Software Developer .NET Software Developer Quipu GmbH Pristina,",
-          company: "District of",
-          canonicalUrl: "https://example.com/jobs/dotnet-software-developer",
-          providerKey: null,
-          sourceIntelligence: null,
-          location: "Kosovo",
-          workMode: [],
-          keySkills: [],
-          description:
-            "Build software systems with ASP.NET Core, SQL, and backend APIs.",
-          titleTriageOutcome: "skip_title",
-        }),
-        createPosting({
-          title: "Senior Fullstack (MERN) Developer",
-          company: "Proxify",
-          canonicalUrl:
-            "https://example.com/jobs/senior-fullstack-mern-developer",
-          providerKey: null,
-          sourceIntelligence: null,
-          location: "Kosovo",
-          workMode: [],
-          keySkills: [],
-          description:
-            "Remote fullstack developer role building React and Node.js products.",
-          titleTriageOutcome: "skip_location",
-        }),
-      ],
-      searchPreferences,
-      profile: seed.profile,
-    });
-
-    expect(rescued).toHaveLength(2);
-    expect(rescued.map((posting) => posting.titleTriageOutcome)).toEqual([
-      "pass",
-      "pass",
+  test("remote off drops every remote role that names no saved place", () => {
+    expect(triageAll(false)).toEqual([
+      ["Remote, Europe", "skip_location"],
+      ["Remote, Worldwide", "skip_location"],
+      ["Remote, Americas", "skip_location"],
     ]);
   });
 
-  test("rescues technical jobs from skipped collection cards", () => {
+  test("remote off still keeps a remote role in a saved place", () => {
     const seed = createSeed();
-    const searchPreferences = createSearchPreferences({
-      targetRoles: ["Senior Full-Stack Software Engineer"],
-      locations: ["Prishtina, Kosovo"],
-    });
-    const rescued = selectLowYieldTechnicalFallbackPostings({
-      skippedPostings: [
-        createPosting({
-          title: "Frontend Developer",
-          company: "Confidential Careers",
-          canonicalUrl: "https://example.com/jobs/frontend-developer",
-          providerKey: null,
-          sourceIntelligence: null,
-          location: "Kosovo (Remote)",
-          workMode: ["remote"],
-          keySkills: ["React", "TypeScript"],
-          description:
-            "Build frontend product experiences with React and TypeScript.",
-          titleTriageOutcome: "skip_title",
-        }),
-      ],
-      searchPreferences,
+    const triage = applyDiscoveryTitleTriage({
+      posting: createPosting({
+        title: "Frontend Engineer",
+        location: "Berlin, Germany (Remote)",
+        workMode: ["remote"],
+        description: "Build frontend product experiences with React.",
+      }),
       profile: seed.profile,
+      searchPreferences: createSearchPreferences({
+        targetRoles: ["Frontend Engineer"],
+        locations: ["Berlin, Germany"],
+        discovery: {
+          targets: [],
+          historyLimit: 5,
+          collectOnlyHardCriteriaMatches: true,
+          remoteCountsAsAnyLocation: false,
+        },
+      }),
     });
-
-    expect(rescued).toHaveLength(1);
-    expect(rescued[0]?.titleTriageOutcome).toBe("pass");
-  });
-
-  test("keeps skipped collection cards when parser pollution hides the technical signal", () => {
-    const seed = createSeed();
-    const searchPreferences = createSearchPreferences({
-      targetRoles: ["Senior Full-Stack Software Engineer"],
-      locations: ["Prishtina, Kosovo"],
-    });
-    const rescued = selectLowYieldTechnicalFallbackPostings({
-      skippedPostings: [
-        createPosting({
-          title: "Upload &",
-          company: "Stream Team Senior Software Engineer",
-          canonicalUrl: "https://example.com/jobs/stream-team",
-          providerKey: null,
-          sourceIntelligence: null,
-          location: "Kosovo",
-          workMode: [],
-          keySkills: [],
-          description: "Dismiss job card with polluted search result text.",
-          titleTriageOutcome: "skip_title",
-        }),
-      ],
-      searchPreferences,
-      profile: seed.profile,
-    });
-
-    expect(rescued).toHaveLength(1);
-    expect(rescued[0]?.titleTriageOutcome).toBe("pass");
-  });
-
-  test("rescues clearly technical jobs through the low-yield safety floor even without provider metadata", () => {
-    const seed = createSeed();
-    const searchPreferences = createSearchPreferences({
-      targetRoles: ["Senior Full-Stack Software Engineer"],
-      locations: ["Prishtina, Kosovo"],
-    });
-    const rescued = selectLowYieldTechnicalFallbackPostings({
-      skippedPostings: [
-        createPosting({
-          title: "Frontend Engineer",
-          canonicalUrl: "https://example.com/jobs/frontend-engineer",
-          providerKey: null,
-          sourceIntelligence: null,
-          location: "Kosovo (Remote)",
-          workMode: ["remote"],
-          keySkills: ["React", "TypeScript"],
-          description:
-            "Build frontend product experiences with React and TypeScript.",
-          titleTriageOutcome: "skip_title",
-        }),
-      ],
-      searchPreferences,
-      profile: seed.profile,
-    });
-
-    expect(rescued).toHaveLength(1);
-    expect(rescued[0]?.titleTriageOutcome).toBe("pass");
+    expect(triage.outcome).toBe("pass");
   });
 });

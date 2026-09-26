@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsApplyModeSection } from "./settings-apply-mode-section";
 
@@ -21,6 +27,12 @@ function renderSection(
   return { onSave };
 }
 
+const checkedMode = () =>
+  screen
+    .getAllByRole("radio")
+    .find((radio) => radio.getAttribute("aria-checked") === "true")
+    ?.textContent ?? "";
+
 describe("SettingsApplyModeSection", () => {
   it("shows the three useful application modes and the daily cap", () => {
     renderSection();
@@ -39,23 +51,81 @@ describe("SettingsApplyModeSection", () => {
     );
   });
 
-  it("saves the chosen mode and cap behind one Save button", () => {
+  it("saves a mode the moment it is picked, with the saved daily limit, and says what Apply now does", async () => {
+    // Picking Send for me and going back to Home used to lose the choice
+    // without a word, because the mode waited for a Save further down.
     const { onSave } = renderSection();
 
-    const save = screen.getByRole("button", { name: "Save" });
-    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("radio", { name: /Send for me/ }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith({
+      mode: "autonomous_submit",
+      maxApplicationsPerLocalDay: 20,
+    });
+    expect(
+      await screen.findByText(
+        "Saved. From now on Apply fills in and sends each application, and pauses only when it needs you.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("puts the previous mode back and says so when the save fails", async () => {
+    const onSave = vi.fn(() => Promise.reject(new Error("offline")));
+    renderSection({ onSave });
 
     fireEvent.click(screen.getByRole("radio", { name: /Ask before sending/ }));
+
+    expect(
+      await screen.findByText(
+        "That did not save, so Apply still uses the mode shown. Try again.",
+      ),
+    ).toBeTruthy();
+    await waitFor(() => expect(checkedMode()).toMatch(/Prepare for me/));
+  });
+
+  it("does not save again when the saved mode is picked", () => {
+    const { onSave } = renderSection({ mode: "autonomous_submit" });
+
+    fireEvent.click(screen.getByRole("radio", { name: /Send for me/ }));
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("keeps a typed daily limit behind its own save, with the saved mode", async () => {
+    const { onSave } = renderSection({ mode: "confirm_before_submit" });
+
+    const save = screen.getByRole("button", { name: "Save daily limit" });
+    expect(save).toHaveProperty("disabled", true);
+
     fireEvent.change(screen.getByLabelText("Most applications in one day"), {
       target: { value: "8" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save daily limit" }));
 
-    expect(onSave).toHaveBeenCalledWith({
-      mode: "confirm_before_submit",
-      maxApplicationsPerLocalDay: 8,
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith({
+        mode: "confirm_before_submit",
+        maxApplicationsPerLocalDay: 8,
+      }),
+    );
+    expect(
+      await screen.findByText("Saved. Apply stops after 8 applications a day."),
+    ).toBeTruthy();
+  });
+
+  it("offers one Save daily limit, not a second one under the field", () => {
+    renderSection({ mode: "confirm_before_submit" });
+
+    fireEvent.change(screen.getByLabelText("Most applications in one day"), {
+      target: { value: "8" },
     });
-    expect(screen.getAllByRole("button", { name: "Save" })).toHaveLength(1);
+
+    expect(
+      screen.getAllByRole("button", { name: "Save daily limit" }),
+    ).toHaveLength(1);
+    expect(screen.getByText("Not saved yet.")).toBeTruthy();
   });
 
   it("shows the saved send-for-me mode selected", () => {

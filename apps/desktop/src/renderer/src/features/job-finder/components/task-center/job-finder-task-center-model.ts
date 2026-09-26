@@ -7,7 +7,11 @@ import type {
   ResumeImportRun,
   SourceDebugRunRecord,
 } from "@unemployed/contracts";
-import { countActiveSafeguardBlockers } from "../../lib/safeguards-blocker-count";
+import {
+  classifyPausedApplyRun,
+  hasPendingSampleReview,
+} from "../../lib/apply-run-pause-state";
+import { countWorkspaceSafeguardBlockers } from "../../lib/destination-counts";
 import {
   formatDiscoveryRunCountLabel,
   formatDiscoveryRunReportLabel,
@@ -571,9 +575,9 @@ function applyDuration(run: ApplyRunSummary): number | null {
   return Math.max(0, timestamp(run.completedAt) - timestamp(run.createdAt));
 }
 
-function buildApplyTask(
+function buildApplyTasks(
   input: BuildJobFinderTaskCenterModelInput,
-): JobFinderTaskCenterItem | null {
+): JobFinderTaskCenterItem[] {
   const latestResultByRecordId = new Map<
     string,
     JobFinderWorkspaceSnapshot["applyJobResults"][number]
@@ -596,23 +600,39 @@ function buildApplyTask(
     ),
     (result) => result.updatedAt,
   );
-  if (uncertainResult) {
-    return {
-      id: `submission-verification_${uncertainResult.id}`,
-      kind: "apply",
-      title: "Manual verification required",
-      status: "paused",
-      stageLabel: "Verify on the employer site",
-      sourceLabel: applySourceLabel(input.workspace, uncertainResult.jobId),
-      countLabel: "Automatic retry is blocked until you record the outcome",
-      historyEstimateLabel: null,
-      canCancel: false,
-      cancelKind: null,
-      resumeRoute: "/job-finder/applications",
-      resumeActionLabel: "Verify outcome",
-    };
-  }
+  // An application waiting on "Verify outcome" must not hide a batch that is
+  // running meanwhile: both are shown, and the running one keeps its Stop.
+  const verificationItem: JobFinderTaskCenterItem | null = uncertainResult
+    ? {
+        id: `submission-verification_${uncertainResult.id}`,
+        kind: "apply",
+        title: "Manual verification required",
+        status: "paused",
+        stageLabel: "Verify on the employer site",
+        sourceLabel: applySourceLabel(input.workspace, uncertainResult.jobId),
+        countLabel: "Automatic retry is blocked until you record the outcome",
+        historyEstimateLabel: null,
+        canCancel: false,
+        cancelKind: null,
+        resumeRoute: "/job-finder/applications",
+        resumeActionLabel: "Verify outcome",
+      }
+    : null;
+  const runItem = buildApplyRunTask(input);
+  return [verificationItem, runItem].filter(
+    (item): item is JobFinderTaskCenterItem =>
+      item !== null &&
+      // With an outcome to verify, the run card shows only while it runs.
+      (verificationItem === null ||
+        item === verificationItem ||
+        item.status === "active" ||
+        item.status === "stopping"),
+  );
+}
 
+function buildApplyRunTask(
+  input: BuildJobFinderTaskCenterModelInput,
+): JobFinderTaskCenterItem | null {
   const runs = input.workspace.applyRuns ?? [];
   const run = newestBy(runs, (candidate) => candidate.updatedAt);
   if (!run) {
@@ -641,7 +661,15 @@ function buildApplyTask(
           (result.applicationPreparationStartedAt === null &&
             result.applicationPreparationStartedLocalDate === null)),
     );
-  const status = parked ? "paused" : applyStatus(run);
+  // Old runs keep a "paused for review" state after everything in them was
+  // sent or ended; read what each one is actually doing.
+  const pauseState = classifyPausedApplyRun(input.workspace, run);
+  const finishedPause = pauseState === "finished";
+  const status = parked
+    ? "paused"
+    : finishedPause
+      ? "completed"
+      : applyStatus(run);
   // `pendingJobs` is the number the service has not attempted. Jobs waiting on
   // the person are finished for this batch and belong in Needs you, so they
   // count here instead of leaving a completed preparation run at 0 of N.
@@ -653,48 +681,18 @@ function buildApplyTask(
   // "Prepare remaining jobs" in Applications. Offering "Continue application"
   // for both is why the button could be clicked three times over several
   // minutes and change nothing.
-  const hasOpenApplicationHandoff = (
-    input.workspace.userActionRequests ?? []
-  ).some(
-    (request) =>
-      request.scope.type === "application" &&
-      request.scope.runId === run.id &&
-      !["resolved", "cancelled", "skipped", "expired"].includes(request.state),
-  );
+  const hasOpenApplicationHandoff = pauseState === "waiting_on_you";
   const awaitingDecision =
     run.state === "paused_for_consent" ||
     (run.state === "paused_for_user_review" && hasOpenApplicationHandoff);
   const needsReview = status === "paused";
   const canRestage = status === "cancelled" || status === "failed";
-  const readyForFinalReview =
-    run.state === "paused_for_user_review" &&
-    !hasOpenApplicationHandoff &&
-    run.jobIds.length > 0 &&
-    !input.workspace.intelligence?.safeguards.preparedBatchSampleReviews.some(
-      (review) => review.batchId === run.id && !review.reviewCompleted,
-    ) &&
-    run.jobIds.every((jobId) => {
-      const result = newestBy(
-        resultsForRun.filter((candidate) => candidate.jobId === jobId),
-        (candidate) => candidate.updatedAt,
-      );
-      return (
-        result?.state === "submitted" ||
-        (result?.state === "awaiting_review" &&
-          result.blockerReason === null &&
-          result.latestQuestionCount === 0 &&
-          result.pendingConsentRequestCount === 0 &&
-          result.reviewCard != null &&
-          result.reviewCard.waitingOnYou.length === 0)
-      );
-    });
-  const stoppedBySafeguard =
-    run.state === "paused_for_user_review" &&
-    !hasOpenApplicationHandoff &&
-    !readyForFinalReview;
-  const finishedJobs = readyForFinalReview
-    ? run.totalJobs
-    : Math.max(0, run.totalJobs - run.pendingJobs);
+  const readyForFinalReview = pauseState === "ready_for_final_review";
+  const stoppedBySafeguard = pauseState === "stopped_by_safeguard";
+  const finishedJobs =
+    readyForFinalReview || finishedPause
+      ? run.totalJobs
+      : Math.max(0, run.totalJobs - run.pendingJobs);
   // Same predicate Applications uses to build its "Prepare remaining jobs"
   // target list, so the two surfaces cannot disagree about what is left.
   const applyRecoveryJobIds = run.jobIds.filter((jobId) =>
@@ -767,7 +765,14 @@ function buildApplyTask(
                 ? "Waiting on you"
                 : readyForFinalReview
                   ? "Ready for final review"
-                  : "Paused by a safety limit"
+                  : finishedPause
+                    ? resultsForRun.length > 0 &&
+                      resultsForRun.every(
+                        (result) => result.state === "submitted",
+                      )
+                      ? "Applied"
+                      : "Finished"
+                    : "Paused by a safety limit"
               : run.state === "paused_for_consent"
                 ? "Waiting for your consent"
                 : run.state === "completed"
@@ -783,7 +788,14 @@ function buildApplyTask(
       input.workspace,
       (parked
         ? resultsForRun.find((result) => result.state === "planned")?.jobId
-        : run.currentJobId) ??
+        : // The job being worked right now. After a Resume the run record's
+          // current job still named the one finished before the pause, so
+          // Home read "Applying: <that job>" while the next one filled.
+          (resultsForRun.find((result) =>
+            ["filling", "question_capture", "submitting"].includes(
+              result.state,
+            ),
+          )?.jobId ?? run.currentJobId)) ??
         run.jobIds[0] ??
         null,
     ),
@@ -827,7 +839,11 @@ function buildApplyTask(
     ...(stoppedBySafeguard
       ? {
           reviewRoute: "/job-finder/safeguards",
-          reviewActionLabel: "Review prepared sample",
+          // Only a pending sample review has a sample to review; a company
+          // cap or a failure-rate pause is settled on Safeguards itself.
+          reviewActionLabel: hasPendingSampleReview(input.workspace, run.id)
+            ? "Review prepared sample"
+            : "Open Safeguards",
         }
       : {}),
   };
@@ -836,18 +852,7 @@ function buildApplyTask(
 function buildSafeguardTask(
   input: BuildJobFinderTaskCenterModelInput,
 ): JobFinderTaskCenterItem | null {
-  const blockerCount = countActiveSafeguardBlockers(
-    input.workspace.intelligence?.safeguards ?? {
-      companyApplicationCaps: [],
-      simultaneousApplicationConflicts: [],
-      listingSignals: [],
-      abnormalFailurePauses: [],
-      preparedBatchSampleReviews: [],
-      contradictoryAnswerDetections: [],
-      safeguardDismissals: [],
-      updatedAt: null,
-    },
-  );
+  const blockerCount = countWorkspaceSafeguardBlockers(input.workspace);
   if (blockerCount === 0) {
     return null;
   }
@@ -911,7 +916,7 @@ export function buildJobFinderTaskCenterModel(
     buildDiscoveryTask(input),
     buildSourceCheckTask(input),
     buildResumeTask(input),
-    buildApplyTask(input),
+    ...buildApplyTasks(input),
     buildTailoredDraftsTask(input),
     buildSafeguardTask(input),
   ].filter((item): item is JobFinderTaskCenterItem => item !== null);

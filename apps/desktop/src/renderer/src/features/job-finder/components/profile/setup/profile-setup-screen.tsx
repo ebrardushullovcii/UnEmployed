@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  RESUME_IMPORT_INTERRUPTED_MESSAGE,
   evaluateProfileSetupReadiness,
   type CandidateProfile,
   type JobFinderWorkspaceSnapshot,
@@ -48,6 +49,10 @@ import {
   focusProfileSetupStepHeading,
 } from "./profile-setup-step-focus";
 import { markGuidedSetupAutoOpenSpent } from "./guided-setup-auto-open";
+import {
+  ProfileSetupImportNotice,
+  isInterruptedResumeImport,
+} from "./profile-setup-import-notice";
 import { formatProfileSetupStepLabel } from "./profile-setup-steps";
 
 // Guided setup is always one column: the step editor owns the full width and
@@ -129,6 +134,11 @@ export function ProfileSetupScreen(props: {
   ) => void;
   onContinueToProfile: () => void;
   onImportResume: () => void;
+  /** Imports again the file a stopped import saved; no file picker. */
+  onRetryInterruptedImport?: () => void;
+  /** Reads the saved resume again, for an import the AI never read. */
+  onAnalyzeProfileFromResume?: () => void;
+  isAnalyzeProfilePending?: boolean;
   onCancelImportResume: () => void;
   onProfileSurfaceDirtyChange: (dirty: boolean) => void;
   /**
@@ -183,6 +193,9 @@ export function ProfileSetupScreen(props: {
     onApplyProfileSetupReviewAction,
     onContinueToProfile,
     onImportResume,
+    onRetryInterruptedImport,
+    onAnalyzeProfileFromResume,
+    isAnalyzeProfilePending = false,
     onCancelImportResume,
     onProfileSurfaceDirtyChange,
     onProfileSurfaceDraftEdited,
@@ -289,6 +302,28 @@ export function ProfileSetupScreen(props: {
     setValidationMessage,
   });
 
+  // A complete address typed into Job targets' add-source form counts as a
+  // source the person meant to add; every save from the footer adds it first
+  // instead of dropping it.
+  const pendingSourceFlushRef = useRef<(() => void) | null>(null);
+  const registerPendingSourceFlush = useCallback(
+    (flush: (() => void) | null) => {
+      pendingSourceFlushRef.current = flush;
+    },
+    [],
+  );
+  const flushPendingSource = () => {
+    pendingSourceFlushRef.current?.();
+  };
+  const interruptedImportMessage =
+    isInterruptedResumeImport(latestResumeImportRun) && !isImportResumePending
+      ? RESUME_IMPORT_INTERRUPTED_MESSAGE
+      : null;
+  const interruptedImportFileName =
+    latestResumeImportRun && isInterruptedResumeImport(latestResumeImportRun)
+      ? latestResumeImportRun.sourceResumeFileName
+      : null;
+
   const pendingCurrentStepReviewItems = currentStepReviewItems.filter(
     (item) => item.status === "pending",
   );
@@ -392,11 +427,18 @@ export function ProfileSetupScreen(props: {
             hasUnsavedChanges={hasUnsavedSetupChanges}
             hasUserEdits={hasUserDraftChanges}
             isProfileSetupPending={setupMutationPending}
-            onSaveAndFinish={() =>
-              handleSaveStep("targeting", { finishSetup: true })
-            }
-            onSaveAndGoToStep={(step) => handleSaveStep(step)}
-            onSaveCurrentStep={handleSaveCurrentStep}
+            onSaveAndFinish={() => {
+              flushPendingSource();
+              handleSaveStep("targeting", { finishSetup: true });
+            }}
+            onSaveAndGoToStep={(step) => {
+              flushPendingSource();
+              handleSaveStep(step);
+            }}
+            onSaveCurrentStep={() => {
+              flushPendingSource();
+              handleSaveCurrentStep();
+            }}
             remainingBlockerLabels={remainingBlockerLabels}
             validationMessage={validationMessage}
           />
@@ -445,6 +487,26 @@ export function ProfileSetupScreen(props: {
             />
           )}
 
+          {/* Setup opens on the first step that needs the person, so what
+              the last import left behind is said here, on every step, not
+              only on the Import step it skips. */}
+          {isPristineSetup ||
+          profileSetupState.currentStep === "import" ? null : (
+            <ProfileSetupImportNotice
+              importDisabledReason={importResumeGuardMessage}
+              isAnalyzeProfilePending={isAnalyzeProfilePending}
+              isImportResumePending={isImportResumePending}
+              latestResumeImportRun={latestResumeImportRun}
+              {...(onAnalyzeProfileFromResume
+                ? { onAnalyzeProfileFromResume }
+                : {})}
+              {...(onRetryInterruptedImport
+                ? { onRetryInterruptedImport }
+                : {})}
+              profile={profile}
+            />
+          )}
+
           {backgroundMergeNotice ? (
             <div
               className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-(--radius-field) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-sm leading-6 text-(--info-text)"
@@ -471,6 +533,11 @@ export function ProfileSetupScreen(props: {
             >
               <ProfileSetupSummaryCards
                 actionMessage={actionState.message}
+                interruptedImportMessage={interruptedImportMessage}
+                interruptedImportFileName={interruptedImportFileName}
+                {...(onRetryInterruptedImport
+                  ? { onRetryInterruptedImport }
+                  : {})}
                 importDisabledReason={importResumeGuardMessage}
                 isImportResumePending={isImportResumePending}
                 isProfileSetupPending={isProfileSetupPending}
@@ -535,6 +602,11 @@ export function ProfileSetupScreen(props: {
                 hasUnsavedChanges={hasUnsavedSetupChanges}
                 inlineFooter={false}
                 importDisabledReason={importResumeGuardMessage ?? null}
+                interruptedImportMessage={interruptedImportMessage}
+                interruptedImportFileName={interruptedImportFileName}
+                {...(onRetryInterruptedImport
+                  ? { onRetryInterruptedImport }
+                  : {})}
                 isImportResumePending={isImportResumePending}
                 isProfileSetupPending={setupMutationPending}
                 latestResumeImportReviewCandidates={
@@ -547,6 +619,7 @@ export function ProfileSetupScreen(props: {
                 onSaveCurrentStep={handleSaveCurrentStep}
                 onSaveAndGoToStep={(step) => handleSaveStep(step)}
                 onResumeApplicationModeChange={setSelectedResumeApplicationMode}
+                registerPendingSourceFlush={registerPendingSourceFlush}
                 {...(onRunSourceDebug ? { onRunSourceDebug } : {})}
                 profile={profile}
                 profileForm={profileForm}
@@ -589,7 +662,6 @@ export function ProfileSetupScreen(props: {
               }
               starterQuestion={starterQuestion}
               showProactivePrompt={false}
-              title="the Assistant"
               minBottomOffset={COPILOT_BOTTOM_OFFSET}
             />
           </div>

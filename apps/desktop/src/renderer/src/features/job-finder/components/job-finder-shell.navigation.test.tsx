@@ -299,8 +299,9 @@ describe("JobFinderShell section navigation", () => {
     expect(taskLabels).toHaveLength(1);
     expect(taskLabels[0]?.className).toContain("min-[900px]:inline");
     expect(taskLabels[0]?.className).toContain("max-[1099px]:!hidden");
-    expect(notificationGroup.querySelector(".browser-trigger-label")?.className)
-      .toContain("max-[1099px]:!hidden");
+    expect(
+      notificationGroup.querySelector(".browser-trigger-label")?.className,
+    ).toContain("max-[1099px]:!hidden");
     expect(
       taskCenterLabels.some(
         (span) => span.textContent?.trim() === "Task center",
@@ -745,9 +746,21 @@ describe("JobFinderShell section navigation", () => {
     // The 17rem rail has the room, so nothing hides behind a dropdown inside a
     // navigation column that is already on screen: the journey leads, and the
     // reference and configuration surfaces follow it inline.
-    expect(sidebarNavigation.textContent).toContain("Your job search");
-    expect(sidebarNavigation.textContent).toContain("Everything else");
-    expect(sidebarNavigation.textContent).toContain("Workspace");
+    // The journey list carries its name for assistive technology only; no
+    // eyebrow is painted above the only list on the rail.
+    expect(sidebarNavigation.textContent).not.toContain("Your job search");
+    expect(
+      within(sidebar).getByRole("group", { name: "Your job search" }),
+    ).toBeTruthy();
+    // Settings is not a journey step: it is pinned at the foot of the rail,
+    // outside the scrolling destination list, with the shortcuts control
+    // beside it.
+    expect(sidebarNavigation.textContent).not.toContain("Settings");
+    const railFooter = sidebar.querySelector(
+      "[data-job-finder-sidebar-footer]",
+    );
+    expect(railFooter?.textContent).toContain("Settings");
+    expect(railFooter?.getAttribute("role")).toBe("group");
     expect(sidebarNavigation.textContent).not.toContain("Search plans");
     expect(sidebarNavigation.textContent).not.toContain("Safeguards");
 
@@ -773,9 +786,9 @@ describe("JobFinderShell section navigation", () => {
       1,
     );
 
-    // The selected row's count used to flip to a pale chip whose digit sat
-    // below 4.5:1 on the active fill; it now inherits the row's own foreground,
-    // so the active row reads at the same contrast as its label.
+    // The selected row's count is the same quiet pill as every other row: a
+    // soft fill with its own dark figure, so it stays readable on the active
+    // fill instead of inheriting a pale digit that sat below 4.5:1.
     const activeSidebarRow = within(sidebar)
       .getAllByRole("button")
       .find((button) => button.getAttribute("aria-current") === "page");
@@ -784,8 +797,9 @@ describe("JobFinderShell section navigation", () => {
     expect(activeSidebarRow?.className).toContain(
       "text-(--nav-active-foreground)",
     );
-    expect(activeCountBadge?.className).toContain("text-current");
-    expect(activeCountBadge?.className).toContain("bg-transparent");
+    expect(activeCountBadge?.className).toContain("bg-(--input)");
+    expect(activeCountBadge?.className).toContain("text-foreground");
+    expect(activeCountBadge?.className).not.toContain("text-current");
     expect(activeCountBadge?.className).not.toContain("bg-(--nav-active-bar)");
   });
 
@@ -846,23 +860,22 @@ describe("JobFinderShell section navigation", () => {
     // inventory treatment, exactly one attention treatment, and the two are
     // visibly different, so a bare number always means inventory.
     const inventoryClassNames = countClassNames.filter((className) =>
-      className.includes("bg-transparent"),
+      className.includes("bg-(--input)"),
     );
-    const attentionClassNames = countClassNames.filter(
-      (className) => !className.includes("bg-transparent"),
+    const attentionClassNames = countClassNames.filter((className) =>
+      className.includes("bg-primary"),
     );
     expect(inventoryClassNames.length).toBeGreaterThan(0);
     expect(new Set(inventoryClassNames).size).toBe(1);
 
-    // An inventory count is a number, not a chip: no fill, no pill,
-    // right-aligned.
+    // An inventory count is a quiet pill: soft fill, tabular figure, at the
+    // row's trailing edge. It never uses the attention fill.
     const [countClassName] = inventoryClassNames;
-    expect(countClassName).toContain("bg-transparent");
+    expect(countClassName).toContain("bg-(--input)");
+    expect(countClassName).toContain("rounded-full");
     expect(countClassName).toContain("tabular-nums");
-    expect(countClassName).toContain("justify-end");
+    expect(countClassName).toContain("ml-auto");
     expect(countClassName).not.toContain("bg-primary");
-    expect(countClassName).not.toContain("bg-(--input)");
-    expect(countClassName).not.toContain("rounded-full");
     // An attention count is filled and carries a noun, so it cannot be read as
     // inventory volume.
     expect(attentionClassNames).toHaveLength(0);
@@ -897,12 +910,14 @@ describe("JobFinderShell section navigation", () => {
       name: "Job Finder sidebar",
     });
     const secondary = within(sidebar).getByRole("group", {
-      name: "Everything else",
+      name: "Workspace",
     });
-
+    // The footer is pinned under the scroll region, not inside it.
     expect(
-      within(secondary).getByRole("group", { name: "Workspace" }),
-    ).toBeTruthy();
+      sidebar
+        .querySelector("[data-job-finder-sidebar-scroll-region]")
+        ?.contains(secondary),
+    ).toBe(false);
 
     for (const label of SIDEBAR_SECONDARY_DESTINATIONS) {
       const row = within(secondary).getByRole("button", {
@@ -913,10 +928,12 @@ describe("JobFinderShell section navigation", () => {
       expect(row.className).toContain("border-l-2");
     }
 
-    // The shortcuts reference is the trailing entry and opens the same dialog.
+    // The shortcuts reference is one small control beside Settings and opens
+    // the same dialog.
     const shortcutsEntry = within(secondary).getByRole("button", {
       name: "Keyboard shortcuts",
     });
+    expect(shortcutsEntry.className).toContain("size-9");
     expect(
       sidebar.querySelector("[data-job-finder-sidebar-shortcuts-entry]"),
     ).toBe(shortcutsEntry);
@@ -957,7 +974,7 @@ describe("JobFinderShell section navigation", () => {
       name: "Job Finder sidebar",
     });
     const secondary = within(sidebar).getByRole("group", {
-      name: "Everything else",
+      name: "Workspace",
     });
     for (const label of SIDEBAR_SECONDARY_DESTINATIONS) {
       const row = within(secondary).getByRole("button", {
@@ -966,11 +983,11 @@ describe("JobFinderShell section navigation", () => {
       // The label survives for assistive technology while the rail is glyphs.
       expect(row.querySelector("span")?.className).toContain("sr-only");
     }
-    // Group eyebrows collapse to screen-reader text rather than wrapping.
-    const eyebrow = Array.from(secondary.querySelectorAll("span")).find(
-      (element) => element.textContent === "Workspace",
-    );
-    expect(eyebrow?.className).toContain("sr-only");
+    // The footer has an accessible name only; it never paints an eyebrow.
+    expect(secondary.textContent).not.toContain("Workspace");
+    // Collapsed, the shortcuts control stacks above Settings so the gear
+    // stays at the very bottom of the rail.
+    expect(secondary.className).toContain("flex-col-reverse");
 
     const settings = within(secondary).getByRole("button", {
       name: /^Settings/u,
@@ -983,7 +1000,7 @@ describe("JobFinderShell section navigation", () => {
   });
 
   it("gives the sidebar its own scroll owner so a short window cannot clip destinations", () => {
-    // 1440x640: the journey, both secondary groups, and the shortcuts entry
+    // 1440x640: the journey scrolls; Settings and the shortcuts control are pinned
     // are taller than the rail. jsdom has no layout engine, so the contract is
     // asserted through the structure that decides it — a bounded, non-scrolling
     // aside, a pinned toggle row, and one scrollable navigation region.
@@ -1031,7 +1048,9 @@ describe("JobFinderShell section navigation", () => {
     expect(toggleRow?.parentElement).toBe(column);
     expect(navigation.parentElement).toBe(column);
     expect(toggleRow?.nextElementSibling).toBe(navigation);
-    expect(sidebar.querySelector("[data-desktop-module-navigation]")).toBeNull();
+    expect(
+      sidebar.querySelector("[data-desktop-module-navigation]"),
+    ).toBeNull();
     expect(
       navigation.hasAttribute("data-job-finder-sidebar-scroll-region"),
     ).toBe(true);
@@ -1042,16 +1061,27 @@ describe("JobFinderShell section navigation", () => {
     expect(navigation.className).toContain("overscroll-contain");
     expect(navigation.className).toContain("overflow-x-hidden");
 
-    // Every destination and the shortcuts entry stay inside that one scroller.
+    // Every journey destination stays inside that one scroller.
+    const homeRow = within(sidebar).getByRole("button", { name: /^Home/u });
+    expect(navigation.contains(homeRow)).toBe(true);
+    expect(homeRow.hasAttribute("disabled")).toBe(false);
+    // Settings and the shortcuts control are pinned in the footer under the
+    // scroller, so a short window scrolls the journey and never hides them.
+    const footer = sidebar.querySelector<HTMLElement>(
+      "[data-job-finder-sidebar-footer]",
+    );
+    expect(footer?.parentElement).toBe(column);
+    expect(navigation.nextElementSibling).toBe(footer);
+    expect(footer?.className).toContain("shrink-0");
     for (const label of [
-      "Home",
       ...SIDEBAR_SECONDARY_DESTINATIONS,
       "Keyboard shortcuts",
     ]) {
       const row = within(sidebar).getByRole("button", {
         name: new RegExp(`^${label}`, "u"),
       });
-      expect(navigation.contains(row)).toBe(true);
+      expect(navigation.contains(row)).toBe(false);
+      expect(footer?.contains(row)).toBe(true);
       expect(row.hasAttribute("disabled")).toBe(false);
     }
   });
@@ -1205,7 +1235,9 @@ describe("JobFinderShell section navigation", () => {
     expect(sidebar.contains(toggle)).toBe(true);
     expect(handle?.nextElementSibling).toBe(nav);
     expect(nav.previousElementSibling).toBe(handle);
-    expect(sidebar.querySelector("[data-desktop-module-navigation]")).toBeNull();
+    expect(
+      sidebar.querySelector("[data-desktop-module-navigation]"),
+    ).toBeNull();
     expect(handle?.className).not.toContain("fixed");
     // Electron drag region opt-out must stay inline or clicks die on the header.
     expect(
@@ -1377,9 +1409,7 @@ describe("JobFinderShell section navigation", () => {
   it("lets an anchored destination keep its own scroll and focus", () => {
     render(
       <MemoryRouter
-        initialEntries={[
-          "/job-finder/settings#settings-application-authority",
-        ]}
+        initialEntries={["/job-finder/settings#settings-application-authority"]}
       >
         <JobFinderShell platform="win32" workspace={createWorkspace()}>
           <div>Anchored settings section</div>
@@ -1484,12 +1514,8 @@ describe("JobFinderShell section navigation", () => {
       name: "More",
     });
     expect(menu).toBeTruthy();
-    expect(
-      within(menu).getByRole("button", { name: /Settings/ }),
-    ).toBeTruthy();
-    expect(
-      within(menu).getByRole("group", { name: "Workspace" }),
-    ).toBeTruthy();
+    expect(within(menu).getByRole("button", { name: /Settings/ })).toBeTruthy();
+    expect(within(menu).getByRole("group", { name: "Workspace" })).toBeTruthy();
     expect(document.activeElement).toBe(
       within(menu).getByRole("button", { name: /^Settings/ }),
     );
@@ -1829,7 +1855,9 @@ describe("JobFinderShell section navigation", () => {
     fireEvent.click(getCompactMoreButton());
     const menu = screen.getByRole("navigation", { name: "More" });
     expect(within(menu).getByRole("button", { name: "Settings" })).toBeTruthy();
-    expect(within(menu).queryByRole("button", { name: "Documents" })).toBeNull();
+    expect(
+      within(menu).queryByRole("button", { name: "Documents" }),
+    ).toBeNull();
   });
 
   it("keeps the Task center launcher in header flow instead of over page content", () => {
@@ -2134,14 +2162,13 @@ describe("JobFinderShell compact nav responsive contract", () => {
       name: /^Find jobs/,
     });
     const inventoryBadge = findJobsButton.querySelector("span:last-child");
-    // Previously `bg-(--input)`: the compact nav painted the same number as a
-    // filled pill while the expanded sidebar painted it plain, so one count
-    // had two shapes one breakpoint apart (COMP-07). Both surfaces now share
-    // the one inline treatment.
-    expect(inventoryBadge?.className).toContain("bg-transparent");
+    // The compact nav and the expanded sidebar paint the same number as the
+    // same quiet pill, so one count never has two shapes one breakpoint apart
+    // (COMP-07). The attention fill stays reserved for attention counts.
+    expect(inventoryBadge?.className).toContain("bg-(--input)");
+    expect(inventoryBadge?.className).toContain("rounded-full");
     expect(inventoryBadge?.className).toContain("tabular-nums");
-    expect(inventoryBadge?.className).not.toContain("bg-(--input)");
-    expect(inventoryBadge?.className).not.toContain("rounded-full");
+    expect(inventoryBadge?.className).not.toContain("bg-primary");
     // Inventory volume is visual-only: hidden from assistive tech traversal
     // while the labeled destination stays the sole announced content.
     expect(inventoryBadge?.getAttribute("aria-hidden")).toBe("true");

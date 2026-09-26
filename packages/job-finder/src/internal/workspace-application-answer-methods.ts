@@ -470,7 +470,106 @@ export function createWorkspaceApplicationAnswerMethods(
     return flight;
   }
 
+  /**
+   * A file the person restored or added in Profile > Files is the answer to a
+   * waiting file question, so the application waiting on it carries on
+   * without a second press. Only unresolved upload steps whose open file
+   * question takes this kind of file are continued; the continuation reads
+   * the active files again and attaches the one that fits.
+   */
+  /** Bounded so two files that never fit cannot loop forever. */
+  const MAX_FILE_FOLLOW_UP_ROUNDS = 3;
+
+  async function continueApplicationsWaitingForFiles(
+    input: {
+      assetId: string;
+      assetKind: CandidateAssetKind;
+    },
+    followUpRound = 0,
+  ): Promise<number> {
+    if (!performUserAction || input.assetKind === "resume") return 0;
+    const requests = (
+      await ctx.repository.listUserActionRequests({
+        scopeType: "application",
+        states: ["pending", "page_opened", "awaiting_user", "still_blocked"],
+      })
+    ).filter(
+      (request) =>
+        request.kind === "manual_upload" &&
+        request.scope.type === "application" &&
+        Boolean(request.scope.resultId) &&
+        Boolean(request.scope.runId),
+    );
+    let continued = 0;
+    const flights: Promise<unknown>[] = [];
+    for (const request of requests) {
+      if (request.scope.type !== "application" || !request.scope.runId) {
+        continue;
+      }
+      const resultId = request.scope.resultId;
+      const details = await getApplyRunDetails(
+        request.scope.runId,
+        request.scope.jobId,
+      ).catch(() => null);
+      const waitsForThisKind = (details?.questionRecords ?? []).some(
+        (question) =>
+          question.resultId === resultId &&
+          question.answerControlType === "file" &&
+          question.status !== "answered" &&
+          assetKindMatchesQuestion(question.kind, input.assetKind),
+      );
+      if (!waitsForThisKind) continue;
+      continued += 1;
+      flights.push(
+        performUserAction({
+          action: "confirm_done",
+          commandId: `files_changed_${input.assetId}_${request.id}_r${request.revision}`,
+          requestId: request.id,
+          expectedRevision: request.revision,
+          credentialsPolicy: "browser_only",
+          submitAuthorized: false,
+          accountCreationAuthorized: false,
+        }).catch(() => undefined),
+      );
+    }
+    if (flights.length > 0 && followUpRound < MAX_FILE_FOLLOW_UP_ROUNDS) {
+      // A continuation reads the files once, at its start. A second file the
+      // person added meanwhile (a portfolio, then a transcript a few seconds
+      // later) arrived too late for it, and the application came back asking
+      // for the file already sitting in Profile > Files, with nothing left to
+      // trigger another try. Once these continuations settle, offer every
+      // active file again to whatever still waits.
+      void Promise.all(flights).then(() =>
+        continueWithActiveFiles(followUpRound + 1),
+      );
+    }
+    return continued;
+  }
+
+  async function continueWithActiveFiles(followUpRound: number): Promise<void> {
+    const listed = await ctx.candidateAssetResolver
+      ?.list?.({ includeDeleted: false })
+      .catch(() => null);
+    const seenKinds = new Set<CandidateAssetKind>();
+    for (const asset of listed?.assets ?? []) {
+      if (
+        asset.deletedAt ||
+        asset.kind === "resume" ||
+        asset.consentScope !== "job_application_attachment" ||
+        seenKinds.has(asset.kind)
+      ) {
+        continue;
+      }
+      seenKinds.add(asset.kind);
+      await continueApplicationsWaitingForFiles(
+        { assetId: asset.id, assetKind: asset.kind },
+        followUpRound,
+      ).catch(() => 0);
+    }
+  }
+
   return {
+    continueApplicationsWaitingForFiles,
     saveApplicationAnswer(input: unknown) {
       const command = SaveApplicationAnswerCommandSchema.parse(input);
       return runSingleFlight(command.commandId, () =>

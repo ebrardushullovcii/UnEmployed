@@ -28,6 +28,7 @@ import {
 } from "./review-queue-progress";
 import { formatTimestamp } from "./resume-workspace-utils";
 import { ResumeAssistantProposalCard } from "./resume-assistant-proposal-card";
+import { isLinesToConfirmBlocker } from "./resume-proposal-verdict";
 
 /**
  * The one Assistant implementation in Resume Studio, rendered in exactly one
@@ -77,6 +78,32 @@ export const RESUME_ASSISTANT_STARTER_PROMPTS: readonly string[] = [
   "Use the posting's own words where my experience backs them.",
 ];
 
+/**
+ * A typed yes to the proposal on screen is the same decision as pressing its
+ * Accept, so it is taken locally instead of asking the model to propose the
+ * same change again. A proposal whose wording the evidence does not back is
+ * not accepted this way ("do it" may mean "fix it"); that reply, and anything
+ * else ("the second one", "only the summary"), goes to the Assistant, which
+ * sees the recent turns and each proposal's status.
+ */
+export const RESUME_ASSISTANT_ACCEPT_REPLY =
+  /^(?:(?:ok(?:ay)?|yes|yep|sure|great|perfect)[,!. ]+)?(?:yes(?: please)?|yep|sure|ok(?:ay)?|go ahead|do it|please do(?: it)?|apply (?:it|them|that|those|all)|make (?:that|those|the) changes?|accept (?:it|them|that|those|all)|sounds good|looks good|do (?:that|those|both|all of them))[.! ]*$/iu;
+
+export function findAcceptableAssistantProposal(
+  messages: readonly ResumeAssistantMessage[],
+): ResumeAssistantMessage | undefined {
+  const latestAssistantResponse = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  return latestAssistantResponse?.proposalStatus === "pending" &&
+    latestAssistantResponse.patches.length > 0 &&
+    (latestAssistantResponse.approvalBlockers ?? []).every(
+      isLinesToConfirmBlocker,
+    )
+    ? latestAssistantResponse
+    : undefined;
+}
+
 export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
   const [input, setInput] = useState("");
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
@@ -93,15 +120,9 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
     (message) =>
       message.role === "assistant" && message.proposalStatus === "pending",
   );
-  const latestAssistantResponse = [...props.assistantMessages]
-    .reverse()
-    .find((message) => message.role === "assistant");
-  const latestApplySafeProposal =
-    latestAssistantResponse?.proposalStatus === "pending" &&
-    latestAssistantResponse.patches.length > 0 &&
-    (latestAssistantResponse.approvalBlockers?.length ?? 0) === 0
-      ? latestAssistantResponse
-      : undefined;
+  const latestAcceptableProposal = findAcceptableAssistantProposal(
+    props.assistantMessages,
+  );
 
   // The proposal's Accept/Reject controls are the last thing in the transcript,
   // and the transcript is the only region that shrinks when the panel does.
@@ -180,16 +201,14 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
     }
 
     if (
-      latestApplySafeProposal &&
+      latestAcceptableProposal &&
       props.onResolveProposal &&
-      /^(?:do it|apply it|make (?:that|those) changes?|accept (?:it|them))\.?$/iu.test(
-        nextInput,
-      )
+      RESUME_ASSISTANT_ACCEPT_REPLY.test(nextInput)
     ) {
       props.onResolveProposal(
-        latestApplySafeProposal.id,
+        latestAcceptableProposal.id,
         "accept",
-        latestApplySafeProposal.patches.map((patch) => patch.id),
+        latestAcceptableProposal.patches.map((patch) => patch.id),
       );
     } else {
       props.onSendAssistantMessage(nextInput);

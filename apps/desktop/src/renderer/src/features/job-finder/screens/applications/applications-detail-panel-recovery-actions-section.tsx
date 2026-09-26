@@ -27,6 +27,7 @@ import {
   RUN_PREPARATION_AGAIN_ACTION,
 } from "../../lib/job-finder-browser-handoff-copy";
 import { StatusBadge } from "../../components/status-badge";
+import { APPLICATION_SIGN_IN_CONTINUES_NOTE } from "../../lib/application-sign-in-handoff";
 import {
   FINISH_IN_BROWSER_OPENED_STATUS,
   getApplyResultDestinationUrl,
@@ -38,7 +39,11 @@ import {
 import {
   getApplicationHostLabel,
   resolveApplicationRecoveryPresentation,
+  describeNotStartedApplication,
+  PAUSED_BEFORE_APPLICATION_SENTENCE,
+  resolvePlannedApplyStanding,
   TRY_AGAIN_ACTION,
+  type ApplyRunContext,
 } from "./applications-recovery-state";
 
 /**
@@ -134,6 +139,10 @@ const RECOVERY_ACTION_CLASS_NAME =
   "h-auto min-h-11 w-fit min-w-0 max-w-full whitespace-normal px-4 py-2.5 text-(length:--text-body) leading-5";
 const RECOVERY_PRIMARY_ACTION_CLASS_NAME = `${RECOVERY_ACTION_CLASS_NAME} font-semibold`;
 
+/** Said once a filled-in form is open for the person to send themselves. */
+const READY_PAGE_OPENED_STATUS =
+  "Opened in the Job Finder browser. Read the form over and press the site's own send button there.";
+
 export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   canRestageAutoRun: boolean;
   canRestageQueueRun: boolean;
@@ -170,6 +179,11 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
   canConfirmFinishedInBrowser?: boolean;
   /**
+   * The pending browser step is an application sign-in Job Finder watches on
+   * the kept page; the run carries on by itself, so no check is offered.
+   */
+  browserStepContinuesOnItsOwn?: boolean;
+  /**
    * Live state of the verification this section starts, read from the exact
    * pending browser-step request. `checking` while the check runs and
    * `still_blocked` once it came back without the step being complete; without
@@ -187,6 +201,8 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   selectedApplicationRecordId: string;
   selectedRecordLatestBlockerCode?: string | null;
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
+  /** What the visible result's run is doing (a planned job's standing). */
+  visibleApplyRunContext?: ApplyRunContext | null;
   visibleApplyResult:
     | JobFinderWorkspaceSnapshot["applyJobResults"][number]
     | null;
@@ -206,6 +222,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     onFinishInBrowser,
     onConfirmFinishedInBrowser,
     canConfirmFinishedInBrowser,
+    browserStepContinuesOnItsOwn = false,
     confirmFinishedInBrowserStatus = "idle",
     confirmFinishedInBrowserBlockerText,
     selectedQueueOutcomeEntries,
@@ -216,6 +233,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     selectedApplicationRecordId,
     selectedRecordLatestBlockerCode,
     selectedRun,
+    visibleApplyRunContext = null,
     visibleApplyResult,
   } = props;
   // One state, one sentence, one action. Everything visible in the top block
@@ -231,6 +249,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
       ? { recordLatestBlockerCode: selectedRecordLatestBlockerCode }
       : {}),
     pausedQuestionCount: pausedQuestionCount ?? null,
+    run: visibleApplyRunContext,
     visibleApplyResult,
   });
   const { primaryAction } = presentation;
@@ -239,7 +258,15 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   const needsUserFinishPath =
     presentation.state === "finish_in_browser" ||
     presentation.state === "site_blocked";
-  const showPreparingState = presentation.state === "preparing";
+  // "Filling this application now" only for a job that is being filled in:
+  // one waiting its turn or held by the person's pause says so above.
+  const showPreparingState =
+    presentation.state === "preparing" &&
+    (isApplyPending ||
+      resolvePlannedApplyStanding(
+        visibleApplyResult,
+        visibleApplyRunContext,
+      ) === null);
   // The queue action is meaningful only when the selected run produced a
   // recoverable queue. Keep an empty or non-queue selection out of the action
   // group instead of leaving a disabled control without a target.
@@ -320,7 +347,12 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     finishInBrowserOutcome === null
       ? null
       : finishInBrowserOutcome.kind === "opened_application_page"
-        ? FINISH_IN_BROWSER_OPENED_STATUS
+        ? browserStepContinuesOnItsOwn
+          ? APPLICATION_SIGN_IN_CONTINUES_NOTE
+          : presentation.state === "finish_in_browser" &&
+              visibleApplyResult?.state === "awaiting_review"
+            ? READY_PAGE_OPENED_STATUS
+            : FINISH_IN_BROWSER_OPENED_STATUS
         : finishInBrowserOutcome.kind === "opened_browser_only"
           ? JOB_FINDER_BROWSER_OPENED_WITHOUT_PAGE_STATUS
           : formatJobFinderBrowserHandoffFailedStatus(
@@ -812,6 +844,16 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             ) : null}
             {selectedQueueOutcomeEntries.map((entry) => {
               const resolvedState = entry.runResult?.state ?? "planned";
+              // The same standing the row and Home read: a planned job of a
+              // stopped batch was never reached, not "waiting its turn".
+              const plannedStanding = entry.runResult
+                ? resolvePlannedApplyStanding(entry.runResult, {
+                    state: selectedRun.state,
+                    activityPaused:
+                      visibleApplyRunContext?.activityPaused ?? false,
+                    started: true,
+                  })
+                : null;
 
               return (
                 <div
@@ -821,15 +863,31 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <strong className="text-foreground">{entry.label}</strong>
                     <StatusBadge tone={getQueueRecoveryTone(resolvedState)}>
-                      {formatStatusLabel(resolvedState)}
+                      {plannedStanding === "not_started"
+                        ? "Not started"
+                        : plannedStanding === "paused"
+                          ? "Paused"
+                          : formatStatusLabel(resolvedState)}
                     </StatusBadge>
                   </div>
                   <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                    {getCustomerFacingApplyText(
-                      entry.runResult?.summary,
-                      entry.runResult?.privacyReceipt,
-                    ) ??
-                      "This job never started before the queue paused or was cancelled."}
+                    {plannedStanding === "not_started"
+                      ? describeNotStartedApplication({
+                          state: selectedRun.state,
+                          activityPaused: false,
+                          started: true,
+                        })
+                      : plannedStanding === "paused"
+                        ? PAUSED_BEFORE_APPLICATION_SENTENCE
+                        : null}
+                    {plannedStanding === "not_started" ||
+                    plannedStanding === "paused"
+                      ? null
+                      : (getCustomerFacingApplyText(
+                          entry.runResult?.summary,
+                          entry.runResult?.privacyReceipt,
+                        ) ??
+                        "This job never started before the queue paused or was cancelled.")}
                   </p>
                   {entry.runResult?.blockerSummary ? (
                     <p className="text-(length:--text-small) leading-6 text-foreground-soft">

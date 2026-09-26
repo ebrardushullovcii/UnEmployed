@@ -38,6 +38,7 @@ const JOB_FINDER_TEST_SAVE_SURFACE_CHANNELS = {
   resume: [
     "job-finder:save-resume-draft",
     "job-finder:restore-resume-draft-revision",
+    "job-finder:undo-resume-assistant-edit",
     "job-finder:apply-resume-patch",
   ],
 } as const satisfies Record<JobFinderTestSaveSurface, readonly string[]>;

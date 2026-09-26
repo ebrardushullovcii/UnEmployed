@@ -250,6 +250,9 @@ function createWorkspace(): JobFinderWorkspaceSnapshot {
     profileRevisions: [],
     recentSourceDebugRuns: [],
     sourceInstructionArtifacts: [],
+    // Home filters the open action requests on every render; the contract
+    // defaults the list, so a parsed snapshot always has it.
+    userActionRequests: [],
   } as unknown as JobFinderWorkspaceSnapshot;
 }
 

@@ -131,6 +131,12 @@ interface DiscoveryResultsPanelProps {
    */
   latestRun?: Pick<DiscoveryRunRecord, "runPhase" | "state" | "summary"> | null;
   latestRunVerdict?: DiscoveryLatestRunVerdict | null;
+  /**
+   * The run-failure callout above the results names the cause and the next
+   * step (for example, a source address that leads to a missing page). The
+   * empty state then defers to it instead of saying "Search now" beside it.
+   */
+  failureCalloutShown?: boolean;
   /** Starts a fresh search from where the interrupted one stopped. */
   onSearchAgain?: (() => void) | null;
   onDisplayedSelectedJobIdChange?: (selectedJobId: string | null) => void;
@@ -595,6 +601,7 @@ export function DiscoveryResultsPanel({
   editPlanHref = null,
   latestRun = null,
   latestRunVerdict = null,
+  failureCalloutShown = false,
   onSearchAgain = null,
   onDisplayedSelectedJobIdChange,
   onRecoveryAction,
@@ -1186,7 +1193,13 @@ export function DiscoveryResultsPanel({
                   </span>
                 ) : null}
               </summary>
-              <div className="mt-2 grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 sm:grid-cols-2 xl:grid-cols-4">
+              {/* Columns follow the groups actually shown: a lone Source group
+                  used to get a quarter of the row and broke source addresses
+                  mid-word. */}
+              <div
+                className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(15rem,1fr))] gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3"
+                data-testid="discovery-results-filter-groups"
+              >
                 {filterGroups.recommendation ? (
                 <fieldset className="min-w-0">
                   <legend className="mb-2 text-xs font-semibold text-foreground">
@@ -1553,13 +1566,20 @@ export function DiscoveryResultsPanel({
         <div className="px-5 pt-4">
           <ResultsEmptyState
             className={emptyClassName ?? "min-h-56"}
-            description={
+            description={`${
               emptyRunVerdict.interruptState === "cancelled"
-                ? "The newest search was cancelled before every enabled source was checked. An empty list here does not prove your sources have no matches. Select Search now to try again."
+                ? "The newest search was cancelled before every enabled source was checked. An empty list here does not prove your sources have no matches."
                 : emptyRunVerdict.interruptState === "sources_failed"
-                  ? "The newest search finished, but at least one enabled source failed, so an empty list here does not prove your sources have no matches. Select Search now to try again."
-                  : "The newest search stopped before every enabled source was checked. An empty list here does not prove your sources have no matches. Select Search now to try again."
-            }
+                  ? "The newest search finished, but at least one enabled source failed, so an empty list here does not prove your sources have no matches."
+                  : "The newest search stopped before every enabled source was checked. An empty list here does not prove your sources have no matches."
+            } ${
+              // The callout above already says what to do; a second, generic
+              // "Search now" beside it pointed at the wrong fix when the cause
+              // was an address to correct.
+              failureCalloutShown
+                ? "The message above says what to do next."
+                : "Select Search now to try again."
+            }`}
             title={
               emptyRunVerdict.interruptState === "cancelled"
                 ? "The last search was cancelled"

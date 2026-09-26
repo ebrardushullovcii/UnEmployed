@@ -686,8 +686,17 @@ export function installPrepareOnlyMutationGuardInPage(
   }
 
   if (HTMLFormElement.prototype.submit !== state.formSubmitWrapper) {
+    // Called below with the exact form as `this`.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const originalFormSubmit = HTMLFormElement.prototype.submit;
     const guardedFormSubmit: typeof HTMLFormElement.prototype.submit =
       function guardedFormSubmit(this: HTMLFormElement): void {
+        // The authorized send (or the person finishing the form) often goes
+        // through the site's own script calling submit().
+        if (state.finalActionAllowed) {
+          originalFormSubmit.call(this);
+          return;
+        }
         if (formCarriesPreparedValue(this) === true) {
           recordBlockedAttempt(
             "form_submit",
@@ -712,6 +721,10 @@ export function installPrepareOnlyMutationGuardInPage(
         this: HTMLFormElement,
         submitter?: HTMLElement,
       ): void {
+        if (state.finalActionAllowed) {
+          originalRequestSubmit.call(this, submitter);
+          return;
+        }
         const selected =
           submitter ??
           this.querySelector<HTMLElement>(
@@ -1332,6 +1345,21 @@ export async function ensurePrepareOnlyMutationGuard(
       if (frame === page.mainFrame()) {
         networkGuardState!.authorizedFormActionWindow = null;
       }
+    });
+    // A page handed to the person stays theirs across its own navigations
+    // (a sign-in that leads to "create account", a form with several
+    // steps): each new document starts with the in-page guard shut, so it
+    // is opened again while the person's window lasts.
+    page.on("domcontentloaded", () => {
+      if (Date.now() >= networkGuardState!.finalActionAllowedUntilMs) return;
+      void page
+        .evaluate(() => {
+          const state = (window as unknown as Record<string, unknown>)[
+            "__unemployedPrepareOnlyMutationGuardV1"
+          ] as { finalActionAllowed?: boolean } | undefined;
+          if (state) state.finalActionAllowed = true;
+        })
+        .catch(() => undefined);
     });
     await page.route("**/*", async (route) => {
       const request = route.request();

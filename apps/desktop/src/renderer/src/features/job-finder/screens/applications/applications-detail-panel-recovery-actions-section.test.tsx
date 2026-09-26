@@ -311,6 +311,20 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
       ).toBe("opened_application_page");
     });
 
+    it("tells the person to send a filled-in form themselves once it is open", () => {
+      const { getByTestId, getByRole } = renderSection({
+        onFinishInBrowser: () => ({ kind: "opened_application_page" }),
+        visibleApplyResult: buildResult({ state: "awaiting_review" }),
+      });
+
+      fireEvent.click(
+        getByRole("button", { name: "Open the Job Finder browser" }),
+      );
+      expect(getByTestId("manual-field-finish-status").textContent).toMatch(
+        /press the site's own send button/i,
+      );
+    });
+
     it("says only the window opened when the page was not reopened", () => {
       const { getByTestId, getByRole } = renderHandoff(() => ({
         kind: "opened_browser_only",

@@ -11,8 +11,10 @@ import {
   describeApplyOutcome,
   getApplySupportState,
   getPrimaryApplicationAction,
+  shouldShowMissionActionMessage,
   stripInternalCodeParenthetical,
 } from "./review-queue-mission-panel-helpers";
+import { AI_UNAVAILABLE_RESUME_RESULT_MESSAGE } from "./review-queue-status";
 
 function createBrowserSession(
   status: BrowserSessionState["status"] = "ready",
@@ -169,6 +171,24 @@ describe("getPrimaryApplicationAction", () => {
     });
   });
 
+  it("names the recorded cause of a failed resume run instead of a generic line", () => {
+    expect(
+      getPrimaryApplicationAction({
+        ...baseActionInput,
+        hasGenerationFailure: true,
+        generationFailureDetail:
+          "Your profile changed while this resume was being written, so it was not saved. Try again to write it from your updated profile.",
+        hasReadyApprovedAsset: false,
+        resumeReviewStatus: "not_started",
+      }),
+    ).toMatchObject({
+      kind: "generate_resume",
+      label: "Try again",
+      blocker:
+        "Your profile changed while this resume was being written, so it was not saved. Try again to write it from your updated profile.",
+    });
+  });
+
   it("returns one plain recovery for each blocker", () => {
     expect(
       getPrimaryApplicationAction({
@@ -264,6 +284,30 @@ describe("describeApplyOutcome", () => {
 });
 
 describe("buildMissionPanelState", () => {
+  it("lets the failure box name the cause without a generic line above it", () => {
+    const cause =
+      "Your profile changed while this resume was being written, so it was not saved. Try again to write it from your updated profile.";
+    const state = buildMissionPanelState({
+      browserSession: createBrowserSession(),
+      isApplyPending: false,
+      isJobPending: () => false,
+      selectedAsset: {
+        ...createReadyAsset(),
+        status: "failed",
+        failureMessage: cause,
+        failedAt: "2026-08-20T00:01:00.000Z",
+      } as TailoredAsset,
+      selectedItem: createItem({ assetStatus: "failed" }),
+      selectedJob: createJob(),
+    });
+
+    expect(state.primaryApplicationAction).toMatchObject({
+      blocker: cause,
+      label: "Try again",
+    });
+    expect(state.readinessDescription).toBeNull();
+  });
+
   it("is quiet when the job is ready: no state line, Apply enabled", () => {
     const state = buildMissionPanelState({
       browserSession: createBrowserSession(),
@@ -396,5 +440,49 @@ describe("getApplySupportState", () => {
     expect(
       getApplySupportState(createJob({ applyPath: "external" } as never)),
     ).toBe("manual_follow_up");
+  });
+});
+
+describe("shouldShowMissionActionMessage", () => {
+  it("hides a result line the box already says", () => {
+    expect(
+      shouldShowMissionActionMessage({
+        actionMessage: "The cause.",
+        blocker: "The cause.",
+        aiUnavailableLine: null,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowMissionActionMessage({
+        actionMessage: AI_UNAVAILABLE_RESUME_RESULT_MESSAGE,
+        blocker: null,
+        aiUnavailableLine:
+          "AI could not write this resume, so it keeps your saved wording. Try again, or apply it as it is.",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps a result line that adds news", () => {
+    expect(
+      shouldShowMissionActionMessage({
+        actionMessage: AI_UNAVAILABLE_RESUME_RESULT_MESSAGE,
+        blocker: null,
+        aiUnavailableLine: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowMissionActionMessage({
+        actionMessage: "Resume created.",
+        blocker: null,
+        aiUnavailableLine: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowMissionActionMessage({
+        actionMessage: "  ",
+        blocker: null,
+        aiUnavailableLine: null,
+      }),
+    ).toBe(false);
   });
 });

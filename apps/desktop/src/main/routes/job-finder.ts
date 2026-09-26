@@ -60,6 +60,7 @@ import {
   JobFinderExportResumePdfInputSchema,
   JobFinderResumePdfExportResultSchema,
   JobFinderJobActionInputSchema,
+  JobFinderSendPreparedApplicationsInputSchema,
   JobFinderPreparedApplicationPageInputSchema,
   RevealSavedFileInputSchema,
   RevealSavedFileResultSchema,
@@ -103,6 +104,7 @@ import {
   ResumeImportBenchmarkCaseSchema,
   ResumeDocumentBundleSchema,
   ResumeImportFieldCandidateSchema,
+  ImportResumeRequestSchema,
   ResumeImportProgressEventSchema,
   ResumeImportRunSchema,
   ResumeQualityBenchmarkReportSchema,
@@ -139,11 +141,16 @@ import { createJobFinderWorkspaceDeltaTracker } from "../services/job-finder/wor
 import { publishJobFinderWorkspaceUpdate } from "../services/job-finder/workspace-updates";
 import { runBoundedNewSourceReadabilityCheck } from "../services/job-finder/new-source-readability-check";
 import {
+  listJobsNotInProgress,
+  startApplyBatch,
+} from "../services/job-finder/start-apply-batch";
+import {
   getDesktopTestDelayMs,
   getJobFinderApplicationAuthorityService,
   getJobFinderRepositoryForWorkspaceService,
   getJobFinderWorkspaceService,
   importResumeFromSourcePath,
+  retryInterruptedResumeImport,
   isDesktopTestApiEnabled,
   loadApplyQueueDemoState,
   loadAgentOwnedBrowserDriveState,
@@ -191,6 +198,11 @@ async function syncApplicationAuthorityForSavedMode(
   workspaceService: Awaited<ReturnType<typeof getJobFinderWorkspaceService>>,
   jobIds: readonly string[],
   modeOverride?: JobFinderApplyQueueActionInput["applicationAutomationMode"],
+  /**
+   * Sending forms filled in earlier: they belong to a run that may hold
+   * more jobs than this press, and each send counts against that run.
+   */
+  perRunFloor = 0,
 ): Promise<void> {
   const repository =
     getJobFinderRepositoryForWorkspaceService(workspaceService);
@@ -330,7 +342,7 @@ async function syncApplicationAuthorityForSavedMode(
     },
     maxApplicationsPerRun: Math.max(
       active?.maxApplicationsPerRun ?? 0,
-      Math.min(dailyCap, Math.max(1, jobIds.length)),
+      Math.min(dailyCap, Math.max(1, jobIds.length, perRunFloor)),
     ),
     maxApplicationsPerLocalDay: dailyCap,
     intermediateMutationsAuthorized: true,
@@ -382,6 +394,44 @@ async function syncApplicationAuthorityForSavedMode(
       );
     }
   }
+}
+
+/**
+ * A form filled in under Prepare for me has no sending permission. Once the
+ * person chose Send for me (or Ask before sending), their saved mode covers
+ * it: the permission is scoped to these jobs first, as a batch start would,
+ * sized for the whole run the forms were filled in by (each send counts
+ * against that run), so the agent can press Send on each kept page.
+ */
+async function scopeSendPermissionToPreparedJobs(
+  workspaceService: Awaited<ReturnType<typeof getJobFinderWorkspaceService>>,
+  jobIds: readonly string[],
+): Promise<void> {
+  const repository =
+    getJobFinderRepositoryForWorkspaceService(workspaceService);
+  if (!repository) return;
+  const settings = await repository.getSettings();
+  if ((settings.applicationAutomationMode ?? "prepare_only") === "prepare_only")
+    return;
+  const [runs, results] = await Promise.all([
+    repository.listApplyRuns(),
+    repository.listApplyJobResults(),
+  ]);
+  const runIds = new Set(
+    results
+      .filter((result) => jobIds.includes(result.jobId))
+      .map((result) => result.runId),
+  );
+  const perRunFloor = Math.max(
+    0,
+    ...runs.filter((run) => runIds.has(run.id)).map((run) => run.jobIds.length),
+  );
+  await syncApplicationAuthorityForSavedMode(
+    workspaceService,
+    jobIds,
+    undefined,
+    perRunFloor,
+  );
 }
 
 /**
@@ -465,6 +515,32 @@ async function approveApplicationResumes(
     }
     await workspaceService.approveResume(jobId, exportToApprove.id);
   }
+}
+
+/**
+ * Starts a batch for `jobIds` in the saved apply mode, exactly as "Try again
+ * for all" does: jobs already in a running batch are left out, resumes are
+ * approved, the saved mode's permission is issued, and the press returns once
+ * the batch runs. Used to carry applications on after the person hands the
+ * browser back.
+ */
+export async function startSavedModeApplyBatch(
+  jobIds: readonly string[],
+  onBackgroundSettled: () => void,
+): Promise<void> {
+  const service = await getJobFinderWorkspaceService();
+  const repository = getJobFinderRepositoryForWorkspaceService(service);
+  if (!repository) return;
+  const ids = await listJobsNotInProgress(repository, jobIds);
+  if (ids.length === 0) return;
+  await approveApplicationResumes(service, ids);
+  await syncApplicationAuthorityForSavedMode(service, ids);
+  await startApplyBatch({
+    service,
+    runs: repository,
+    jobIds: ids,
+    onBackgroundSettled,
+  });
 }
 
 function parseOptionalRequestId(payload: unknown): string | null {
@@ -1214,7 +1290,8 @@ export function registerJobFinderRouteHandlers(
   ipcMain.handle(
     "job-finder:import-resume",
     async (event, payload: unknown) => {
-      const requestId = parseOptionalRequestId(payload);
+      const importRequest = ImportResumeRequestSchema.parse(payload ?? {});
+      const requestId = importRequest.requestId ?? null;
       const request: {
         requestId: string;
         cancelled: boolean;
@@ -1290,6 +1367,21 @@ export function registerJobFinderRouteHandlers(
       };
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
       try {
+        // Starting a stopped import again reads the working copy it saved,
+        // so there is no picker to wait on.
+        if (importRequest.retryInterrupted === true) {
+          if (request) {
+            request.phase = "processing";
+          }
+          const jobFinderWorkspaceService =
+            await getJobFinderWorkspaceService();
+          const snapshot =
+            await jobFinderWorkspaceService.getWorkspaceSnapshot();
+          return retryInterruptedResumeImport(
+            snapshot.latestResumeImportRun ?? null,
+            reportProgress ? { onProgress: reportProgress } : {},
+          );
+        }
         const usableParentWindow =
           parentWindow && !parentWindow.isDestroyed() ? parentWindow : null;
         if (usableParentWindow) {
@@ -2310,6 +2402,21 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
+  handleJobFinderSaveRoute(
+    "job-finder:undo-resume-assistant-edit",
+    async (_event, payload: unknown) => {
+      const { jobId, revisionId } =
+        JobFinderRestoreResumeDraftRevisionInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.undoResumeAssistantEdit(
+        jobId,
+        revisionId,
+      );
+
+      return workspaceMutationResponse(snapshot);
+    },
+  );
+
   ipcMain.handle(
     "job-finder:regenerate-resume-draft",
     async (_event, payload: unknown) => {
@@ -2620,46 +2727,44 @@ export function registerJobFinderRouteHandlers(
   ipcMain.handle(
     "job-finder:start-auto-apply-queue-run",
     async (event, payload: unknown) => {
-      const { jobIds, applicationAutomationMode } =
+      const { jobIds: requestedJobIds, applicationAutomationMode } =
         JobFinderApplyQueueActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const repository = getJobFinderRepositoryForWorkspaceService(
+        jobFinderWorkspaceService,
+      );
+      // A second press while the batch is running is a no-op for the jobs
+      // it already has; their send permission is not re-issued mid-send.
+      const jobIds = repository
+        ? await listJobsNotInProgress(repository, requestedJobIds)
+        : requestedJobIds;
+      if (jobIds.length === 0) {
+        return workspaceMutationResponse(
+          await jobFinderWorkspaceService.getWorkspaceSnapshot(),
+        );
+      }
       await approveApplicationResumes(jobFinderWorkspaceService, jobIds);
       await syncApplicationAuthorityForSavedMode(
         jobFinderWorkspaceService,
         jobIds,
         applicationAutomationMode,
       );
-      const staged =
-        await jobFinderWorkspaceService.startAutoApplyQueueRun(jobIds);
-
       // "Apply to all" is one press (ADR 0022, ADR 0026): the mode chosen in
       // Settings is the permission, so the batch starts at once instead of
       // waiting for a second "Start preparing N jobs" click on Applications.
-      // Approval runs the whole batch, so it is not awaited here.
-      const requested = new Set(jobIds);
-      const stagedRun = [...staged.applyRuns]
-        .filter(
-          (run) =>
-            run.mode === "queue_auto" &&
-            run.state === "awaiting_submit_approval" &&
-            run.jobIds.length === requested.size &&
-            run.jobIds.every((jobId) => requested.has(jobId)),
-        )
-        .sort((left, right) =>
-          right.createdAt.localeCompare(left.createdAt),
-        )[0];
-      if (stagedRun) {
-        void jobFinderWorkspaceService
-          .approveApplyRun(stagedRun.id)
-          .catch((error: unknown) => {
-            console.error("Apply to all could not start.", error);
-          })
-          .finally(() => {
+      // The press returns once the batch is running; a refusal comes back as
+      // its own sentence instead of a batch that never moves.
+      if (repository) {
+        await startApplyBatch({
+          service: jobFinderWorkspaceService,
+          runs: repository,
+          jobIds,
+          onBackgroundSettled: () => {
             publishJobFinderWorkspaceUpdate(event.sender);
-          });
-        // Give the approval a moment to mark the run as running so the
-        // Applications rows the person lands on say Filling in, not Waiting.
-        await new Promise((resolve) => setTimeout(resolve, 150));
+          },
+        });
+      } else {
+        await jobFinderWorkspaceService.startAutoApplyQueueRun(jobIds);
       }
 
       return workspaceMutationResponse(
@@ -2796,10 +2901,47 @@ export function registerJobFinderRouteHandlers(
   );
 
   ipcMain.handle(
+    "job-finder:send-prepared-applications",
+    async (_event, payload: unknown) => {
+      const { jobIds } =
+        JobFinderSendPreparedApplicationsInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      await scopeSendPermissionToPreparedJobs(
+        jobFinderWorkspaceService,
+        jobIds,
+      );
+      // Each kept page is sent in turn. One that cannot be sent (its page
+      // closed, the site refused) is recorded on that job alone; the rest
+      // still go out.
+      let snapshot: Awaited<
+        ReturnType<typeof jobFinderWorkspaceService.submitPreparedApplication>
+      > | null = null;
+      let firstError: unknown = null;
+      for (const jobId of jobIds) {
+        try {
+          snapshot =
+            await jobFinderWorkspaceService.submitPreparedApplication(jobId);
+        } catch (error) {
+          firstError ??= error;
+        }
+      }
+      if (!snapshot) {
+        throw firstError instanceof Error
+          ? firstError
+          : new Error("None of these applications could be sent.");
+      }
+      return workspaceMutationResponse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
     "job-finder:submit-prepared-application",
     async (_event, payload: unknown) => {
       const { jobId } = JobFinderJobActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      await scopeSendPermissionToPreparedJobs(jobFinderWorkspaceService, [
+        jobId,
+      ]);
       const snapshot =
         await jobFinderWorkspaceService.submitPreparedApplication(jobId);
 

@@ -257,6 +257,32 @@ describe("apply policy executor", () => {
       "I would like to build reliable tools.",
     );
   });
+  test("never touches a security-check box, even one the person already ticked", async () => {
+    const source = rawPage({
+      bodyText: "Apply I am not a robot Local fake CAPTCHA",
+      controls: [
+        rawControl({ index: 0, label: "Full name", value: "Robin Ashford" }),
+        rawControl({
+          index: 1,
+          inputType: "checkbox",
+          role: "checkbox",
+          label: "I am not a robot",
+          checked: true,
+        }),
+      ],
+    });
+    const setToggle = vi.fn(() =>
+      Promise.resolve({ ok: true as const, observedValue: "unchecked" }),
+    );
+    const { config } = configFor(source, { hands: { setToggle } });
+    const result = await executeApplyProposal(
+      { tool: "set_checkbox", ref: "c1", checked: true },
+      observationOf(source).signature,
+      { config, now, guardState: createApplyGuardState() },
+    );
+    expect(result.kind).toBe("refused");
+    expect(setToggle).not.toHaveBeenCalled();
+  });
   test("refuses an account-creation link when this run has no account authority", async () => {
     const page = rawPage({
       bodyText: "Sign in or create an account to continue.",

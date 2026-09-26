@@ -1174,6 +1174,7 @@ function createBenchmarkContext(input: {
     closeRunBrowserSession: () => Promise.resolve(undefined),
     closeParkedBrowserTab: () => Promise.resolve(undefined),
     hasActiveBrowserWorkflow: () => false,
+    resumeActivityForExplicitStart: () => Promise.resolve(),
     updateJob: () => Promise.resolve(undefined),
   };
 }

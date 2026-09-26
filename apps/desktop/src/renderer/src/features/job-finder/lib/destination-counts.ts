@@ -2,6 +2,7 @@ import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 
 import { isDiscoveryAlsoFoundResult } from "../screens/discovery/discovery-result-groups";
 import { countActiveSafeguardBlockers } from "./safeguards-blocker-count";
+import { listApplyRunsStoppedBySafeguard } from "./apply-run-pause-state";
 import { countWorkspaceNeedsYouItems } from "./needs-you-count";
 
 /**
@@ -132,12 +133,32 @@ const NO_SAFEGUARDS = {
   updatedAt: null,
 } as const;
 
+/**
+ * Everything Safeguards holds back: active safeguard records plus the
+ * application runs a safety limit stopped. The Safeguards page, Home's next
+ * step and the Activity card all count this, so their numbers agree.
+ */
+export function countWorkspaceSafeguardBlockers(
+  workspace: Pick<
+    JobFinderWorkspaceSnapshot,
+    | "applyRuns"
+    | "applyJobResults"
+    | "userActionRequests"
+    | "intelligence"
+    | "applicationRecords"
+  >,
+): number {
+  return (
+    countActiveSafeguardBlockers(
+      workspace.intelligence?.safeguards ?? NO_SAFEGUARDS,
+    ) + listApplyRunsStoppedBySafeguard(workspace).length
+  );
+}
+
 export function countSafeguardBlockers(
   workspace: JobFinderWorkspaceSnapshot,
 ): number {
-  return countActiveSafeguardBlockers(
-    workspace.intelligence?.safeguards ?? NO_SAFEGUARDS,
-  );
+  return countWorkspaceSafeguardBlockers(workspace);
 }
 
 export function countNeedsYou(workspace: JobFinderWorkspaceSnapshot): number {

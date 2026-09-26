@@ -5,6 +5,7 @@ import type {
 } from "@unemployed/contracts";
 import type { QueueEntry } from "./applications-detail-panel-helpers";
 import type { ApplicationAnswerStep } from "./applications-answer-step";
+import type { ApplyRunContext } from "./applications-recovery-state";
 import {
   ApplicationsDetailPanelRecoveryActionsSection,
   type ConfirmFinishedInBrowserStatus,
@@ -36,6 +37,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
   onFinishInBrowser?: FinishInBrowserHandler;
   onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
   canConfirmFinishedInBrowser?: boolean;
+  browserStepContinuesOnItsOwn?: boolean;
   confirmFinishedInBrowserStatus?: ConfirmFinishedInBrowserStatus;
   confirmFinishedInBrowserBlockerText?: string | null;
   selectedQueueOutcomeEntries: QueueEntry[];
@@ -46,6 +48,8 @@ export function ApplicationsDetailPanelRecoverySections(props: {
   selectedApplicationRecordId: string;
   selectedRecordLatestBlockerCode?: string | null;
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
+  /** What the visible result's run is doing (a planned job's standing). */
+  visibleApplyRunContext?: ApplyRunContext | null;
   visibleApplyResult:
     | JobFinderWorkspaceSnapshot["applyJobResults"][number]
     | null;
@@ -65,6 +69,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
     onFinishInBrowser,
     onConfirmFinishedInBrowser,
     canConfirmFinishedInBrowser,
+    browserStepContinuesOnItsOwn,
     confirmFinishedInBrowserStatus,
     confirmFinishedInBrowserBlockerText,
     selectedQueueOutcomeEntries,
@@ -75,6 +80,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
     pausedQuestionCount,
     selectedRecordJobId,
     selectedRun,
+    visibleApplyRunContext = null,
     visibleApplyResult,
   } = props;
 
@@ -94,6 +100,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
       {...(onFinishInBrowser ? { onFinishInBrowser } : {})}
       {...(onConfirmFinishedInBrowser ? { onConfirmFinishedInBrowser } : {})}
       canConfirmFinishedInBrowser={canConfirmFinishedInBrowser ?? false}
+      browserStepContinuesOnItsOwn={browserStepContinuesOnItsOwn ?? false}
       confirmFinishedInBrowserStatus={confirmFinishedInBrowserStatus ?? "idle"}
       confirmFinishedInBrowserBlockerText={
         confirmFinishedInBrowserBlockerText ?? null
@@ -108,6 +115,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
       pausedQuestionCount={pausedQuestionCount ?? null}
       selectedRecordJobId={selectedRecordJobId}
       selectedRun={selectedRun}
+      visibleApplyRunContext={visibleApplyRunContext}
       visibleApplyResult={visibleApplyResult}
     />
   );

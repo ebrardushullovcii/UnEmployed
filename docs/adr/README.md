@@ -21,19 +21,25 @@ ADRs capture durable decisions and rejected alternatives. Use them to avoid reop
 | [0013](0013-hybrid-browser-observation-and-policy-execution.md)      | accepted   | Hybrid browser observation and policy execution                                                 |
 | [0014](0014-product-iteration-loop-over-release-ceremony.md)         | accepted   | Product iteration loop over release ceremony                                                    |
 | [0015](0015-minimal-agent-guidance.md)                               | accepted   | Minimal agent guidance                                                                          |
-| [0016](0016-listing-body-read-over-plain-http.md)                    | accepted   | Listing bodies are read over plain HTTP after the scan                                          |
-| [0017](0017-embedded-job-finder-browser.md)                          | accepted   | Embedded Job Finder browser                                                                     |
+| [0016](0016-listing-body-read-over-plain-http.md)                    | accepted; 429 retry timing amended by 0031 | Listing bodies are read over plain HTTP after the scan                                          |
+| [0017](0017-embedded-job-finder-browser.md)                          | accepted; takeover superseded by 0034 | Embedded Job Finder browser                                                                     |
 | [0018](0018-aggressive-tailoring-user-owned-claim-relaxations.md)    | accepted   | Aggressive tailoring user-owned claim relaxations                                               |
 | [0019](0019-muse-spark-default-routing.md)                           | accepted   | Muse Spark default routing, DeepSeek V4.1 for aggressive                                        |
 | [0020](0020-streamed-model-requests-with-idle-and-total-budgets.md)  | accepted   | Streamed model requests, idle and total budgets, retries                                        |
 | [0021](0021-apply-agent-runtime.md)                                  | accepted   | Apply agent loop replaces the fixed prepare-only script                                         |
 | [0022](0022-two-apply-modes-one-click.md)                            | accepted   | Two apply modes, one or two clicks; preparation reaches the form                                |
 | [0023](0023-agent-owned-runs.md)                                     | accepted   | The model owns search, source-check, and apply runs; code is safety only                        |
-| [0024](0024-job-finder-browser-harness-and-three-apply-modes.md)     | accepted   | Browser harness, broad search requests, and three apply modes                                   |
+| [0024](0024-job-finder-browser-harness-and-three-apply-modes.md)     | accepted; per-batch mode and breadth superseded by 0025 and 0026, setup eligibility by 0029, takeover by 0034 | Browser harness, broad search requests, and three apply modes |
 | [0025](0025-one-ai-behavior-panel.md)                                | accepted   | One Settings section holds every choice about how the AI behaves                                |
 | [0026](0026-shortlisted-three-steps-per-job.md)                      | accepted   | Shortlisted is three steps per job; one "Lines to confirm" list in the resume                   |
 | [0027](0027-applications-finish-continue-and-bulk-apply.md)          | accepted   | Declarations never stop a run; continued runs keep the page and mode; Apply to all is one press |
 | [0028](0028-home-three-questions.md)                                 | accepted   | Home answers three questions with one next step; Documents becomes Profile › Files              |
+| [0029](0029-setup-asks-work-eligibility.md)                          | accepted   | Guided setup asks where you can work and whether you need sponsorship                           |
+| [0030](0030-one-listing-per-job-across-sources.md)                   | accepted   | A job seen on several sources shows the employer's own listing, else the first discovered       |
+| [0031](0031-rate-limits-are-waited-out.md)                           | accepted   | A rate-limited listing read waits only as long as the site asked                                |
+| [0032](0032-search-settings-change-what-a-search-keeps.md)           | accepted   | Search settings change what a search keeps, not only the agent's instructions
+| [0033](0033-person-finishes-on-the-kept-page.md)                     | accepted   | The person finishes on the kept page; hand-offs carry on by themselves                          |
+| [0034](0034-stepping-in-hands-over-one-tab.md)                        | accepted   | Stepping into the browser hands over one tab; handing it back carries on                        |
 
 ## Policy
 

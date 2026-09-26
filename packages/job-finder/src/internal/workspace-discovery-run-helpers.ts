@@ -145,12 +145,15 @@ function summarizeTargetExecutions(
     },
   );
   const sourceHealth = targetExecutions.map((execution) => {
-    // A source that completed with nothing to show is not healthy, warning or
-    // not: reporting it as healthy is what let Home call a search that found
-    // no jobs anywhere "Completed" with every source green.
+    // A source whose listing was empty is marked "warning" so Home can say,
+    // neutrally, that it found nothing. Listings it skipped because they are
+    // already saved count as found: a quiet re-run did find them.
     const health =
       execution.state === "completed"
-        ? execution.jobsFound + execution.duplicatesMerged === 0
+        ? execution.jobsFound +
+            execution.duplicatesMerged +
+            execution.jobsSkippedByLedger ===
+          0
           ? "warning"
           : "healthy"
         : execution.state === "failed"
@@ -257,7 +260,16 @@ export function buildDiscoveryRunReport(
   // Legacy and checkpoint-only executions can report no reviewed volume at
   // all. Claiming fewer listings reviewed than the run demonstrably merged
   // would be its own contradiction, so the merged population is the floor.
-  const found = Math.max(reviewed, run.summary.validJobsFound + duplicates);
+  // Listings skipped because an unchanged earlier search already kept them
+  // were found too: leaving them out made a quiet re-run read "0 found ·
+  // 10 already here" beside a source list saying 10 were found.
+  const skippedAsSaved = run.targetExecutions.reduce(
+    (total, execution) => total + execution.jobsSkippedByLedger,
+    0,
+  );
+  const found =
+    Math.max(reviewed, run.summary.validJobsFound + duplicates) +
+    Math.max(skippedAsSaved, run.summary.jobsSkippedByLedger);
 
   return DiscoveryRunReportSchema.parse({
     version: 1,

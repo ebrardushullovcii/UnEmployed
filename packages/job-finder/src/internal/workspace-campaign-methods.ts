@@ -1,4 +1,3 @@
-import { resumePausedActivityForUserAction } from "./workspace-user-action-methods";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -1262,7 +1261,7 @@ export function createWorkspaceCampaignMethods(input: {
       // "Run now" is an explicit click: it resumes paused background work
       // instead of failing. Scheduled runs go through runDueScheduledCampaigns,
       // which still obeys the pause.
-      await resumePausedActivityForUserAction(input.ctx.repository);
+      await input.ctx.resumeActivityForExplicitStart();
       const campaign = await resolveCampaignForRun({
         ctx: input.ctx,
         campaignId: request.campaignId ?? null,

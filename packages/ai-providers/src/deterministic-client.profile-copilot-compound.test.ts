@@ -70,7 +70,12 @@ function findFieldOperation(
 ): ReplacementOperation | null {
   for (const group of groups) {
     for (const operation of group.operations) {
-      if ("value" in operation && operation.value && field in operation.value) {
+      if (
+        "value" in operation &&
+        typeof operation.value === "object" &&
+        operation.value &&
+        field in operation.value
+      ) {
         return operation;
       }
     }

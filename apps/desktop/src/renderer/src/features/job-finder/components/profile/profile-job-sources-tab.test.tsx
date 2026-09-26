@@ -533,7 +533,7 @@ describe("ProfileJobSourcesTab", () => {
     );
   });
 
-  it("does not call a source healthy after it completed with no jobs", () => {
+  it("does not flag a source whose search completed with no jobs", () => {
     const targets = [
       createTarget(1, {
         id: "target_empty_run",
@@ -570,8 +570,9 @@ describe("ProfileJobSourcesTab", () => {
     const row = container.querySelector(
       '[data-compact-source-id="target_empty_run"]',
     ) as HTMLElement;
-    // "Completed, 0 jobs found." used to sit beside a healthy source.
-    expect(within(row).getByText("Needs attention")).toBeTruthy();
+    // An empty listing is not a broken source: the row says what happened and
+    // carries no "Needs attention" badge (Home is neutral about it too).
+    expect(within(row).queryByText("Needs attention")).toBeNull();
     expect(within(row).getByText("Completed, 0 jobs found.")).toBeTruthy();
   });
 

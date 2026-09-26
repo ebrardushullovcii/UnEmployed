@@ -88,6 +88,88 @@ describe("ResumeWorkspaceStudioShell", () => {
     ).toBe(true);
   });
 
+  it("says an Original job's draft is not used and offers one press to an editable draft instead of approval", () => {
+    const onWriteEditableResume = vi.fn();
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume
+        canClearApproval={false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        originalResume={{ levelLabel: "Tailored", onWriteEditableResume }}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready"
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+
+    expect(
+      document.querySelector("[data-resume-studio-original-notice]")
+        ?.textContent,
+    ).toContain(
+      "This job sends your original file unchanged, so edits here are not used.",
+    );
+    expect(screen.queryByRole("button", { name: /Approve resume/ })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Write an editable Tailored resume/ }),
+    );
+    expect(onWriteEditableResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps saying the editable resume is being written until it is done, never offering approval of the old draft", () => {
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume
+        canClearApproval={false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        originalResume={{
+          levelLabel: "Light",
+          writing: true,
+          onWriteEditableResume: vi.fn(),
+        }}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready"
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+
+    expect(
+      document.querySelector("[data-resume-studio-original-notice]")
+        ?.textContent,
+    ).toContain("Writing an editable Light resume for this job.");
+    expect(screen.queryByRole("button", { name: /Approve resume/ })).toBeNull();
+  });
+
   it("uses instant navigation for the template chooser when reduced motion is requested", () => {
     const scrollIntoView = vi.fn();
 

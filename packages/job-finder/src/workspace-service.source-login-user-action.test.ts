@@ -15,6 +15,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   persistDiscoveryLoginUserAction,
   persistDiscoveryRunBlockerUserAction,
+  resolveSourceAccessRequestsAfterCompletedRun,
 } from "./internal/workspace-source-user-action";
 import {
   createSeed,
@@ -240,6 +241,71 @@ describe("discovery source login UserActionRequest adoption", () => {
     ).toBe(true);
   });
 
+  test("a second wall on the same source replaces the first card and closes its tab", async () => {
+    const seed = createSeed();
+    seed.settings.keepSessionAlive = false;
+    const target = seed.searchPreferences.discovery.targets[0];
+    if (!target) throw new Error("Expected a saved source.");
+    let run = 0;
+    const baseRuntime = createBrowserRuntime();
+    const closeParkedTab = vi.fn(() => Promise.resolve());
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      closeParkedTab,
+      runAgentDiscovery: (source) => {
+        run += 1;
+        return Promise.resolve(
+          DiscoveryRunResultSchema.parse({
+            source,
+            startedAt: `2026-09-12T10:0${run}:00.000Z`,
+            completedAt: `2026-09-12T10:0${run}:01.000Z`,
+            querySummary: target.label,
+            warning: "The source stopped at a sign-in page.",
+            inventoryCompleteness: "partial",
+            jobs: [],
+            agentMetadata: {
+              accessBlockerReason: "auth_required",
+              parkedTab: {
+                tabId: `tab_wall_${run}`,
+                url: target.startingUrl,
+                title: target.label,
+              },
+            },
+          }),
+        );
+      },
+    };
+    const harness = createWorkspaceServiceHarness({ seed, browserRuntime });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(
+        harness.workspaceService.runAgentDiscovery(
+          undefined,
+          undefined,
+          target.id,
+        ),
+      ).rejects.toThrow("sign-in page");
+    }
+
+    const open = (await harness.repository.listUserActionRequests()).filter(
+      (request) =>
+        request.scope.type === "discovery_source" &&
+        !["resolved", "cancelled", "superseded", "skipped", "expired"].includes(
+          request.state,
+        ),
+    );
+    expect(open).toHaveLength(1);
+    expect(open[0]?.scope).toMatchObject({ parkedTab: { tabId: "tab_wall_2" } });
+    expect(closeParkedTab).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tabId: "tab_wall_1" }),
+    );
+    expect(closeParkedTab).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tabId: "tab_wall_2" }),
+    );
+  });
+
   test("keeps a wall tab open until its Needs you item is dismissed", async () => {
     const seed = createSeed();
     seed.settings.keepSessionAlive = false;
@@ -399,6 +465,110 @@ describe("discovery source login UserActionRequest adoption", () => {
     expect(openTabs).toEqual(new Set());
     expect(closeParkedTab).toHaveBeenCalledTimes(2);
     expect(closeSession).toHaveBeenCalledOnce();
+  });
+
+  test("opening a parked sign-in asks the host for that tab, or to open it again as that tab", async () => {
+    const seed = createSeed();
+    const target = seed.searchPreferences.discovery.targets[0];
+    if (!target) throw new Error("Expected a saved source.");
+    const harness = createWorkspaceServiceHarness({ seed });
+    const openSession = vi.spyOn(harness.browserRuntime, "openSession");
+    await persistDiscoveryRunBlockerUserAction({
+      repository: harness.repository,
+      runId: "discovery_run_sign_in",
+      target,
+      execution: DiscoveryTargetExecutionSchema.parse({
+        targetId: target.id,
+        adapterKind: target.adapterKind,
+        state: "failed",
+        accessBlockerReason: "auth_required",
+        parkedTab: {
+          tabId: "tab_before_restart",
+          url: target.startingUrl,
+          title: target.label,
+        },
+      }),
+      occurredAt: "2026-07-30T08:01:00.000Z",
+    });
+    const [request] = await harness.repository.listUserActionRequests();
+    if (!request) throw new Error("Expected a sign-in action.");
+
+    await harness.workspaceService.performUserAction({
+      action: "open_page",
+      requestId: request.id,
+      commandId: "open_parked_sign_in",
+      expectedRevision: request.revision,
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    expect(openSession).toHaveBeenCalledWith(
+      "target_site",
+      expect.objectContaining({
+        targetUrl: target.startingUrl,
+        tabId: "tab_before_restart",
+        parkedFor: "sign_in",
+      }),
+    );
+  });
+
+  test("a later search that reads the source closes its open sign-in card and returns the parked tab", async () => {
+    const seed = createSeed();
+    const target = seed.searchPreferences.discovery.targets[0];
+    if (!target) throw new Error("Expected a saved source.");
+    const harness = createWorkspaceServiceHarness({ seed });
+    const parkedTab = {
+      tabId: "tab_sign_in",
+      url: target.startingUrl,
+      title: target.label,
+    };
+    await persistDiscoveryRunBlockerUserAction({
+      repository: harness.repository,
+      runId: "discovery_run_wall",
+      target,
+      execution: DiscoveryTargetExecutionSchema.parse({
+        targetId: target.id,
+        adapterKind: target.adapterKind,
+        state: "failed",
+        accessBlockerReason: "auth_required",
+        parkedTab,
+      }),
+      occurredAt: "2026-07-30T08:01:00.000Z",
+    });
+
+    // A run that met the wall again, or read nothing, leaves the card alone.
+    await expect(
+      resolveSourceAccessRequestsAfterCompletedRun({
+        repository: harness.repository,
+        runId: "discovery_run_empty",
+        target,
+        execution: DiscoveryTargetExecutionSchema.parse({
+          targetId: target.id,
+          adapterKind: target.adapterKind,
+          state: "completed",
+        }),
+        occurredAt: "2026-07-30T08:02:00.000Z",
+      }),
+    ).resolves.toEqual([]);
+
+    const closed = await resolveSourceAccessRequestsAfterCompletedRun({
+      repository: harness.repository,
+      runId: "discovery_run_signed_in",
+      target,
+      execution: DiscoveryTargetExecutionSchema.parse({
+        targetId: target.id,
+        adapterKind: target.adapterKind,
+        state: "completed",
+        // Every listing was already saved: read, but nothing new.
+        jobsSkippedByLedger: 10,
+      }),
+      occurredAt: "2026-07-30T08:05:00.000Z",
+    });
+
+    expect(closed).toEqual([parkedTab]);
+    const [request] = await harness.repository.listUserActionRequests();
+    expect(request?.state).toBe("superseded");
   });
 
   test("creates one run-scoped item for a source that stopped at a parked verification tab", async () => {

@@ -89,9 +89,11 @@ function renderStrip(
     record: ApplicationRecord;
     visibleApplyResult: ApplyJobResultSummary | null;
     visibleApplyRunId: string | null;
+    plannedStanding: "waiting_turn" | "paused" | "not_started" | null;
   }> = {},
 ) {
   const props = {
+    plannedStanding: overrides.plannedStanding ?? null,
     selectedAttempt: overrides.selectedAttempt ?? null,
     selectedRecord: overrides.record ?? baseRecord,
     visibleApplyResult:
@@ -107,6 +109,28 @@ function renderStrip(
 }
 
 describe("ApplicationsDetailFactStrip", () => {
+  it("says Not started, not In progress, for a job a stopped batch never reached", () => {
+    renderStrip({
+      record: {
+        ...baseRecord,
+        lastAttemptState: "in_progress",
+        lastActionLabel:
+          "This job is in the approved batch. Job Finder follows the application mode chosen in Settings when its turn starts.",
+      },
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "planned",
+        completedAt: null,
+        detail:
+          "This job is in the approved batch. Job Finder follows the application mode chosen in Settings when its turn starts.",
+      },
+      plannedStanding: "not_started",
+    });
+    expect(screen.getByText("Not started")).toBeTruthy();
+    expect(screen.queryByText("In progress")).toBeNull();
+    expect(screen.queryByText(/when its turn starts/)).toBeNull();
+  });
+
   it("uses Needs you for the current sign-in handoff instead of an older ready attempt", () => {
     renderStrip({
       selectedAttempt: {

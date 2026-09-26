@@ -119,6 +119,11 @@ export interface JobFinderPageContext {
   onStartApplyCopilot: (input: JobFinderApplicationStartTarget) => void;
   /** Sends one finished application after the person presses Send. */
   onSubmitPreparedApplication: (jobId: string) => Promise<void>;
+  /**
+   * Send for me: presses Send on each filled-in form, one after another,
+   * including forms filled in before Send for me was chosen.
+   */
+  onSendPreparedApplications: (jobIds: readonly string[]) => Promise<void>;
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
@@ -217,7 +222,8 @@ export interface JobFinderPageContext {
     decision: "accepted" | "rejected";
   }) => Promise<void>;
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
-  onImportResume: () => void;
+  /** `retryInterrupted` imports again the file a stopped import saved. */
+  onImportResume: (options?: { retryInterrupted?: boolean }) => void;
   onCancelImportResume: () => void;
   /**
    * Opens or focuses the Job Finder browser and resolves with whether that
@@ -287,6 +293,11 @@ export interface JobFinderPageContext {
   onRegenerateResumeDraft: (jobId: string) => void;
   onRegenerateResumeSection: (jobId: string, sectionId: string) => void;
   onRestoreResumeDraftRevision: (jobId: string, revisionId: string) => void;
+  onUndoResumeAssistantEdit: (jobId: string, revisionId: string) => void;
+  onWriteEditableResumeForOriginalJob: (
+    jobId: string,
+    pendingRequest: string | null,
+  ) => void;
   onSaveResumeDraft: (draft: ResumeDraft) => void;
   onSaveResumeDraftAndThen: (
     draft: ResumeDraft,

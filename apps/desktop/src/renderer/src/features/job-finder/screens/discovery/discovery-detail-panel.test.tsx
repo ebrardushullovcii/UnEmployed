@@ -35,6 +35,7 @@ import {
   DISCOVERY_DETAIL_SCROLL_EDGE_HEIGHT_PX,
   DISCOVERY_DETAIL_SCROLL_GUTTER_PX,
   DiscoveryDetailPanel,
+  listFlaggedKeywordTerms,
   MatchAssessmentChangeDisclosure,
   SourceDiagnostics,
 } from "./discovery-detail-panel";
@@ -1655,5 +1656,72 @@ describe("job inspector compact action reachability", () => {
         getByTestId("discovery-detail-scroll-area"),
       ) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("calls a rate-limited read a request to slow down, never a sign-in wall", () => {
+    const rateLimitedJob = {
+      ...baseSelectedJob,
+      description: "Headway Featured Full-Time United States of America",
+      listingDetailCapture: { state: "blocked" },
+      listingDetailFetch: {
+        attemptedAt: "2026-09-12T10:00:00.000Z",
+        outcome: "blocked",
+        method: null,
+        detail:
+          "The site asked Job Finder to slow down (HTTP 429). The listing is read again on the next search.",
+        retryAfterAt: "2026-09-12T10:00:02.000Z",
+      },
+    } as unknown as SavedJob;
+
+    render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          applicationRecords={[]}
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onOpenApplication={vi.fn()}
+          onQueueJob={vi.fn()}
+          selectedJob={rateLimitedJob}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByText(
+        "This site asked Job Finder to slow down, so the listing has not been read yet. It will be read on the next search.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("This site did not let Job Finder read the listing"),
+    ).toBeNull();
+  });
+});
+
+describe("listFlaggedKeywordTerms", () => {
+  it("keeps short terms, drops listing sentences and skills already shown", () => {
+    expect(
+      listFlaggedKeywordTerms(
+        [
+          { id: "k1", label: "TypeScript", kind: "skill", weight: 5 },
+          { id: "k2", label: "Kubernetes", kind: "tool", weight: 4 },
+          {
+            id: "k3",
+            label: "Design and ship maintainable software with TypeScript.",
+            kind: "responsibility",
+            weight: 3,
+          },
+          {
+            id: "k4",
+            label: "Professional software development experience.",
+            kind: "qualification",
+            weight: 4,
+          },
+          { id: "k5", label: "kubernetes", kind: "skill", weight: 3 },
+          { id: "k6", label: "Fintech", kind: "industry", weight: 2 },
+        ],
+        ["TypeScript", "SQL"],
+      ),
+    ).toEqual(["Kubernetes", "Fintech"]);
   });
 });

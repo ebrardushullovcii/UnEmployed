@@ -1327,6 +1327,47 @@ describe("ApplicationsScreen", () => {
     expect(screen.getByText("Total: 8s")).toBeTruthy();
   });
 
+  it("links to Outcomes from the header once an application was sent", () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    stubCandidateAssetsBridge();
+    const sent = {
+      ...createTrackedApplication({}),
+      status: "submitted" as const,
+    };
+    const onOpenOutcomes = vi.fn();
+    const { rerender } = render(
+      <MemoryRouter>
+        <ApplicationsScreen
+          dailyPreparationCapacity={null}
+          onOpenOutcomes={onOpenOutcomes}
+          {...buildCrmScreenProps({
+            applicationRecords: [sent],
+            onSelectRecord: vi.fn(),
+            selectedRecord: sent,
+          })}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "See outcomes" }));
+    expect(onOpenOutcomes).toHaveBeenCalledTimes(1);
+
+    const notSent = { ...sent, status: "approved" as const };
+    rerender(
+      <MemoryRouter>
+        <ApplicationsScreen
+          dailyPreparationCapacity={null}
+          onOpenOutcomes={onOpenOutcomes}
+          {...buildCrmScreenProps({
+            applicationRecords: [notSent],
+            onSelectRecord: vi.fn(),
+            selectedRecord: notSent,
+          })}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("button", { name: "See outcomes" })).toBeNull();
+  });
+
   it("hides CRM tracking controls while search hides the selected application and restores them when the search clears", async () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     stubCandidateAssetsBridge();

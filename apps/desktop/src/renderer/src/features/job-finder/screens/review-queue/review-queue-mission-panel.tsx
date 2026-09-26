@@ -26,8 +26,12 @@ import {
 import {
   buildMissionPanelState,
   describeApplyOutcome,
+  shouldShowMissionActionMessage,
 } from "./review-queue-mission-panel-helpers";
-import { describeUntailorableListing } from "./resume-workspace-utils";
+import {
+  describeAiUnavailableResume,
+  describeUntailorableListing,
+} from "./resume-workspace-utils";
 import { resolveResumeIdentity } from "@unemployed/job-finder/resume-identity";
 import { ResumeIdentityChoiceNotice } from "../../components/profile/resume-identity-choice-notice";
 
@@ -200,6 +204,17 @@ export function ReviewQueueMissionPanel({
         )[0] ?? null)
     : null;
 
+  // A resume the built-in generator wrote because AI was unavailable is
+  // usable, but the person should know and be able to retry in one press.
+  const aiUnavailableLine =
+    selectedItem &&
+    !existingApplication &&
+    !usesOriginalResume &&
+    !isGenerating &&
+    selectedItem.resumeReview.status !== "approved"
+      ? describeAiUnavailableResume(selectedAsset)
+      : null;
+
   const runPrimaryRecovery = () => {
     if (!selectedItem || !primaryApplicationAction.recovery) {
       return;
@@ -232,8 +247,12 @@ export function ReviewQueueMissionPanel({
     !usesOriginalResume &&
     selectedItem.assetStatus !== "not_started" &&
     !isGenerating;
+  // An Original job has no draft, but its studio is where the person turns
+  // the original into an editable one (one press there). Without this the
+  // studio was reachable only by a deep link.
   const showEditResume =
-    hasDraftToEdit &&
+    (hasDraftToEdit ||
+      (selectedItem !== null && usesOriginalResume && !isGenerating)) &&
     primaryApplicationAction.kind !== "approve_resume" &&
     primaryApplicationAction.recovery?.kind !== "open_resume_workspace";
   const dailyCapacityExhausted =
@@ -405,7 +424,17 @@ export function ReviewQueueMissionPanel({
             {resumeChoiceFieldset}
           </details>
         ) : (
-          resumeChoiceFieldset
+          <>
+            {resumeChoiceFieldset}
+            {hasDraftToEdit ? (
+              <p
+                className="text-(length:--text-small) leading-5 text-foreground-muted"
+                role="note"
+              >
+                Picking another level rewrites this resume at that level.
+              </p>
+            ) : null}
+          </>
         )}
         {usesOriginalResume && originalResume ? (
           <p
@@ -431,12 +460,12 @@ export function ReviewQueueMissionPanel({
             This job is already in Applications. Open it to see its latest
             status.
           </p>
-        ) : readinessDescription ? (
+        ) : aiUnavailableLine || readinessDescription ? (
           <p
             className="text-(length:--text-small) leading-6 text-foreground-soft"
             data-testid="shortlisted-state-line"
           >
-            {readinessDescription}
+            {aiUnavailableLine ?? readinessDescription}
           </p>
         ) : null}
         {isGenerating ? (
@@ -555,6 +584,17 @@ export function ReviewQueueMissionPanel({
               {primaryApplicationAction.recovery.label}
             </Button>
           ) : null}
+          {aiUnavailableLine ? (
+            <Button
+              className="h-10 min-w-0 justify-start px-4 text-sm font-medium normal-case tracking-normal"
+              disabled={isSelectedJobPending}
+              onClick={() => void onGenerateResume(selectedItem.jobId)}
+              type="button"
+              variant="secondary"
+            >
+              Try again with AI
+            </Button>
+          ) : null}
           {showEditResume ? (
             <Button
               className="h-10 min-w-0 justify-start px-4 text-sm font-medium normal-case tracking-normal"
@@ -602,7 +642,14 @@ export function ReviewQueueMissionPanel({
             {dailyCapacityDescription}
           </p>
         ) : null}
-        {actionMessage ? (
+        {/* The box above already says it; the same news twice read as
+            two problems. */}
+        {actionMessage &&
+        shouldShowMissionActionMessage({
+          actionMessage,
+          blocker: primaryApplicationAction.blocker,
+          aiUnavailableLine,
+        }) ? (
           <p
             aria-atomic="true"
             aria-live="polite"

@@ -13,7 +13,10 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { JobSearchHomeScreen } from "./job-search-home-screen";
+import {
+  JobSearchHomeScreen,
+  listCurrentUnreadNotifications,
+} from "./job-search-home-screen";
 
 afterEach(cleanup);
 
@@ -196,6 +199,135 @@ describe("JobSearchHomeScreen", () => {
     expect(screen.queryByTestId("home-discovery-run-feedback")).toBeNull();
   });
 
+  it("names a 404-only search failure once, on the next step", () => {
+    const ws = workspace();
+    ws.recentDiscoveryRuns = [
+      {
+        id: "run-404",
+        campaignId: ws.activeCampaignId,
+        state: "failed",
+        runPhase: null,
+        startedAt: "2026-08-15T09:30:00.000Z",
+        completedAt: "2026-08-15T09:31:00.000Z",
+        targetIds: ["target-1"],
+        activity: [],
+        targetExecutions: [
+          {
+            targetId: "target-1",
+            state: "failed",
+            jobsFound: 0,
+            warning:
+              "Agent discovery failed: Starting page returned HTTP 404: http://127.0.0.1/nope/",
+          },
+        ],
+        summary: { targetsPlanned: 1, targetsCompleted: 0, validJobsFound: 0 },
+      },
+    ] as unknown as JobFinderWorkspaceSnapshot["recentDiscoveryRuns"];
+    render(
+      <JobSearchHomeScreen
+        {...baseProps()}
+        workspace={ws}
+        discoveryRunFeedback={{
+          status: "failed",
+          detail: "Agent discovery failed: Starting page returned HTTP 404: http://127.0.0.1/nope/",
+          headline: "The search stopped before it could finish.",
+          recovery: null,
+          targetLabel: null,
+        }}
+      />,
+    );
+    const card = screen.getByTestId("home-next-step");
+    expect(card.getAttribute("data-home-next-step")).toBe("source_failed");
+    expect(screen.queryByTestId("home-discovery-run-feedback")).toBeNull();
+  });
+
+  it("says a stopped search once, in the status line, without a callout", () => {
+    const ws = workspace();
+    ws.recentDiscoveryRuns = [
+      {
+        id: "run-stopped",
+        campaignId: ws.activeCampaignId,
+        state: "cancelled",
+        runPhase: null,
+        startedAt: "2026-08-15T09:30:00.000Z",
+        completedAt: "2026-08-15T09:31:00.000Z",
+        targetIds: ["target-1"],
+        activity: [],
+        targetExecutions: [],
+        summary: { targetsPlanned: 1, targetsCompleted: 0, validJobsFound: 0 },
+      },
+    ] as unknown as JobFinderWorkspaceSnapshot["recentDiscoveryRuns"];
+    render(
+      <JobSearchHomeScreen
+        {...baseProps()}
+        workspace={ws}
+        discoveryRunFeedback={{
+          status: "cancelled",
+          detail: null,
+          headline: "The search stopped before it could finish.",
+          recovery: null,
+          targetLabel: null,
+        }}
+      />,
+    );
+    expect(screen.getByText(/Last search stopped early/)).toBeTruthy();
+    expect(screen.queryByTestId("home-discovery-run-feedback")).toBeNull();
+  });
+
+  it("drops a search failure once a later search of the plan finished (sign-in carried on)", () => {
+    const ws = workspace();
+    const failedAt = Date.parse("2026-08-15T10:00:00.000Z");
+    const feedback = {
+      status: "failed" as const,
+      recordedAtMs: failedAt,
+      detail: "Stopped at a sign-in page.",
+      headline: "The search stopped before it could finish.",
+      recovery: null,
+      targetLabel: null,
+    };
+    const { rerender } = render(
+      <JobSearchHomeScreen
+        {...baseProps()}
+        workspace={ws}
+        discoveryRunFeedback={feedback}
+      />,
+    );
+    expect(screen.getByTestId("home-discovery-run-feedback")).toBeTruthy();
+    const later = {
+      ...ws,
+      recentDiscoveryRuns: [
+        {
+          id: "run_after_sign_in",
+          campaignId: ws.activeCampaignId,
+          state: "completed",
+          runPhase: null,
+          startedAt: "2026-08-15T10:01:00.000Z",
+          completedAt: "2026-08-15T10:02:00.000Z",
+          targetIds: ["target-1"],
+          activity: [],
+          targetExecutions: [],
+          summary: {
+            validJobsFound: 10,
+            duplicatesMerged: 0,
+            targetsPlanned: 1,
+            targetsCompleted: 1,
+            durationMs: 60_000,
+            warnings: [],
+            report: { found: 10, new: 10, kept: 10, alreadyHere: 0 },
+          },
+        },
+      ],
+    } as unknown as JobFinderWorkspaceSnapshot;
+    rerender(
+      <JobSearchHomeScreen
+        {...baseProps()}
+        workspace={later}
+        discoveryRunFeedback={feedback}
+      />,
+    );
+    expect(screen.queryByTestId("home-discovery-run-feedback")).toBeNull();
+  });
+
   it("puts the status under the title and runs the first search from the card", () => {
     const onRunDiscovery = vi.fn();
     render(
@@ -248,6 +380,28 @@ describe("JobSearchHomeScreen", () => {
       button.getAttribute("aria-busy") ?? button.getAttribute("data-pending"),
     ).not.toBeNull();
     resolveApply();
+  });
+
+  it("names the saved mode and changes it with one press on the Applying settings", () => {
+    const props = baseProps();
+    render(
+      <JobSearchHomeScreen
+        {...props}
+        applicationAutomationMode="autonomous_submit"
+        onApplyToJobs={vi.fn()}
+        workspace={withReadyShortlist(workspace(), ["job_a"])}
+      />,
+    );
+    const card = screen.getByTestId("home-next-step");
+    expect(card.textContent).toContain(
+      "Job Finder fills in and sends each application",
+    );
+    fireEvent.click(
+      within(card).getByRole("button", { name: "Change how it applies" }),
+    );
+    expect(props.onNavigate).toHaveBeenCalledWith(
+      "/job-finder/settings#settings-application-authority",
+    );
   });
 
   it("renders the pipeline with the sidebar's numbers and navigates from a tile", () => {
@@ -315,6 +469,47 @@ describe("JobSearchHomeScreen", () => {
     expect(screen.getByText(/^Paused\./)).toBeTruthy();
   });
 
+  it("keeps Try again for all in place beside a form waiting to be sent", () => {
+    const props = baseProps();
+    const onApplyToJobs = vi.fn(() => Promise.resolve());
+    const ws = withReadyShortlist(workspace(), ["job_a", "job_b", "job_c"]);
+    ws.applicationRecords = ["job_a", "job_b", "job_c"].map((jobId) => ({
+      id: `record-${jobId}`,
+      jobId,
+      title: jobId,
+      company: "Employer",
+      status: "ready_for_review",
+      lastAttemptState: jobId === "job_a" ? "ready" : "failed",
+      automationMode: "prepare_only",
+      questionSummary: { total: 0, answered: 0 },
+      lastActionLabel: "Stopped",
+      lastUpdatedAt: "2026-08-15T11:00:00.000Z",
+    })) as unknown as JobFinderWorkspaceSnapshot["applicationRecords"];
+    ws.applyJobResults = ["job_a", "job_b", "job_c"].map((jobId) => ({
+      id: `result-${jobId}`,
+      runId: "apply-1",
+      jobId,
+      applicationRecordId: `record-${jobId}`,
+      state: jobId === "job_a" ? "awaiting_review" : "failed",
+      blockerReason: null,
+      updatedAt: "2026-08-15T11:00:00.000Z",
+    })) as unknown as JobFinderWorkspaceSnapshot["applyJobResults"];
+    render(
+      <JobSearchHomeScreen
+        {...props}
+        onApplyToJobs={onApplyToJobs}
+        workspace={ws}
+      />,
+    );
+    const card = screen.getByTestId("home-next-step");
+    expect(card.getAttribute("data-home-next-step")).toBe("send");
+    fireEvent.click(
+      within(card).getByRole("button", { name: "Try again for all 2" }),
+    );
+    expect(onApplyToJobs).toHaveBeenCalledWith(["job_b", "job_c"]);
+    expect(props.onNavigate).not.toHaveBeenCalled();
+  });
+
   it("shows notifications only while one is unread", () => {
     const notification = (
       id: string,
@@ -357,5 +552,33 @@ describe("JobSearchHomeScreen", () => {
     const region = screen.getByRole("region", { name: "Notifications" });
     expect(within(region).getByText("Strong match: b")).toBeTruthy();
     expect(within(region).queryByText("Strong match: a")).toBeNull();
+  });
+});
+
+describe("listCurrentUnreadNotifications", () => {
+  it("drops a failure note about a job that has since been sent", () => {
+    const note = (id: string, jobId: string | null) =>
+      ({
+        id,
+        campaignId: "c",
+        kind: "blocked_work",
+        title: "Failed: Cedar",
+        body: "The application page could not be opened.",
+        createdAt: "2026-09-25T00:00:00.000Z",
+        unread: true,
+        readAt: null,
+        jobId,
+        sourceTargetId: null,
+      }) as unknown as CampaignNotification;
+    const kept = listCurrentUnreadNotifications(
+      [note("n_sent", "job_sent"), note("n_open", "job_open"), note("n_src", null)],
+      {
+        applicationRecords: [
+          { jobId: "job_sent", status: "submitted", lastAttemptState: "submitted" },
+          { jobId: "job_open", status: "ready_for_review", lastAttemptState: "failed" },
+        ],
+      } as unknown as JobFinderWorkspaceSnapshot,
+    );
+    expect(kept.map((entry) => entry.id)).toEqual(["n_open", "n_src"]);
   });
 });

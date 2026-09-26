@@ -8,6 +8,10 @@ import type {
 } from "@unemployed/contracts";
 import type { BadgeTone } from "../../lib/job-finder-types";
 import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
+import {
+  hasPendingSampleReview,
+  listApplyRunsStoppedBySafeguard,
+} from "../../lib/apply-run-pause-state";
 import { AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID } from "@unemployed/job-finder/plan-safeguard-pauses";
 
 /**
@@ -609,19 +613,21 @@ export function buildSafeguardsPresentationModel(
   // the safeguard records, so this page never knew about it. Read it from the
   // same runs the Tasks card reads, so both surfaces name the same pause and
   // the counters agree.
-  for (const run of workspace.applyRuns ?? []) {
-    if (run.state !== "paused_for_user_review") {
-      continue;
-    }
+  // Only runs a safety limit actually stopped. A run waiting on the person
+  // is in Needs you, a filled-in one is Ready to send, and an old run whose
+  // jobs were all sent or ended keeps its "paused" state from before later
+  // fixes but is finished (the same classifier Activity reads).
+  for (const run of listApplyRunsStoppedBySafeguard(workspace)) {
     const finishedJobs = Math.max(0, run.totalJobs - run.pendingJobs);
     const remainingJobs = Math.max(0, run.pendingJobs);
     const explanation =
       run.detail?.trim() ||
       run.summary?.trim() ||
       "Job Finder stopped preparing this batch because one of your safety limits was reached.";
-    const recoveryGuidance =
-      remainingJobs > 0
-        ? "It will not carry on by itself. Open Applications, review the prepared sample, then press Prepare remaining jobs to finish the ones it did not get to. Nothing is sent or submitted."
+    const recoveryGuidance = hasPendingSampleReview(workspace, run.id)
+      ? "It will not carry on by itself. Review the prepared sample below, then press Prepare remaining jobs in Applications to finish the ones it did not get to. Nothing is sent or submitted."
+      : remainingJobs > 0
+        ? "It will not carry on by itself. Settle the limit above, then press Prepare remaining jobs in Applications to finish the ones it did not get to. Nothing is sent or submitted."
         : "It will not carry on by itself. Open Applications to review what it prepared. Nothing is sent or submitted.";
     pushRow({
       key: `apply-run-pause-${run.id}`,

@@ -173,6 +173,20 @@ function isAccountChoiceWall(input: {
   );
 }
 
+/**
+ * A control that belongs to a security check ("I am not a robot", "verify you
+ * are human"). Only the person answers these; Job Finder never touches them,
+ * and must not undo an answer the person already gave.
+ */
+export function isSecurityChallengeControl(
+  control: Pick<ApplyFormControl, "label" | "groupLabel" | "placeholder">,
+): boolean {
+  const signal = normalizeSignal(
+    `${control.label} ${control.groupLabel} ${control.placeholder}`,
+  );
+  return contains(signal, CHALLENGE_SIGNALS);
+}
+
 function hasResolvedChallengeControl(
   controls: readonly ApplyFormControl[],
 ): boolean {

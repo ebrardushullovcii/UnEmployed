@@ -52,6 +52,7 @@ import {
   describeResumeExportClaimBlock,
   describeResumeGenerationPath,
   findLatestAssistantEditRevisionId,
+  findUnansweredAssistantRequest,
   resumeExportClaimBlockActionLabel,
 } from "./resume-workspace-utils";
 import {
@@ -95,6 +96,37 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   const [mobileStudioTab, setMobileStudioTab] =
     useState<ResumeStudioMobileTab>("preview");
   const [assistantOpenRequestKey, setAssistantOpenRequestKey] = useState(0);
+  // The level an Original job is being moved to by the studio's one-press
+  // route. The job stops being Original as soon as the level is saved, but
+  // until the new resume is written the header keeps saying what is happening
+  // instead of offering approval of the old draft.
+  const [writingEditableLevel, setWritingEditableLevel] = useState<
+    string | null
+  >(null);
+  const writingEditableSawPending = useRef(false);
+  useEffect(() => {
+    if (writingEditableLevel === null) {
+      writingEditableSawPending.current = false;
+      return;
+    }
+    if (props.isWorkspacePending) {
+      writingEditableSawPending.current = true;
+      return;
+    }
+    if (writingEditableSawPending.current) {
+      setWritingEditableLevel(null);
+    }
+  }, [props.isWorkspacePending, writingEditableLevel]);
+  const startEditableResumeRoute = (pendingRequest: string | null) => {
+    if (!props.originalResumeRoute) {
+      return;
+    }
+    setWritingEditableLevel(props.originalResumeRoute.levelLabel);
+    props.originalResumeRoute.onWriteEditableResume(
+      props.jobId,
+      pendingRequest,
+    );
+  };
   // An approval freezes one exact artifact. A Guided edits proposal that is
   // still pending at that moment would silently invalidate the approval the
   // moment it were accepted, so approval sets it aside and says so.
@@ -793,13 +825,15 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   // Undo that restores the pre-edit wording.
   const acceptedAssistantEdits = describeAcceptedAssistantEdits(
     props.assistantMessages,
+    props.workspace.revisions,
   );
   const latestAssistantEditRevisionId = findLatestAssistantEditRevisionId(
     props.workspace.revisions,
   );
   // The editor panel owns the single provenance statement; the screen only
-  // supplies the accepted-edit facts and the Undo that restores the pre-edit
-  // wording.
+  // supplies the accepted-edit facts and the Undo that removes the newest AI
+  // edit. Undo keeps every edit made after it; restoring the whole earlier
+  // draft is Version history's job.
   const undoAiEditAction =
     acceptedAssistantEdits && latestAssistantEditRevisionId ? (
       <Button
@@ -808,10 +842,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
         onClick={() =>
           runWithSavedDraftAsync(
             () =>
-              props.onRestoreRevision(
-                props.jobId,
-                latestAssistantEditRevisionId,
-              ),
+              props.onUndoAiEdit(props.jobId, latestAssistantEditRevisionId),
             "Saved your draft before undoing the AI edit.",
           )
         }
@@ -1147,6 +1178,21 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
           onSaveDraft={() => props.onSaveDraft(draft)}
           onSelectValidationIssue={handleValidationIssueSelection}
           onSetMobileStudioTab={setMobileStudioTab}
+          {...(props.originalResumeRoute || writingEditableLevel
+            ? {
+                originalResume: {
+                  levelLabel:
+                    writingEditableLevel ??
+                    props.originalResumeRoute?.levelLabel ??
+                    "",
+                  writing: writingEditableLevel !== null,
+                  onWriteEditableResume: () =>
+                    startEditableResumeRoute(
+                      findUnansweredAssistantRequest(props.assistantMessages),
+                    ),
+                },
+              }
+            : {})}
           previewPane={previewPane}
           selectedTemplateApprovalEligible={selectedTemplateApprovalEligible}
           supportingDetailsPanel={
@@ -1191,10 +1237,14 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
           )
         }
         onRegenerateDraft={() =>
-          runWithSavedDraft(
-            () => props.onRegenerateDraft(props.jobId),
-            "Saved your draft before writing a new AI draft.",
-          )
+          props.originalResumeRoute
+            ? // A new draft for an Original job would still not be sent; the
+              // one route that makes it count moves the job to the saved level.
+              startEditableResumeRoute(null)
+            : runWithSavedDraft(
+                () => props.onRegenerateDraft(props.jobId),
+                "Saved your draft before writing a new AI draft.",
+              )
         }
         onEditProposalWording={editProposalWording}
         onResolveProposal={resolveAssistantProposal}

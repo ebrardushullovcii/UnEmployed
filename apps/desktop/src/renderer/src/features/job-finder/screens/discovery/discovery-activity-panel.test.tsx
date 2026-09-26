@@ -219,7 +219,10 @@ describe("DiscoveryHistoryModal", () => {
       />,
     );
 
-    expect(screen.getByText("Contributed 0 jobs to this run.")).toBeTruthy();
+    expect(
+      screen.getByText("Contributed 0 new jobs to this run."),
+    ).toBeTruthy();
+    expect(screen.getByText(/^Finished( · .*)?$/u)).toBeTruthy();
     expect(
       screen.getByText("By source: Greenhouse roles — 0 jobs."),
     ).toBeTruthy();
@@ -228,5 +231,55 @@ describe("DiscoveryHistoryModal", () => {
         "No jobs matched this plan in either of its last two runs. Broaden the plan or try another source.",
       ),
     ).toBeTruthy();
+  });
+
+  it("does not call a quiet re-run of already saved jobs empty", () => {
+    const knownOnly = (id: string, startedAt: string) =>
+      DiscoveryRunRecordSchema.parse({
+        ...failedRun,
+        id,
+        startedAt,
+        completedAt: startedAt,
+        targetExecutions: failedRun.targetExecutions.map((execution) => ({
+          ...execution,
+          state: "completed",
+          warning: null,
+          jobsReviewed: 10,
+          jobsPersisted: 0,
+          jobsSkippedByLedger: 10,
+        })),
+        summary: {
+          ...failedRun.summary,
+          sourceHealth: failedRun.summary.sourceHealth.map((source) => ({
+            ...source,
+            health: "healthy",
+            warnings: [],
+          })),
+          warnings: [],
+        },
+      });
+
+    render(
+      <DiscoveryHistoryModal
+        activeRun={null}
+        isDiscoveryPending={false}
+        isTargetPending={() => false}
+        liveEvents={[]}
+        onClose={vi.fn()}
+        open
+        recentRuns={[
+          knownOnly("known-current", "2026-08-02T10:00:00.000Z"),
+          knownOnly("known-earlier", "2026-08-01T10:00:00.000Z"),
+        ]}
+        targets={targets}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Contributed 0 new jobs to this run; 10 were already saved.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/No jobs matched this plan/u)).toBeNull();
   });
 });

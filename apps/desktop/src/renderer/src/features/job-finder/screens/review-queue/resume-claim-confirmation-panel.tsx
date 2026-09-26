@@ -56,6 +56,14 @@ export function matchResumeClaimConfirmation(input: {
  * with a different verb, and people finished one list and were told the
  * other still blocked them.
  */
+/** The start of a flagged line, short enough for a control's name. */
+export function abbreviateClaimText(text: string, maxLength = 60): string {
+  const flattened = text.replace(/\s+/gu, " ").trim();
+  return flattened.length > maxLength
+    ? `${flattened.slice(0, maxLength).replace(/\s+\S*$/u, "")}…`
+    : flattened;
+}
+
 export function listDecidableClaimAssessments(
   claimAssessments: readonly ResumeClaimAssessment[],
 ): ResumeClaimAssessment[] {
@@ -349,11 +357,15 @@ export function ResumeClaimConfirmationPanel(
     }
   };
 
-  const renderControls = (row: (typeof rows)[number]) => (
+  const renderControls = (row: (typeof rows)[number]) => {
+    // A screen reader hears the line itself, not only where it sits:
+    // "Keep · Core Skills · Bullet 4" did not say which skill was kept.
+    const lineName = `“${abbreviateClaimText(row.assessment.claimText)}” · ${row.targetLabel}`;
+    return (
     <div className="flex flex-wrap items-center gap-1.5">
       {row.confirmation ? (
         <Button
-          aria-label={`Undo keeping · ${row.targetLabel}`}
+          aria-label={`Undo keeping ${lineName}`}
           disabled={requestInFlight}
           onClick={() => {
             void runRequest(
@@ -377,7 +389,7 @@ export function ResumeClaimConfirmationPanel(
           {/* Pending keeps the control exposed but inert instead of natively
               disabled, so focus survives the in-flight request. */}
           <Button
-            aria-label={`Keep · ${row.targetLabel}`}
+            aria-label={`Keep ${lineName}`}
             data-resume-claim-keep={row.requestKey}
             disabled={requestInFlight}
             onClick={() => {
@@ -396,7 +408,7 @@ export function ResumeClaimConfirmationPanel(
           </Button>
           {props.onRejectClaim && row.assessment.bulletId ? (
             <Button
-              aria-label={`Remove · ${row.targetLabel}`}
+              aria-label={`Remove ${lineName}`}
               data-resume-claim-reject={row.requestKey}
               disabled={requestInFlight}
               onClick={() => props.onRejectClaim?.(row.assessment)}
@@ -409,7 +421,7 @@ export function ResumeClaimConfirmationPanel(
           ) : null}
           {props.onEditClaim && !row.isSkill ? (
             <Button
-              aria-label={`Edit · ${row.targetLabel}`}
+              aria-label={`Edit ${lineName}`}
               data-resume-claim-edit={row.requestKey}
               disabled={requestInFlight}
               onClick={() => props.onEditClaim?.(row.assessment)}
@@ -423,7 +435,8 @@ export function ResumeClaimConfirmationPanel(
         </>
       )}
     </div>
-  );
+    );
+  };
 
   const renderSkillRow = (row: (typeof rows)[number]) => (
     <li

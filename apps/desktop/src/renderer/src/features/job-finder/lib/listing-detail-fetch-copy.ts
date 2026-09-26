@@ -4,8 +4,24 @@ import {
   type ListingDetailFetch,
 } from "@unemployed/contracts";
 
-const READ_IT =
-  "Copy the original listing link below and open it in your browser to read it.";
+const READ_IT = "Use Open listing below to read it in the Job Finder browser.";
+
+/**
+ * A read the site turned away with a rate limit (HTTP 429). That is the site
+ * asking for a slower pace, never a sign-in wall, and it is read again on the
+ * next search.
+ */
+export function isRateLimitedListingRead(
+  attempt: ListingDetailFetch | null | undefined,
+): boolean {
+  return (
+    attempt?.outcome === "blocked" &&
+    (Boolean(attempt.retryAfterAt) || /\b429\b/u.test(attempt.detail ?? ""))
+  );
+}
+
+export const RATE_LIMITED_LISTING_TEXT =
+  "This site asked Job Finder to slow down, so the listing has not been read yet. It will be read on the next search.";
 
 /**
  * One sentence for a job whose listing body is still missing, saying what Job
@@ -46,6 +62,9 @@ export function describeMissingListingText(
 
   switch (attempt?.outcome) {
     case "blocked":
+      if (isRateLimitedListingRead(attempt)) {
+        return `${RATE_LIMITED_LISTING_TEXT} ${READ_IT}`;
+      }
       return `Job Finder tried to read the listing page, but it wants a signed-in visitor, so this job is matched on its title only. ${READ_IT}`;
     case "no_detail":
       return `Job Finder read the listing page, but it published no job description, so this job is matched on its title only. ${READ_IT}`;

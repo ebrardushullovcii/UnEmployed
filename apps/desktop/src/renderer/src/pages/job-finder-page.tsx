@@ -16,6 +16,7 @@ import {
   SHELL_SIDEBAR_ROW_ACTIVE_CLASS,
   SHELL_SIDEBAR_ROW_CLASS,
   SHELL_SIDEBAR_ROW_COLLAPSED_CLASS,
+  SHELL_SIDEBAR_SHORTCUTS_BUTTON_CLASS,
   SHELL_SIDEBAR_ROW_INACTIVE_CLASS,
 } from "@renderer/features/job-finder/components/job-finder-shell";
 import { JobFinderShellBrand } from "@renderer/features/job-finder/components/job-finder-shell-brand";
@@ -185,28 +186,19 @@ const openingShellPrimaryDestinations: readonly {
   },
 ];
 
-// Mirrors the loaded shell's `menuGroups`: the expanded rail lists every
-// secondary destination inline under "Everything else", grouped by what each
-// destination *is*. The opening frame has to render the same rows in the same
-// order, or the sidebar visibly re-groups and re-flows the moment the
-// workspace resolves.
-const openingShellSecondaryGroups: readonly {
+// Mirrors the loaded shell's pinned rail footer: Settings sits under the
+// journey, outside the scroll region, with the shortcuts reference beside it.
+// The opening frame has to render the same rows in the same place, or the
+// sidebar visibly re-flows the moment the workspace resolves.
+const openingShellFooterDestinations: readonly {
+  icon: LucideIcon;
   label: string;
-  destinations: readonly {
-    icon: LucideIcon;
-    label: string;
-    path: string;
-  }[];
+  path: string;
 }[] = [
   {
-    label: "Workspace",
-    destinations: [
-      {
-        icon: Settings,
-        label: "Settings",
-        path: "/job-finder/settings",
-      },
-    ],
+    icon: Settings,
+    label: "Settings",
+    path: "/job-finder/settings",
   },
 ];
 
@@ -227,7 +219,7 @@ const openingShellSidebarGroups: readonly {
 
 const openingShellAllDestinations = [
   ...openingShellPrimaryDestinations,
-  ...openingShellSecondaryGroups.flatMap((group) => group.destinations),
+  ...openingShellFooterDestinations,
 ];
 
 /**
@@ -387,10 +379,6 @@ function JobFinderOpeningShell() {
   const isLockedOpeningRoute = isOpeningRouteLocked(location.pathname);
   const dragRegionStyle = { WebkitAppRegion: "drag" } as CSSProperties;
   const noDragRegionStyle = { WebkitAppRegion: "no-drag" } as CSSProperties;
-  const sidebarGroupEyebrowClass = cn(
-    "whitespace-nowrap px-2 text-(length:--text-eyebrow) uppercase tracking-(--tracking-caps) text-muted-foreground",
-    isSidebarCollapsed && "sr-only",
-  );
 
   async function runWindowAction(
     action: () => Promise<typeof windowControlsState>,
@@ -771,82 +759,56 @@ function JobFinderOpeningShell() {
                 key={group.label}
                 role="group"
               >
-                {/* An eyebrow is never a heading tag: the sidebar group labels
-                    are 11px eyebrows, so they must not enter the heading
-                    outline ahead of the route's own h1. */}
-                <span className={cn(sidebarGroupEyebrowClass, "font-semibold")}>
-                  {group.label}
-                </span>
-                <div className="grid min-w-0 gap-0.5 overflow-hidden">
+                <div
+                  className={cn(
+                    "grid min-w-0 overflow-hidden",
+                    isSidebarCollapsed ? "gap-1.5" : "gap-0.5",
+                  )}
+                >
                   {group.destinations.map((destination) =>
                     renderOpeningSidebarDestination(destination),
                   )}
                 </div>
               </section>
             ))}
-            <section
-              aria-label="Everything else"
-              className={cn(
-                "grid min-w-0",
-                isSidebarCollapsed ? "gap-2" : "gap-3",
-              )}
-              data-job-finder-sidebar-secondary
-              role="group"
-            >
-              {/* Same treatment as the loaded shell: accessible name only,
-                  with a hairline standing in for the visible label. */}
-              <span className="sr-only">Everything else</span>
-              <span
-                aria-hidden="true"
-                className="mx-3 border-t border-(--surface-panel-border)"
-              />
-              {openingShellSecondaryGroups.map((group) => (
-                <div
-                  aria-label={group.label}
-                  className="grid min-w-0 gap-1"
-                  key={group.label}
-                  role="group"
-                >
-                  <span className={cn(sidebarGroupEyebrowClass, "font-medium")}>
-                    {group.label}
-                  </span>
-                  <div className="grid min-w-0 gap-0.5 overflow-hidden">
-                    {group.destinations.map((destination) =>
-                      renderOpeningSidebarDestination(destination),
-                    )}
-                  </div>
-                </div>
-              ))}
-              <div className="grid min-w-0 gap-0.5 overflow-hidden">
-                {/* The shortcuts dialog belongs to the loaded shell. Its row
-                    is still reserved here, or the rail is one row shorter
-                    while opening and every group above it shifts. */}
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    SHELL_SIDEBAR_ROW_CLASS,
-                    isSidebarCollapsed && SHELL_SIDEBAR_ROW_COLLAPSED_CLASS,
-                  )}
-                  data-job-finder-sidebar-shortcuts-entry
-                >
-                  <Keyboard aria-hidden="true" className="size-4 shrink-0" />
-                  <span
-                    className={cn(
-                      "min-w-0 truncate",
-                      isSidebarCollapsed && "sr-only",
-                    )}
-                  >
-                    {JOB_FINDER_SHORTCUTS_DIALOG_LABEL}
-                  </span>
-                  {isSidebarCollapsed ? null : (
-                    <kbd className="mr-1 ml-auto inline-flex min-w-6 shrink-0 items-center justify-center rounded-(--radius-field) border border-(--surface-panel-border) bg-(--input) px-1.5 py-0.5 text-(length:--text-tiny) font-medium text-foreground">
-                      ?
-                    </kbd>
-                  )}
-                </span>
-              </div>
-            </section>
           </nav>
+          <div
+            aria-label="Workspace"
+            className={cn(
+              "mt-2 flex min-w-0 shrink-0 border-t border-(--surface-panel-border) pt-2",
+              isSidebarCollapsed
+                ? "flex-col-reverse gap-0.5"
+                : "items-center gap-1",
+            )}
+            data-job-finder-sidebar-footer
+            role="group"
+          >
+            <div className={cn("min-w-0", !isSidebarCollapsed && "flex-1")}>
+              {openingShellFooterDestinations.map((destination) =>
+                renderOpeningSidebarDestination(destination),
+              )}
+            </div>
+            {/* The shortcuts dialog belongs to the loaded shell. Its control
+                is still reserved here, or the footer is narrower while
+                opening and Settings shifts when it becomes interactive. */}
+            <span
+              aria-hidden="true"
+              className={cn(
+                isSidebarCollapsed
+                  ? cn(
+                      SHELL_SIDEBAR_ROW_CLASS,
+                      SHELL_SIDEBAR_ROW_COLLAPSED_CLASS,
+                    )
+                  : SHELL_SIDEBAR_SHORTCUTS_BUTTON_CLASS,
+              )}
+              data-job-finder-sidebar-shortcuts-entry
+            >
+              <Keyboard aria-hidden="true" className="size-4 shrink-0" />
+              <span className="sr-only">
+                {JOB_FINDER_SHORTCUTS_DIALOG_LABEL}
+              </span>
+            </span>
+          </div>
         </div>
       </aside>
 
